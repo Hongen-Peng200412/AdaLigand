@@ -1,0 +1,944 @@
+{
+    "_id": "5f3a8f2f043d5cc5a75d76ea",
+    "admin": {
+        "authors_list": {
+            "author": [
+                {
+                    "instance_type": "author",
+                    "valueOf_": "Kotecha A"
+                },
+                {
+                    "instance_type": "author",
+                    "valueOf_": "Stuart D"
+                }
+            ]
+        },
+        "current_status": {
+            "code": {
+                "valueOf_": "REL"
+            },
+            "date": "2024-10-16T00:00:00",
+            "processing_site": "PDBe"
+        },
+        "grant_support": {
+            "grant_reference": [
+                {
+                    "code": "G1000099",
+                    "country": "United Kingdom",
+                    "funding_body": "Medical Research Council (United Kingdom)",
+                    "instance_type": "grant_reference"
+                },
+                {
+                    "code": "G1100525/1",
+                    "country": "United Kingdom",
+                    "funding_body": "Medical Research Council (United Kingdom)",
+                    "instance_type": "grant_reference"
+                },
+                {
+                    "code": "090532/Z/09/Z",
+                    "country": "United Kingdom",
+                    "funding_body": "Wellcome Trust",
+                    "instance_type": "grant_reference"
+                }
+            ]
+        },
+        "key_dates": {
+            "deposition": "2017-03-11T00:00:00",
+            "header_release": "2017-04-19T00:00:00",
+            "map_release": "2017-06-21T00:00:00",
+            "update": "2024-10-16T00:00:00"
+        },
+        "keywords": "Foot and Mouth Disease Virus, FMDV, virus, OpanAsia, virus-receptor, complex",
+        "sites": {
+            "deposition": "PDBe",
+            "last_processing": "PDBe"
+        },
+        "title": "Localised Reconstruction of Integrin alpha v beta 6 bound to Foot and Mouth Disease Virus O1 Manisa - Pose A"
+    },
+    "crossreferences": {
+        "citation_list": {
+            "primary_citation": {
+                "citation_type": {
+                    "author": [
+                        {
+                            "instance_type": "author",
+                            "order": 1,
+                            "valueOf_": "Kotecha A"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 2,
+                            "valueOf_": "Wang Q"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 3,
+                            "valueOf_": "Dong X"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 4,
+                            "valueOf_": "Ilca SL"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 5,
+                            "valueOf_": "Ondiviela M"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 6,
+                            "valueOf_": "Zihe R"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 7,
+                            "valueOf_": "Seago J"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 8,
+                            "valueOf_": "Charleston B"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 9,
+                            "valueOf_": "Fry EE"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 10,
+                            "valueOf_": "Abrescia NGA"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 11,
+                            "valueOf_": "Springer TA"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 12,
+                            "valueOf_": "Huiskonen JT"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 13,
+                            "valueOf_": "Stuart DI"
+                        }
+                    ],
+                    "country": "UK",
+                    "external_references": [
+                        {
+                            "instance_type": "external_references",
+                            "type_": "PUBMED",
+                            "valueOf_": "28534487"
+                        },
+                        {
+                            "instance_type": "external_references",
+                            "type_": "DOI",
+                            "valueOf_": "doi:10.1038/ncomms15408"
+                        },
+                        {
+                            "instance_type": "external_references",
+                            "type_": "ISSN",
+                            "valueOf_": "2041-1723"
+                        }
+                    ],
+                    "first_page": "15408",
+                    "journal": "Nat Commun",
+                    "journal_abbreviation": "Nat Commun",
+                    "last_page": "15408",
+                    "published": true,
+                    "title": "Rules of engagement between alpha v beta 6 integrin and foot-and-mouth disease virus.",
+                    "volume": "8",
+                    "year": "2017"
+                }
+            }
+        },
+        "emdb_list": {
+            "emdb_reference": [
+                {
+                    "details": "Icosahedral reconstruction of FMDV O1 Manisa and Integrin alpha v beta 6 complex",
+                    "emdb_id": "EMD-3631",
+                    "instance_type": "emdb_reference",
+                    "relationship": {
+                        "other": "other EM volume"
+                    }
+                }
+            ]
+        },
+        "pdb_list": {
+            "pdb_reference": [
+                {
+                    "instance_type": "pdb_reference",
+                    "pdb_id": "5net",
+                    "relationship": {
+                        "in_frame": "FULLOVERLAP"
+                    }
+                }
+            ]
+        }
+    },
+    "emdb_id": "EMD-3634",
+    "interpretation": {
+        "modelling_list": {
+            "modelling": [
+                {
+                    "instance_type": "modelling",
+                    "overall_bvalue": 120.0,
+                    "refinement_protocol": "RIGID BODY FIT",
+                    "refinement_space": "REAL",
+                    "target_criteria": "Cross-correlation coefficient"
+                }
+            ]
+        }
+    },
+    "map": {
+        "annotation_details": "Localised Reconstruction of Integrin alpha v beta 6 bound to Foot and Mouth Disease Virus O1 Manisa - Pose A",
+        "axis_order": {
+            "fast": "X",
+            "medium": "Y",
+            "slow": "Z"
+        },
+        "cell": {
+            "a": {
+                "units": "\u212b",
+                "valueOf_": "172.8"
+            },
+            "alpha": {
+                "units": "deg",
+                "valueOf_": "90.0"
+            },
+            "b": {
+                "units": "\u212b",
+                "valueOf_": "172.8"
+            },
+            "beta": {
+                "units": "deg",
+                "valueOf_": "90.0"
+            },
+            "c": {
+                "units": "\u212b",
+                "valueOf_": "172.8"
+            },
+            "gamma": {
+                "units": "deg",
+                "valueOf_": "90.0"
+            }
+        },
+        "contour_list": {
+            "contour": [
+                {
+                    "instance_type": "contour",
+                    "level": 0.01,
+                    "primary": true,
+                    "source": "AUTHOR"
+                }
+            ]
+        },
+        "data_type": "IMAGE STORED AS FLOATING POINT NUMBER (4 BYTES)",
+        "dimensions": {
+            "col": 128,
+            "row": 128,
+            "sec": 128
+        },
+        "file": "emd_3634.map.gz",
+        "format": "CCP4",
+        "label": "::::EMDATABANK.org::::EMD-3634::::",
+        "origin": {
+            "col": -273,
+            "row": 163,
+            "sec": 277
+        },
+        "pixel_spacing": {
+            "x": {
+                "units": "\u212b",
+                "valueOf_": "1.35"
+            },
+            "y": {
+                "units": "\u212b",
+                "valueOf_": "1.35"
+            },
+            "z": {
+                "units": "\u212b",
+                "valueOf_": "1.35"
+            }
+        },
+        "size_kbytes": 8389,
+        "spacing": {
+            "x": 128,
+            "y": 128,
+            "z": 128
+        },
+        "statistics": {
+            "average": 0.005484182,
+            "maximum": 0.048147164,
+            "minimum": -0.013298614,
+            "std": 0.0067152213
+        },
+        "symmetry": {
+            "space_group": 1
+        }
+    },
+    "sample": {
+        "macromolecule_list": {
+            "macromolecule": [
+                {
+                    "enantiomer": "LEVO",
+                    "instance_type": "protein_or_peptide",
+                    "macromolecule_id": 1,
+                    "molecular_weight": {
+                        "theoretical": {
+                            "units": "MDa",
+                            "valueOf_": "0.022850895"
+                        }
+                    },
+                    "name": {
+                        "valueOf_": "O1 Manisa VP1"
+                    },
+                    "natural_source": {
+                        "database": "NCBI",
+                        "organism": {
+                            "ncbi": 12110,
+                            "valueOf_": "Foot-and-mouth disease virus"
+                        }
+                    },
+                    "number_of_copies": "1",
+                    "recombinant_expression": {
+                        "database": "NCBI",
+                        "recombinant_organism": {
+                            "ncbi": 36483,
+                            "valueOf_": "Cricetinae gen. sp."
+                        }
+                    },
+                    "sequence": {
+                        "external_references": [
+                            {
+                                "instance_type": "external_references",
+                                "type_": "UNIPROTKB",
+                                "valueOf_": "Q6PMW3"
+                            }
+                        ],
+                        "string": "TTSAGESADPVTATVENYGGETQVQRRQHTDVSFILDRFVKVTPKDQINVLDLMQTPAHTLVGALLRTATYYFADLEVAV KHEGNLTWVPNGAPEAALDNTTNPTAYHKAPLTRLALPYTAPHRVLATVYNGNSKYGDGTVANVRGDLQVLAQKAARALP TSFNYGAIKATRVTELLYRMKRAETYCPRPLLAIHPDQARHKQKIVAP"
+                    }
+                },
+                {
+                    "enantiomer": "LEVO",
+                    "instance_type": "protein_or_peptide",
+                    "macromolecule_id": 2,
+                    "molecular_weight": {
+                        "theoretical": {
+                            "units": "MDa",
+                            "valueOf_": "0.024417509999999996"
+                        }
+                    },
+                    "name": {
+                        "valueOf_": "O1 Manisa VP2"
+                    },
+                    "natural_source": {
+                        "database": "NCBI",
+                        "organism": {
+                            "ncbi": 12110,
+                            "valueOf_": "Foot-and-mouth disease virus"
+                        }
+                    },
+                    "number_of_copies": "1",
+                    "recombinant_expression": {
+                        "database": "NCBI",
+                        "recombinant_organism": {
+                            "ncbi": 36483,
+                            "valueOf_": "Cricetinae gen. sp."
+                        }
+                    },
+                    "sequence": {
+                        "external_references": [
+                            {
+                                "instance_type": "external_references",
+                                "type_": "UNIPROTKB",
+                                "valueOf_": "Q6PMW3"
+                            }
+                        ],
+                        "string": "DKKTEETTLLEDRILTTRNGHTTSTTQSSVGVTYGYATAEDFVSGPNTSGLETRVAQAERFFKTHLFDWVTSDPFGRCHL LELPTDHKGVYGYLTDSYAYMRNGWDVEVTAVGNQFNGGCLLVAMVPELCSIQKRELYQLTLFPHQFINPRTNMTAHITV PFVGVNRYDQYKVHKPWTLVVMVVAPLTVNSEGAPQIKVYANIAPTNVHVAGEFPSKE"
+                    }
+                },
+                {
+                    "enantiomer": "LEVO",
+                    "instance_type": "protein_or_peptide",
+                    "macromolecule_id": 3,
+                    "molecular_weight": {
+                        "theoretical": {
+                            "units": "MDa",
+                            "valueOf_": "0.023952923999999997"
+                        }
+                    },
+                    "name": {
+                        "valueOf_": "O1 Manisa VP3"
+                    },
+                    "natural_source": {
+                        "database": "NCBI",
+                        "organism": {
+                            "ncbi": 12110,
+                            "valueOf_": "Foot-and-mouth disease virus"
+                        }
+                    },
+                    "number_of_copies": "1",
+                    "recombinant_expression": {
+                        "database": "NCBI",
+                        "recombinant_organism": {
+                            "ncbi": 36483,
+                            "valueOf_": "Cricetinae gen. sp."
+                        }
+                    },
+                    "sequence": {
+                        "external_references": [
+                            {
+                                "instance_type": "external_references",
+                                "type_": "UNIPROTKB",
+                                "valueOf_": "Q80B23"
+                            }
+                        ],
+                        "string": "GIFPVACSDGYGGLVTTDPKTADPAYGKVFNPPRNMLPGRFTNFLDVAEACPTFLRFEGDVPYVTTKTDSDRVLAQFDLS LAAKHMSNTFLAGLAQYYTQYSGTINLHFMFTGPTDAKARYMIAYAPPGMEPPKTPEAAAHCIHAEWDTGLNSKFTFSIP YLSAADYTYTASDVAETTNVQGWVCLFQITHGKADGDALVVLASAGKDFELRLPVDARTQ"
+                    }
+                },
+                {
+                    "enantiomer": "LEVO",
+                    "instance_type": "protein_or_peptide",
+                    "macromolecule_id": 4,
+                    "molecular_weight": {
+                        "theoretical": {
+                            "units": "MDa",
+                            "valueOf_": "0.008766075"
+                        }
+                    },
+                    "name": {
+                        "valueOf_": "O1 Manisa VP4"
+                    },
+                    "natural_source": {
+                        "database": "NCBI",
+                        "organism": {
+                            "ncbi": 12110,
+                            "valueOf_": "Foot-and-mouth disease virus"
+                        }
+                    },
+                    "number_of_copies": "1",
+                    "recombinant_expression": {
+                        "database": "NCBI",
+                        "recombinant_organism": {
+                            "ncbi": 36483,
+                            "valueOf_": "Cricetinae gen. sp."
+                        }
+                    },
+                    "sequence": {
+                        "external_references": [
+                            {
+                                "instance_type": "external_references",
+                                "type_": "UNIPROTKB",
+                                "valueOf_": "E1ACS1"
+                            }
+                        ],
+                        "string": "GAGQSSPATGSQNQSGNTGSIINNYYMQQYQNSMDTQLGDNATSGGSNEGSTDTTSTHTTNTQNNDWFSKLASSAFSGLF GALLA"
+                    }
+                },
+                {
+                    "enantiomer": "LEVO",
+                    "instance_type": "protein_or_peptide",
+                    "macromolecule_id": 5,
+                    "molecular_weight": {
+                        "theoretical": {
+                            "units": "MDa",
+                            "valueOf_": "0.06535329299999999"
+                        }
+                    },
+                    "name": {
+                        "valueOf_": "Integrin alpha-V"
+                    },
+                    "natural_source": {
+                        "database": "NCBI",
+                        "organism": {
+                            "ncbi": 9606,
+                            "valueOf_": "Homo sapiens"
+                        }
+                    },
+                    "number_of_copies": "1",
+                    "recombinant_expression": {
+                        "database": "NCBI",
+                        "recombinant_organism": {
+                            "ncbi": 9606,
+                            "valueOf_": "Homo sapiens"
+                        }
+                    },
+                    "sequence": {
+                        "external_references": [
+                            {
+                                "instance_type": "external_references",
+                                "type_": "UNIPROTKB",
+                                "valueOf_": "P06756"
+                            }
+                        ],
+                        "string": "FNLDVDSPAEYSGPEGSYFGFAVDFFVPSASSRMFLLVGAPKANTTQPGIVEGGQVLKCDWSSTRRCQPIEFDATGNRDY AKDDPLEFKSHQWFGASVRSKQDKILACAPLYHWRTEMKQEREPVGTCFLQDGTKTVEYAPCRSQDIDADGQGFCQGGFS IDFTKADRVLLGGPGSFYWQGQLISDQVAEIVSKYDPNVYSIKYNNQLATRTAQAIFDDSYLGYSVAVGDFNGDGIDDFV SGVPRAARTLGMVYIYDGKNMSSLYNFTGEQMAAYFGFSVAATDINGDDYADVFIGAPLFMDRGSDGKLQEVGQVSVSLQ RASGDFQTTKLNGFEVFARFGSAIAPLGDLDQDGFNDIAIAAPYGGEDKKGIVYIFNGRSTGLNAVPSQILEGQWAARSC PPSFGYSMKGATDIDKNGYPDLIVGAFGVDRAILYRARPVITVNAGLEVYPSILNQDNKTCSLPGTALKVSCFNVRFCLK ADGKGVLPRKLNFQVELLLDKLKQKGAIRRALFLYSRSPSHSKNMTISRGGLMQCEELIAYLRDESEFRDKLTPITIFME YRLDYRTAADTTGLQPILNQFTPANISRQAHILL"
+                    }
+                },
+                {
+                    "enantiomer": "LEVO",
+                    "instance_type": "protein_or_peptide",
+                    "macromolecule_id": 6,
+                    "molecular_weight": {
+                        "theoretical": {
+                            "units": "MDa",
+                            "valueOf_": "0.051534569999999995"
+                        }
+                    },
+                    "name": {
+                        "valueOf_": "Integrin beta-6"
+                    },
+                    "natural_source": {
+                        "database": "NCBI",
+                        "organism": {
+                            "ncbi": 9606,
+                            "valueOf_": "Homo sapiens"
+                        }
+                    },
+                    "number_of_copies": "1",
+                    "recombinant_expression": {
+                        "database": "NCBI",
+                        "recombinant_organism": {
+                            "ncbi": 9606,
+                            "valueOf_": "Homo sapiens"
+                        }
+                    },
+                    "sequence": {
+                        "external_references": [
+                            {
+                                "instance_type": "external_references",
+                                "type_": "UNIPROTKB",
+                                "valueOf_": "P18564"
+                            }
+                        ],
+                        "string": "GCALGGAETCEDCLLIGPQCAWCAQENFTHPSGVGERCDTPANLLAKGCQLNFIENPVSQVEILKNKPLSVGRQKNSSDI VQIAPQSLILKLRPGGAQTLQVHVRQTEDYPVDLYYLMDLSASMDDDLNTIKELGSRLSKEMSKLTSNFRLGFGSFVEKP VSPFVKTTPEEIANPCSSIPYFCLPTFGFKHILPLTNDAERFNEIVKNQKISANIDTPEGGFDAIMQAAVCKEKIGWRND SLHLLVFVSDADSHFGMDSKLAGIVCPNDGLCHLDSKNEYSMSTVLEYPTIGQLIDKLVQNNVLLIFAVTQEQVHLYENY AKLIPGATVGLLQKDSGNILQLIISAYEELRSEVELEVLGDTEGLNLSFTAICNNGTLFQHQKKCSHMKVGDTASFSVTV NIPHCERRSRHIIIKPVGLGDALELLVSPECNCDCQKEVEVNSSKCHNGNGSFQCGVCACHPGHMGPRCE"
+                    }
+                },
+                {
+                    "formula": "MAN",
+                    "instance_type": "ligand",
+                    "macromolecule_id": 11,
+                    "molecular_weight": {
+                        "theoretical": {
+                            "units": "MDa",
+                            "valueOf_": "0.000180156"
+                        }
+                    },
+                    "name": {
+                        "valueOf_": "alpha-D-mannopyranose"
+                    },
+                    "number_of_copies": "3"
+                },
+                {
+                    "formula": "NAG",
+                    "instance_type": "ligand",
+                    "macromolecule_id": 12,
+                    "molecular_weight": {
+                        "theoretical": {
+                            "units": "MDa",
+                            "valueOf_": "0.000221208"
+                        }
+                    },
+                    "name": {
+                        "valueOf_": "2-acetamido-2-deoxy-beta-D-glucopyranose"
+                    },
+                    "number_of_copies": "3"
+                },
+                {
+                    "formula": "CA",
+                    "instance_type": "ligand",
+                    "macromolecule_id": 13,
+                    "molecular_weight": {
+                        "theoretical": {
+                            "units": "MDa",
+                            "valueOf_": "4.0078e-05"
+                        }
+                    },
+                    "name": {
+                        "valueOf_": "CALCIUM ION"
+                    },
+                    "number_of_copies": "4"
+                }
+            ]
+        },
+        "name": {
+            "valueOf_": "Foot and mouth virus and Integrin"
+        },
+        "supramolecule_list": {
+            "supramolecule": [
+                {
+                    "instance_type": "complex_supramolecule",
+                    "macromolecule_list": {
+                        "macromolecule": [
+                            {
+                                "instance_type": "macromolecule",
+                                "macromolecule_id": 1
+                            },
+                            {
+                                "instance_type": "macromolecule",
+                                "macromolecule_id": 2
+                            },
+                            {
+                                "instance_type": "macromolecule",
+                                "macromolecule_id": 3
+                            },
+                            {
+                                "instance_type": "macromolecule",
+                                "macromolecule_id": 4
+                            },
+                            {
+                                "instance_type": "macromolecule",
+                                "macromolecule_id": 5
+                            },
+                            {
+                                "instance_type": "macromolecule",
+                                "macromolecule_id": 6
+                            }
+                        ]
+                    },
+                    "molecular_weight": {
+                        "theoretical": {
+                            "units": "MDa",
+                            "valueOf_": "9"
+                        }
+                    },
+                    "name": {
+                        "valueOf_": "Foot and mouth virus and Integrin"
+                    },
+                    "parent": 0,
+                    "supramolecule_id": 1
+                },
+                {
+                    "instance_type": "virus_supramolecule",
+                    "macromolecule_list": {
+                        "macromolecule": [
+                            {
+                                "instance_type": "macromolecule",
+                                "macromolecule_id": 1
+                            },
+                            {
+                                "instance_type": "macromolecule",
+                                "macromolecule_id": 2
+                            },
+                            {
+                                "instance_type": "macromolecule",
+                                "macromolecule_id": 3
+                            },
+                            {
+                                "instance_type": "macromolecule",
+                                "macromolecule_id": 4
+                            }
+                        ]
+                    },
+                    "name": {
+                        "valueOf_": "Foot-and-mouth disease virus"
+                    },
+                    "natural_host": [
+                        {
+                            "database": "NCBI",
+                            "instance_type": "natural_host",
+                            "organism": {
+                                "ncbi": 9913,
+                                "valueOf_": "Bos taurus"
+                            }
+                        }
+                    ],
+                    "parent": 1,
+                    "sci_species_name": {
+                        "ncbi": 12110,
+                        "valueOf_": "Foot-and-mouth disease virus"
+                    },
+                    "supramolecule_id": 2,
+                    "virus_empty": false,
+                    "virus_enveloped": false,
+                    "virus_isolate": "SEROTYPE",
+                    "virus_shell": [
+                        {
+                            "diameter": {
+                                "units": "\u212b",
+                                "valueOf_": "300.0"
+                            },
+                            "instance_type": "virus_shell",
+                            "name": "Foot and Mouth Disease virus",
+                            "shell_id": 1,
+                            "triangulation": 3
+                        }
+                    ],
+                    "virus_type": "VIRION"
+                },
+                {
+                    "instance_type": "complex_supramolecule",
+                    "macromolecule_list": {
+                        "macromolecule": [
+                            {
+                                "instance_type": "macromolecule",
+                                "macromolecule_id": 5
+                            },
+                            {
+                                "instance_type": "macromolecule",
+                                "macromolecule_id": 6
+                            }
+                        ]
+                    },
+                    "name": {
+                        "valueOf_": "Integrin"
+                    },
+                    "natural_source": [
+                        {
+                            "database": "NCBI",
+                            "instance_type": "natural_source",
+                            "organism": {
+                                "ncbi": 9606,
+                                "valueOf_": "Homo sapiens"
+                            }
+                        }
+                    ],
+                    "parent": 1,
+                    "supramolecule_id": 3
+                }
+            ]
+        }
+    },
+    "structure_determination_list": {
+        "structure_determination": [
+            {
+                "aggregation_state": "particle",
+                "image_processing": [
+                    {
+                        "final_angle_assignment": {
+                            "software_list": {
+                                "software": [
+                                    {
+                                        "instance_type": "software",
+                                        "name": "RELION",
+                                        "version": "1.3"
+                                    }
+                                ]
+                            },
+                            "type_": "COMMON LINE"
+                        },
+                        "final_reconstruction": {
+                            "algorithm": "BACK PROJECTION",
+                            "number_images_used": 13483,
+                            "resolution": {
+                                "res_type": "BY AUTHOR",
+                                "units": "\u212b",
+                                "valueOf_": "8.6"
+                            },
+                            "resolution_method": "FSC 0.143 CUT-OFF",
+                            "software_list": {
+                                "software": [
+                                    {
+                                        "instance_type": "software",
+                                        "name": "RELION",
+                                        "version": "1.3"
+                                    }
+                                ]
+                            }
+                        },
+                        "final_three_d_classification": {
+                            "software_list": {
+                                "software": [
+                                    {
+                                        "instance_type": "software",
+                                        "name": "RELION",
+                                        "version": "1.3"
+                                    }
+                                ]
+                            }
+                        },
+                        "image_processing_id": 1,
+                        "image_recording_id": 1,
+                        "initial_angle_assignment": {
+                            "software_list": {
+                                "software": [
+                                    {
+                                        "instance_type": "software",
+                                        "name": "RELION",
+                                        "version": "1.3"
+                                    }
+                                ]
+                            },
+                            "type_": "COMMON LINE"
+                        },
+                        "instance_type": "singleparticle_processing",
+                        "startup_model": [
+                            {
+                                "instance_type": "startup_model",
+                                "pdb_model": {
+                                    "pdb_id": "1BBT"
+                                },
+                                "type_of_model": "PDB ENTRY"
+                            }
+                        ]
+                    }
+                ],
+                "instance_type": "structure_determination",
+                "method": "singleParticle",
+                "microscopy_list": {
+                    "microscopy": [
+                        {
+                            "acceleration_voltage": {
+                                "units": "kV",
+                                "valueOf_": "300"
+                            },
+                            "alignment_procedure": {
+                                "basic": {}
+                            },
+                            "c2_aperture_diameter": {
+                                "units": "\u00b5m",
+                                "valueOf_": "50.0"
+                            },
+                            "calibrated_magnification": 37037.0,
+                            "cooling_holder_cryogen": "NITROGEN",
+                            "electron_source": "FIELD EMISSION GUN",
+                            "illumination_mode": "FLOOD BEAM",
+                            "image_recording_list": {
+                                "image_recording": [
+                                    {
+                                        "average_electron_dose_per_image": {
+                                            "units": "e/\u212b^2",
+                                            "valueOf_": "18.0"
+                                        },
+                                        "average_exposure_time": {
+                                            "units": "s",
+                                            "valueOf_": "5.0"
+                                        },
+                                        "detector_mode": "SUPER-RESOLUTION",
+                                        "digitization_details": {
+                                            "dimensions": {
+                                                "height": {
+                                                    "units": "pixel",
+                                                    "valueOf_": "3710"
+                                                },
+                                                "width": {
+                                                    "units": "pixel",
+                                                    "valueOf_": "3838"
+                                                }
+                                            },
+                                            "frames_per_image": "2-20"
+                                        },
+                                        "film_or_detector_model": {
+                                            "valueOf_": "GATAN K2 SUMMIT (4k x 4k)"
+                                        },
+                                        "image_recording_id": 1,
+                                        "instance_type": "image_recording",
+                                        "number_grids_imaged": 1,
+                                        "number_real_images": 360
+                                    }
+                                ]
+                            },
+                            "imaging_mode": "BRIGHT FIELD",
+                            "instance_type": "single_particle_microscopy",
+                            "microscope": "FEI POLARA 300",
+                            "microscopy_id": 1,
+                            "nominal_cs": {
+                                "units": "mm",
+                                "valueOf_": "2.0"
+                            },
+                            "nominal_defocus_max": {
+                                "units": "\u00b5m",
+                                "valueOf_": "4.0"
+                            },
+                            "nominal_defocus_min": {
+                                "units": "\u00b5m",
+                                "valueOf_": "1.0"
+                            },
+                            "nominal_magnification": 160000.0,
+                            "specialist_optics": {
+                                "energy_filter": {
+                                    "lower_energy_threshold": {
+                                        "units": "eV",
+                                        "valueOf_": "0"
+                                    },
+                                    "name": "GIF",
+                                    "upper_energy_threshold": {
+                                        "units": "eV",
+                                        "valueOf_": "20"
+                                    }
+                                }
+                            },
+                            "specimen_holder_model": "GATAN 910 MULTI-SPECIMEN SINGLE TILT CRYO TRANSFER HOLDER",
+                            "temperature": {
+                                "temperature_max": {
+                                    "units": "K",
+                                    "valueOf_": "70.0"
+                                },
+                                "temperature_min": {
+                                    "units": "K",
+                                    "valueOf_": "70.0"
+                                }
+                            }
+                        }
+                    ]
+                },
+                "specimen_preparation_list": {
+                    "specimen_preparation": [
+                        {
+                            "buffer": {
+                                "component": [
+                                    {
+                                        "concentration": {
+                                            "units": "mM",
+                                            "valueOf_": "50.0"
+                                        },
+                                        "instance_type": "component",
+                                        "name": "HEPES"
+                                    }
+                                ],
+                                "ph": 8.0
+                            },
+                            "concentration": {
+                                "units": "mg/mL",
+                                "valueOf_": "0.5"
+                            },
+                            "grid": {
+                                "material": "COPPER",
+                                "mesh": 300,
+                                "model": "C-flat-2/1",
+                                "pretreatment": {
+                                    "atmosphere": "AIR",
+                                    "time": {
+                                        "units": "s",
+                                        "valueOf_": "15"
+                                    },
+                                    "type_": "GLOW DISCHARGE"
+                                },
+                                "support_film": [
+                                    {
+                                        "film_material": "CARBON",
+                                        "film_thickness": {
+                                            "valueOf_": "5.0"
+                                        },
+                                        "film_topology": "HOLEY",
+                                        "film_type_id": 1,
+                                        "instance_type": "support_film"
+                                    }
+                                ]
+                            },
+                            "instance_type": "single_particle_preparation",
+                            "preparation_id": 1,
+                            "vitrification": {
+                                "chamber_humidity": {
+                                    "units": "percentage",
+                                    "valueOf_": "90"
+                                },
+                                "chamber_temperature": {
+                                    "units": "K",
+                                    "valueOf_": "294"
+                                },
+                                "cryogen_name": "ETHANE",
+                                "instrument": "FEI VITROBOT MARK IV"
+                            }
+                        }
+                    ]
+                },
+                "structure_determination_id": 1
+            }
+        ]
+    },
+    "version": "3.0.9.3"
+}

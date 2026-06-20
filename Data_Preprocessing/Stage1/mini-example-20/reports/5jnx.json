@@ -1,0 +1,12 @@
+{
+  "pdb_id": "5jnx",
+  "status": "ok",
+  "counts": {
+    "atoms": 13748,
+    "het_atoms": 411,
+    "receptor_atoms": 13337,
+    "occurrences": 18
+  },
+  "warnings": [],
+  "failed_occurrences": []
+}

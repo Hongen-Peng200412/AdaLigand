@@ -1,0 +1,12 @@
+{
+  "pdb_id": "21tq",
+  "status": "ok",
+  "counts": {
+    "atoms": 13098,
+    "het_atoms": 665,
+    "receptor_atoms": 12433,
+    "occurrences": 24
+  },
+  "warnings": [],
+  "failed_occurrences": []
+}

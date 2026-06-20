@@ -1,0 +1,730 @@
+{
+    "_id": "5f3a8f09043d5cc5a75d6798",
+    "admin": {
+        "authors_list": {
+            "author": [
+                {
+                    "instance_type": "author",
+                    "valueOf_": "Wilkes M"
+                },
+                {
+                    "instance_type": "author",
+                    "valueOf_": "Madej MG"
+                }
+            ]
+        },
+        "current_status": {
+            "code": {
+                "valueOf_": "REL"
+            },
+            "date": "2025-07-09T00:00:00",
+            "processing_site": "PDBe"
+        },
+        "key_dates": {
+            "deposition": "2016-12-04T00:00:00",
+            "header_release": "2016-12-28T00:00:00",
+            "map_release": "2017-01-18T00:00:00",
+            "update": "2025-07-09T00:00:00"
+        },
+        "keywords": "Ca2+ signaling, cryoEM, membrane protein structure, Polycystin-2, TRP channel, Transport protein",
+        "revision_history": {
+            "revision": [
+                {
+                    "change_list": {
+                        "revision_change_sub_group": [
+                            {
+                                "instance_type": "metadata",
+                                "provider": "REPOSITORY",
+                                "revision_type": "INITIAL_RELEASE"
+                            },
+                            {
+                                "instance_type": "image",
+                                "provider": "REPOSITORY",
+                                "revision_type": "INITIAL_RELEASE"
+                            },
+                            {
+                                "instance_type": "primary_map",
+                                "provider": "REPOSITORY",
+                                "revision_type": "INITIAL_RELEASE"
+                            }
+                        ]
+                    },
+                    "date": "2017-01-18T00:00:00",
+                    "instance_type": "revision",
+                    "version": "1.0"
+                },
+                {
+                    "change_list": {
+                        "revision_change_sub_group": [
+                            {
+                                "categories": {
+                                    "category": [
+                                        "em_admin",
+                                        "em_software"
+                                    ]
+                                },
+                                "instance_type": "metadata",
+                                "items": {
+                                    "item": [
+                                        "_em_admin.last_update",
+                                        "_em_software.name"
+                                    ]
+                                },
+                                "revision_group": "EXPERIMENTAL_SUMMARY"
+                            }
+                        ]
+                    },
+                    "date": "2025-07-09T00:00:00",
+                    "instance_type": "revision",
+                    "version": "1.1"
+                },
+                {
+                    "change_list": {
+                        "revision_change_sub_group": [
+                            {
+                                "instance_type": "model",
+                                "revision_group": "DATABASE_REFERENCES"
+                            }
+                        ]
+                    },
+                    "date": "2017-02-15T00:00:00",
+                    "instance_type": "revision",
+                    "version": "1.2"
+                },
+                {
+                    "change_list": {
+                        "revision_change_sub_group": [
+                            {
+                                "categories": {
+                                    "category": [
+                                        "atom_sites",
+                                        "cell",
+                                        "em_image_scans"
+                                    ]
+                                },
+                                "instance_type": "model",
+                                "items": {
+                                    "item": [
+                                        "_atom_sites.fract_transf_matrix[1][1]",
+                                        "_atom_sites.fract_transf_matrix[2][2]",
+                                        "_atom_sites.fract_transf_matrix[3][3]",
+                                        "_cell.Z_PDB"
+                                    ]
+                                },
+                                "revision_group": "OTHER"
+                            }
+                        ]
+                    },
+                    "date": "2019-12-11T00:00:00",
+                    "instance_type": "revision",
+                    "version": "1.3"
+                },
+                {
+                    "change_list": {
+                        "revision_change_sub_group": [
+                            {
+                                "categories": {
+                                    "category": [
+                                        "atom_site",
+                                        "chem_comp",
+                                        "entity",
+                                        "pdbx_branch_scheme",
+                                        "pdbx_chem_comp_identifier",
+                                        "pdbx_entity_branch",
+                                        "pdbx_entity_branch_descriptor",
+                                        "pdbx_entity_branch_link",
+                                        "pdbx_entity_branch_list",
+                                        "pdbx_entity_nonpoly",
+                                        "pdbx_nonpoly_scheme",
+                                        "pdbx_struct_assembly_gen",
+                                        "pdbx_unobs_or_zero_occ_atoms",
+                                        "struct_asym",
+                                        "struct_conn",
+                                        "struct_site",
+                                        "struct_site_gen"
+                                    ]
+                                },
+                                "description": "Carbohydrate remediation",
+                                "instance_type": "model",
+                                "items": {
+                                    "item": [
+                                        "_atom_site.B_iso_or_equiv",
+                                        "_atom_site.Cartn_x",
+                                        "_atom_site.Cartn_y",
+                                        "_atom_site.Cartn_z",
+                                        "_atom_site.auth_asym_id",
+                                        "_atom_site.auth_atom_id",
+                                        "_atom_site.auth_comp_id",
+                                        "_atom_site.auth_seq_id",
+                                        "_atom_site.label_asym_id",
+                                        "_atom_site.label_atom_id",
+                                        "_atom_site.label_comp_id",
+                                        "_atom_site.label_entity_id",
+                                        "_atom_site.type_symbol",
+                                        "_chem_comp.name",
+                                        "_chem_comp.type",
+                                        "_pdbx_entity_nonpoly.entity_id",
+                                        "_pdbx_entity_nonpoly.name",
+                                        "_pdbx_struct_assembly_gen.asym_id_list",
+                                        "_pdbx_unobs_or_zero_occ_atoms.label_asym_id",
+                                        "_struct_conn.pdbx_role",
+                                        "_struct_conn.ptnr1_auth_asym_id",
+                                        "_struct_conn.ptnr1_auth_seq_id",
+                                        "_struct_conn.ptnr1_label_asym_id",
+                                        "_struct_conn.ptnr2_auth_asym_id",
+                                        "_struct_conn.ptnr2_auth_seq_id",
+                                        "_struct_conn.ptnr2_label_asym_id"
+                                    ]
+                                },
+                                "provider": "REPOSITORY",
+                                "revision_group": "STRUCTURE_SUMMARY",
+                                "revision_type": "REMEDIATION"
+                            }
+                        ]
+                    },
+                    "date": "2020-07-29T00:00:00",
+                    "instance_type": "revision",
+                    "version": "2.0"
+                },
+                {
+                    "change_list": {
+                        "revision_change_sub_group": [
+                            {
+                                "categories": {
+                                    "category": [
+                                        "chem_comp",
+                                        "chem_comp_atom",
+                                        "chem_comp_bond",
+                                        "database_2",
+                                        "em_admin",
+                                        "pdbx_entry_details",
+                                        "pdbx_modification_feature"
+                                    ]
+                                },
+                                "instance_type": "model",
+                                "items": {
+                                    "item": [
+                                        "_chem_comp.pdbx_synonyms",
+                                        "_database_2.pdbx_DOI",
+                                        "_database_2.pdbx_database_accession",
+                                        "_em_admin.last_update"
+                                    ]
+                                },
+                                "revision_group": "STRUCTURE_SUMMARY"
+                            }
+                        ]
+                    },
+                    "date": "2024-10-23T00:00:00",
+                    "instance_type": "revision",
+                    "version": "2.1"
+                },
+                {
+                    "change_list": {
+                        "revision_change_sub_group": [
+                            {
+                                "categories": {
+                                    "category": [
+                                        "em_admin",
+                                        "em_software"
+                                    ]
+                                },
+                                "instance_type": "model",
+                                "items": {
+                                    "item": [
+                                        "_em_admin.last_update",
+                                        "_em_software.name"
+                                    ]
+                                },
+                                "revision_group": "DATA_COLLECTION"
+                            }
+                        ]
+                    },
+                    "date": "2025-07-09T00:00:00",
+                    "instance_type": "revision",
+                    "version": "2.2"
+                }
+            ]
+        },
+        "sites": {
+            "deposition": "PDBe",
+            "last_processing": "PDBe"
+        },
+        "title": "cryoEM Structure of Polycystin-2 in complex with cations and lipids"
+    },
+    "crossreferences": {
+        "citation_list": {
+            "primary_citation": {
+                "citation_type": {
+                    "author": [
+                        {
+                            "instance_type": "author",
+                            "order": 1,
+                            "valueOf_": "Wilkes M"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 2,
+                            "valueOf_": "Madej MG"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 3,
+                            "valueOf_": "Kreuter L"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 4,
+                            "valueOf_": "Rhinow D"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 5,
+                            "valueOf_": "Heinz V"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 6,
+                            "valueOf_": "De Sanctis S"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 7,
+                            "valueOf_": "Ruppel S"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 8,
+                            "valueOf_": "Richter RM"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 9,
+                            "valueOf_": "Joos F"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 10,
+                            "valueOf_": "Grieben M"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 11,
+                            "valueOf_": "Pike AC"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 12,
+                            "valueOf_": "Huiskonen JT"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 13,
+                            "valueOf_": "Carpenter EP"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 14,
+                            "valueOf_": "Kuhlbrandt W"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 15,
+                            "valueOf_": "Witzgall R"
+                        },
+                        {
+                            "instance_type": "author",
+                            "order": 16,
+                            "valueOf_": "Ziegler C"
+                        }
+                    ],
+                    "country": "US",
+                    "external_references": [
+                        {
+                            "instance_type": "external_references",
+                            "type_": "PUBMED",
+                            "valueOf_": "28092368"
+                        },
+                        {
+                            "instance_type": "external_references",
+                            "type_": "DOI",
+                            "valueOf_": "doi:10.1038/nsmb.3357"
+                        },
+                        {
+                            "instance_type": "external_references",
+                            "type_": "ISSN",
+                            "valueOf_": "1545-9985"
+                        }
+                    ],
+                    "first_page": "123",
+                    "journal": "Nat Struct Mol Biol",
+                    "journal_abbreviation": "Nat Struct Mol Biol",
+                    "last_page": "130",
+                    "published": true,
+                    "title": "Molecular insights into lipid-assisted Ca(2+) regulation of the TRP channel Polycystin-2.",
+                    "volume": "24",
+                    "year": "2017"
+                }
+            }
+        },
+        "pdb_list": {
+            "pdb_reference": [
+                {
+                    "instance_type": "pdb_reference",
+                    "pdb_id": "5mke",
+                    "relationship": {
+                        "in_frame": "FULLOVERLAP"
+                    }
+                }
+            ]
+        }
+    },
+    "emdb_id": "EMD-3523",
+    "interpretation": {
+        "modelling_list": {
+            "modelling": [
+                {
+                    "details": "We used for comparative structure modeling TRPA1 (pdb entry code 3J9P) as template for S1 and S3-S5, TRPV1 (pdb entry code 3J5Q) for S5-S6, and the TRPV2 (pdb entry code 5AN8) fitted best for S2-S3 to obtain an initial model. The soluble domain was build based on pdbID: 5K47. But we had no search model for molecular replacement. Although we had a good idea what the architecture would be like, we build the model de novo with COOT.",
+                    "instance_type": "modelling"
+                }
+            ]
+        }
+    },
+    "map": {
+        "axis_order": {
+            "fast": "X",
+            "medium": "Y",
+            "slow": "Z"
+        },
+        "cell": {
+            "a": {
+                "units": "\u212b",
+                "valueOf_": "191.52"
+            },
+            "alpha": {
+                "units": "deg",
+                "valueOf_": "90.0"
+            },
+            "b": {
+                "units": "\u212b",
+                "valueOf_": "191.52"
+            },
+            "beta": {
+                "units": "deg",
+                "valueOf_": "90.0"
+            },
+            "c": {
+                "units": "\u212b",
+                "valueOf_": "191.52"
+            },
+            "gamma": {
+                "units": "deg",
+                "valueOf_": "90.0"
+            }
+        },
+        "contour_list": {
+            "contour": [
+                {
+                    "instance_type": "contour",
+                    "level": 0.0345,
+                    "primary": true,
+                    "source": "AUTHOR"
+                }
+            ]
+        },
+        "data_type": "IMAGE STORED AS FLOATING POINT NUMBER (4 BYTES)",
+        "dimensions": {
+            "col": 168,
+            "row": 168,
+            "sec": 168
+        },
+        "file": "emd_3523.map.gz",
+        "format": "CCP4",
+        "label": "::::EMDATABANK.org::::EMD-3523::::",
+        "origin": {
+            "col": 0,
+            "row": 0,
+            "sec": 0
+        },
+        "pixel_spacing": {
+            "x": {
+                "units": "\u212b",
+                "valueOf_": "1.14"
+            },
+            "y": {
+                "units": "\u212b",
+                "valueOf_": "1.14"
+            },
+            "z": {
+                "units": "\u212b",
+                "valueOf_": "1.14"
+            }
+        },
+        "size_kbytes": 18967,
+        "spacing": {
+            "x": 168,
+            "y": 168,
+            "z": 168
+        },
+        "statistics": {
+            "average": 0.001177011,
+            "maximum": 0.09819269,
+            "minimum": -0.06904477,
+            "std": 0.0061609545
+        },
+        "symmetry": {
+            "space_group": 1
+        }
+    },
+    "sample": {
+        "macromolecule_list": {
+            "macromolecule": [
+                {
+                    "enantiomer": "LEVO",
+                    "instance_type": "protein_or_peptide",
+                    "macromolecule_id": 1,
+                    "molecular_weight": {
+                        "theoretical": {
+                            "units": "MDa",
+                            "valueOf_": "0.109820086"
+                        }
+                    },
+                    "name": {
+                        "valueOf_": "Polycystin-2"
+                    },
+                    "natural_source": {
+                        "database": "NCBI",
+                        "organism": {
+                            "ncbi": 9606,
+                            "valueOf_": "Homo sapiens"
+                        }
+                    },
+                    "number_of_copies": "4",
+                    "recombinant_expression": {
+                        "database": "NCBI",
+                        "recombinant_organism": {
+                            "ncbi": 9606,
+                            "valueOf_": "Homo sapiens"
+                        }
+                    },
+                    "sequence": {
+                        "external_references": [
+                            {
+                                "instance_type": "external_references",
+                                "type_": "UNIPROTKB",
+                                "valueOf_": "Q13563"
+                            }
+                        ],
+                        "string": "MVNSSRVQPQQPGDAKRPPAPRAPDPGRLMAGCAAVGASLAAPGGLCEQRGLEIEMQRIRQAAARDPPAGAAASPSPPLS SCSRQAWSRDNPGFEAEEEEEEVEGEEGGMVVEMDVEWRPGSRRSAASSAVSSVGARSRGLGGYHGAGHPSGRRRRREDQ GPPCPSPVGGGDPLHRHLPLEGQPPRVAWAERLVRGLRGLWGTRLMEESSTNREKYLKSVLRELVTYLLFLIVLCILTYG MMSSNVYYYTRMMSQLFLDTPVSKTEKTNFKTLSSMEDFWKFTEGSLLDGLYWKMQPSNQTEADNRSFIFYENLLLGVPR IRQLRVRNGSCSIPQDLRDEIKECYDVYSVSSEDRAPFGPRNGTAWIYTSEKDLNGSSHWGIIATYSGAGYYLDLSRTRE ETAAQVASLKKNVWLDRGTRATFIDFSVYNANINLFCVVRLLVEFPATGGVIPSWQFQPLKLIRYVTTFDFFLAACEIIF CFFIFYYVVEEILEIRIHKLHYFRSFWNCLDVVIVVLSVVAIGINIYRTSNVEVLLQFLEDQNTFPNFEHLAYWQIQFNN IAAVTVFFVWIKLFKFINFNRTMSQLSTTMSRCAKDLFGFAIMFFIIFLAYAQLAYLVFGTQVDDFSTFQECIFTQFRII LGDINFAEIEEANRVLGPIYFTTFVFFMFFILLNMFLAIINDTYSEVKSDLAQQKAEMELSDLIRKGYHKALVKLKLKKN TVDDISESLRQGGGKLNFDELRQDLKGKGHTDAEIEAIFTKYDQDGDQELTEHEHQQMRDDLEKEREDLDLDHSSLPRPM SSRSFPRSLDDSEEDDDEDSGHSSRRRGSISSGVSYEEFQVLVRRVDRMEHSIGSIVSKIDAVIVKLEIMERAKLKRREV LGRLLDGVAEDERLGRDSEIHREQMERLVREELERWESDDAASQISHGLGTPVGLNGQPRPRSSRPSSSQSTEGMEGAGG NGSSNVHV"
+                    }
+                },
+                {
+                    "formula": "NAG",
+                    "instance_type": "ligand",
+                    "macromolecule_id": 3,
+                    "molecular_weight": {
+                        "theoretical": {
+                            "units": "MDa",
+                            "valueOf_": "0.000221208"
+                        }
+                    },
+                    "name": {
+                        "valueOf_": "2-acetamido-2-deoxy-beta-D-glucopyranose"
+                    },
+                    "number_of_copies": "10"
+                },
+                {
+                    "formula": "CHS",
+                    "instance_type": "ligand",
+                    "macromolecule_id": 4,
+                    "molecular_weight": {
+                        "theoretical": {
+                            "units": "MDa",
+                            "valueOf_": "0.00021528899999999996"
+                        }
+                    },
+                    "name": {
+                        "valueOf_": "4-AMINO-5-CYCLOHEXYL-3-HYDROXY-PENTANOIC ACID"
+                    },
+                    "number_of_copies": "8"
+                },
+                {
+                    "formula": "PX6",
+                    "instance_type": "ligand",
+                    "macromolecule_id": 5,
+                    "molecular_weight": {
+                        "theoretical": {
+                            "units": "MDa",
+                            "valueOf_": "0.000647883"
+                        }
+                    },
+                    "name": {
+                        "valueOf_": "1,2-DIPALMITOYL-SN-GLYCERO-3-PHOSPHATE"
+                    },
+                    "number_of_copies": "4"
+                },
+                {
+                    "formula": "PLM",
+                    "instance_type": "ligand",
+                    "macromolecule_id": 6,
+                    "molecular_weight": {
+                        "theoretical": {
+                            "units": "MDa",
+                            "valueOf_": "0.00025642399999999994"
+                        }
+                    },
+                    "name": {
+                        "valueOf_": "PALMITIC ACID"
+                    },
+                    "number_of_copies": "12"
+                },
+                {
+                    "formula": "CA",
+                    "instance_type": "ligand",
+                    "macromolecule_id": 7,
+                    "molecular_weight": {
+                        "theoretical": {
+                            "units": "MDa",
+                            "valueOf_": "4.0078e-05"
+                        }
+                    },
+                    "name": {
+                        "valueOf_": "CALCIUM ION"
+                    },
+                    "number_of_copies": "2"
+                }
+            ]
+        },
+        "name": {
+            "valueOf_": "Polycystin-2"
+        },
+        "supramolecule_list": {
+            "supramolecule": [
+                {
+                    "instance_type": "complex_supramolecule",
+                    "macromolecule_list": {
+                        "macromolecule": [
+                            {
+                                "instance_type": "macromolecule",
+                                "macromolecule_id": 1
+                            }
+                        ]
+                    },
+                    "name": {
+                        "valueOf_": "Polycystin-2"
+                    },
+                    "natural_source": [
+                        {
+                            "database": "NCBI",
+                            "instance_type": "natural_source",
+                            "organism": {
+                                "ncbi": 9606,
+                                "valueOf_": "homo sapiens"
+                            }
+                        }
+                    ],
+                    "parent": 0,
+                    "supramolecule_id": 1
+                }
+            ]
+        }
+    },
+    "structure_determination_list": {
+        "structure_determination": [
+            {
+                "aggregation_state": "particle",
+                "image_processing": [
+                    {
+                        "ctf_correction": {
+                            "type_": "PHASE FLIPPING AND AMPLITUDE CORRECTION"
+                        },
+                        "final_angle_assignment": {
+                            "projection_matching_processing": {},
+                            "type_": "PROJECTION MATCHING"
+                        },
+                        "final_reconstruction": {
+                            "applied_symmetry": {
+                                "point_group": "C4"
+                            },
+                            "number_images_used": 42268,
+                            "resolution": {
+                                "res_type": "BY AUTHOR",
+                                "units": "\u212b",
+                                "valueOf_": "4.3"
+                            },
+                            "resolution_method": "FSC 0.143 CUT-OFF"
+                        },
+                        "image_processing_id": 1,
+                        "image_recording_id": 1,
+                        "initial_angle_assignment": {
+                            "projection_matching_processing": {},
+                            "type_": "PROJECTION MATCHING"
+                        },
+                        "instance_type": "singleparticle_processing",
+                        "startup_model": [
+                            {
+                                "instance_type": "startup_model",
+                                "pdb_model": {
+                                    "pdb_id": "3J5Q"
+                                },
+                                "type_of_model": "PDB ENTRY"
+                            }
+                        ]
+                    }
+                ],
+                "instance_type": "structure_determination",
+                "method": "singleParticle",
+                "microscopy_list": {
+                    "microscopy": [
+                        {
+                            "acceleration_voltage": {
+                                "units": "kV",
+                                "valueOf_": "300"
+                            },
+                            "electron_source": "FIELD EMISSION GUN",
+                            "illumination_mode": "FLOOD BEAM",
+                            "image_recording_list": {
+                                "image_recording": [
+                                    {
+                                        "average_electron_dose_per_image": {
+                                            "units": "e/\u212b^2",
+                                            "valueOf_": "1.8"
+                                        },
+                                        "film_or_detector_model": {
+                                            "valueOf_": "GATAN K2 SUMMIT (4k x 4k)"
+                                        },
+                                        "image_recording_id": 1,
+                                        "instance_type": "image_recording"
+                                    }
+                                ]
+                            },
+                            "imaging_mode": "BRIGHT FIELD",
+                            "instance_type": "single_particle_microscopy",
+                            "microscope": "JEOL 3200FSC",
+                            "microscopy_id": 1,
+                            "nominal_cs": {
+                                "units": "mm",
+                                "valueOf_": "4.1"
+                            }
+                        }
+                    ]
+                },
+                "specimen_preparation_list": {
+                    "specimen_preparation": [
+                        {
+                            "buffer": {
+                                "ph": 7.5
+                            },
+                            "instance_type": "single_particle_preparation",
+                            "preparation_id": 1,
+                            "vitrification": {
+                                "cryogen_name": "ETHANE"
+                            }
+                        }
+                    ]
+                },
+                "structure_determination_id": 1
+            }
+        ]
+    },
+    "version": "3.0.11.0"
+}

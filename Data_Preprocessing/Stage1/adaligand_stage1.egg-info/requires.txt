@@ -1,0 +1,9 @@
+gemmi>=0.7.1
+joblib>=1.4.2
+numpy>=1.26
+pdbeccdutils>=0.8.5
+rdkit>=2024.9
+requests>=2.32
+
+[dev]
+pytest>=8.0

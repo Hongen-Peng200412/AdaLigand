@@ -1,0 +1,12 @@
+{
+  "pdb_id": "6a95",
+  "status": "ok",
+  "counts": {
+    "atoms": 11002,
+    "het_atoms": 121,
+    "receptor_atoms": 10880,
+    "occurrences": 7
+  },
+  "warnings": [],
+  "failed_occurrences": []
+}
