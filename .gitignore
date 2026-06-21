@@ -1,0 +1,28 @@
+# 忽略 Python 缓存
+__pycache__/
+*.pyc
+*.py[cod]
+*$py.class
+
+
+# 忽略本地配置文件
+.claude/
+.vscode/
+.venv/
+
+# 忽略实验数据和日志
+log/
+logs/
+results/
+output/
+cryatom_output/
+*.txt
+*.csv
+CLAUDE_PLANS/
+CLAUDE/
+**review**
+**example**
+tmp*
+*old/
+Data_Preprocessing/Stage1/resolution-check-30/raw/resolution_summary.json
+Data_Preprocessing/Stage1/mini-example-20/raw/pair_list.jsonl
