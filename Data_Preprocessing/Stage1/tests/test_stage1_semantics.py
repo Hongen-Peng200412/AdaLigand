@@ -21,7 +21,25 @@ from adaligand_stage1.parse import (
     optional_category_rows,
     selected_atom_rows,
 )
-from adaligand_stage1.rcsb import emdb_references_pdb
+from adaligand_stage1.rcsb import (
+    build_resolution_summary,
+    emdb_references_pdb,
+    extract_resolution_info,
+)
+
+
+def _single_atom_mol(atom_name: str = "O"):
+    """
+    构造带 CCD atom name 的单原子 RDKit Mol。
+
+    输出:
+        - mol: rdkit.Chem.Mol, 单原子测试分子
+    """
+    from rdkit import Chem
+
+    mol = Chem.MolFromSmiles(atom_name)
+    mol.GetAtomWithIdx(0).SetProp("name", atom_name)
+    return mol
 
 
 def test_atomic_save_npz_is_not_compressed(tmp_path):
@@ -187,7 +205,7 @@ def test_missing_optional_category_returns_empty_rows():
     assert optional_category_rows(block, "_struct_conn.") == []
 
 
-def test_branched_bond_missing_atom_is_not_silent(tmp_path):
+def test_branched_bond_missing_atom_is_not_silent(tmp_path, monkeypatch):
     """
     验证 BRANCHED 跨残基键端点缺失时显式失败。
 
@@ -198,6 +216,13 @@ def test_branched_bond_missing_atom_is_not_silent(tmp_path):
         "residues": ["1. NAG", "2. NAG"],
         "bonds": [[1, "NOT", 2, "C1"]],
     }
+    import adaligand_stage1.ligand_object as ligand_object_module
+
+    monkeypatch.setattr(
+        ligand_object_module,
+        "get_ccd_mol",
+        lambda _code, _ccd_cache_dir: _single_atom_mol("C"),
+    )
 
     with pytest.raises(BranchedBondError):
         process_branched_ligand(config, "BRANCHED:NAG-NAG:badbad", tmp_path, tmp_path / "ccd_cache")
@@ -224,6 +249,115 @@ def test_emdb_metadata_crossreference_matches_pdb_id():
     assert not emdb_references_pdb(metadata, "1abc")
 
 
+def _entry_resolution(value):
+    """
+    构造最小 RCSB resolution metadata。
+
+    输出:
+        - metadata: dict, 仅包含 `rcsb_entry_info.resolution_combined`
+    """
+    return {"rcsb_entry_info": {"resolution_combined": [value]}}
+
+
+def _emdb_resolution(values):
+    """
+    构造最小 EMDB final_reconstruction resolution metadata。
+
+    输出:
+        - metadata: dict, 每个 value 对应一个 image_processing final_reconstruction
+    """
+    return {
+        "structure_determination_list": {
+            "structure_determination": [
+                {
+                    "image_processing": [
+                        {
+                            "final_reconstruction": {
+                                "resolution": {
+                                    "valueOf_": str(value),
+                                    "units": "A",
+                                },
+                                "resolution_method": "FSC 0.143 CUT-OFF",
+                            }
+                        }
+                        for value in values
+                    ]
+                }
+            ]
+        }
+    }
+
+
+def test_resolution_info_prefers_consistent_emdb_over_rcsb():
+    """
+    验证 EMDB 与 RCSB 一致时记录多候选一致状态。
+
+    输出:
+        - None: selected 来自 EMDB, 候选含 path 和 method
+    """
+    info = extract_resolution_info(_entry_resolution(2.4), _emdb_resolution([2.4]))
+
+    assert info["selected"] == 2.4
+    assert info["status"] == "multi_candidate_consistent"
+    assert info["selected_source"] == "emdb.final_reconstruction"
+    assert info["n_candidates"] == 2
+    assert info["n_unique_values"] == 1
+    assert info["candidates"][0]["method"] == "FSC 0.143 CUT-OFF"
+    assert info["candidates"][0]["path"].endswith(".resolution.valueOf_")
+
+
+def test_resolution_info_marks_ambiguous_emdb_without_failing():
+    """
+    验证 EMDB 多个不同 final reconstruction 分辨率时不断流程。
+
+    输出:
+        - None: selected 取首个 EMDB 值, status 标记 ambiguous_emdb
+    """
+    info = extract_resolution_info(_entry_resolution(2.4), _emdb_resolution([2.7, 3.1]))
+
+    assert info["selected"] == 2.7
+    assert info["status"] == "ambiguous_emdb"
+    assert info["n_unique_values"] == 3
+    assert [item["value"] for item in info["candidates"]] == [2.7, 3.1, 2.4]
+
+
+def test_resolution_info_falls_back_to_rcsb_when_emdb_missing():
+    """
+    验证 EMDB 无显式候选时使用 RCSB fallback。
+
+    输出:
+        - None: selected 来自 RCSB resolution_combined
+    """
+    info = extract_resolution_info(_entry_resolution(3.3), {})
+
+    assert info["selected"] == 3.3
+    assert info["status"] == "fallback_rcsb"
+    assert info["selected_source"] == "rcsb.resolution_combined"
+
+
+def test_resolution_summary_counts_statuses_and_examples():
+    """
+    验证 Stage A resolution summary 汇总状态和示例。
+
+    输出:
+        - None: ambiguous 与 missing 示例被保留
+    """
+    records = [
+        {"pdb_id": "1aaa", "emdb_id": "EMD-1", "resolution_info": extract_resolution_info(_entry_resolution(2.0), _emdb_resolution([2.0]))},
+        {"pdb_id": "2bbb", "emdb_id": "EMD-2", "resolution_info": extract_resolution_info(_entry_resolution(2.0), _emdb_resolution([2.5, 3.0]))},
+        {"pdb_id": "3ccc", "emdb_id": "EMD-3", "resolution_info": extract_resolution_info({}, {})},
+    ]
+
+    summary = build_resolution_summary(records)
+
+    assert summary["total_records"] == 3
+    assert summary["multi_candidate_consistent"] == 1
+    assert summary["ambiguous_emdb"] == 1
+    assert summary["missing"] == 1
+    assert summary["examples"]["ambiguous_emdb"][0]["pdb_id"] == "2bbb"
+    assert summary["examples"]["missing"][0]["pdb_id"] == "3ccc"
+
+
 def test_single_ccd_ligand_object_name_and_residue_name_are_separate(tmp_path):
     """
     验证单 CCD LigandObject 的对象名与真实 residue 名分离。
@@ -231,13 +365,9 @@ def test_single_ccd_ligand_object_name_and_residue_name_are_separate(tmp_path):
     输出:
         - None: `name` 保留 object_key, `residue_names` 保留 CCD id
     """
-    from rdkit import Chem
-
-    mol = Chem.MolFromSmiles("O")
-    mol.GetAtomWithIdx(0).SetProp("name", "O")
-
     from adaligand_stage1.ligand_object import process_molecule
 
+    mol = _single_atom_mol("O")
     process_molecule(mol, "CCD:HOH", "O", tmp_path, None, "HOH")
     obj = np.load(tmp_path / "CCD_HOH.npz", allow_pickle=True)
 
@@ -283,7 +413,7 @@ def test_occurrence_schema_omits_molecular_weight():
     assert "molecular_weight" not in components[0]
 
 
-def test_materialize_ligand_objects_respects_overwrite_flag(tmp_path):
+def test_materialize_ligand_objects_respects_overwrite_flag(tmp_path, monkeypatch):
     """
     验证 overwrite=True 会刷新已存在的 LigandObject。
 
@@ -300,6 +430,13 @@ def test_materialize_ligand_objects_respects_overwrite_flag(tmp_path):
         "object_key": "CCD:HOH",
         "components": [{"ccd_id": "HOH"}],
     }
+    import adaligand_stage1.ligand_object as ligand_object_module
+
+    monkeypatch.setattr(
+        ligand_object_module,
+        "get_ccd_mol",
+        lambda _code, _ccd_cache_dir: _single_atom_mol("O"),
+    )
 
     materialize_ligand_objects(tmp_path, [component], overwrite=True)
     obj = np.load(tmp_path / "ligand_objects" / "CCD_HOH.npz", allow_pickle=True)
@@ -308,7 +445,7 @@ def test_materialize_ligand_objects_respects_overwrite_flag(tmp_path):
     assert obj["residue_names"].tolist() == ["HOH"]
 
 
-def test_materialize_ligand_objects_skips_repeated_object_in_same_process(tmp_path):
+def test_materialize_ligand_objects_skips_repeated_object_in_same_process(tmp_path, monkeypatch):
     """
     验证同一进程内重复 object_key 不会反复覆盖同一 LigandObject。
 
@@ -320,6 +457,13 @@ def test_materialize_ligand_objects_skips_repeated_object_in_same_process(tmp_pa
         "object_key": "CCD:HOH",
         "components": [{"ccd_id": "HOH"}],
     }
+    import adaligand_stage1.ligand_object as ligand_object_module
+
+    monkeypatch.setattr(
+        ligand_object_module,
+        "get_ccd_mol",
+        lambda _code, _ccd_cache_dir: _single_atom_mol("O"),
+    )
 
     materialize_ligand_objects(tmp_path, [component], overwrite=True)
     first_mtime = (tmp_path / "ligand_objects" / "CCD_HOH.npz").stat().st_mtime_ns
