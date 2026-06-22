@@ -18,11 +18,11 @@ output/
 cryatom_output/
 *.txt
 *.csv
-CLAUDE_PLANS/
-CLAUDE/
+# CLAUDE_PLANS/
+# CLAUDE/
 **review**
 **example**
 tmp*
 *old/
-Data_Preprocessing/Stage1/resolution-check-30/raw/resolution_summary.json
-Data_Preprocessing/Stage1/mini-example-20/raw/pair_list.jsonl
+Data_Preprocessing/Ori_Data/tests_output/
+Data_Preprocessing/Ori_Data/.pytest_cache/
