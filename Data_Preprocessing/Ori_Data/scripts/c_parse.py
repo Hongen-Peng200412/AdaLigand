@@ -1,4 +1,8 @@
-"""Stage C: 解析 mmCIF 到 occurrence、受体 token 与 GT 坐标。"""
+"""Stage C 入口：分片 + joblib 并行解析每个 PDB。
+
+读 pair_list，按 --part_id/--total_parts 取本分片，用 joblib-loky(--n_jobs) 并行调用 parse_one_pdb，
+产出 occurrences.jsonl / ligand_coords.npz / receptor_tokens.npz / 去重 ligand_objects 与分片失败报告。配合 SLURM array。
+"""
 
 from __future__ import annotations
 

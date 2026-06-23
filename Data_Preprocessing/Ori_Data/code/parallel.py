@@ -1,4 +1,8 @@
-"""分片与并行执行工具。"""
+"""任务分片工具（配合 SLURM array）。
+
+shard_items：按 `part_id / total_parts`（= SLURM array 口径）把任务列表切成互不重叠的分片，
+让每个 array 任务只处理 1/total_parts 的样本；分片内的多核并行由各脚本用 joblib-loky 完成。
+"""
 
 from __future__ import annotations
 

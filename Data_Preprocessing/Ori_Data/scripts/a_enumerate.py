@@ -1,4 +1,9 @@
-"""Stage A: 枚举 PDB/EMDB pair_list 记录。"""
+"""Stage A 入口：枚举样本宇宙，写 pair_list + 分辨率统计。
+
+查 RCSB 列出"EM + 有 EMDB + 含配体"的全部 PDB，对每条定主 EMDB 与分辨率，
+写 `raw/pair_list.jsonl` 与 `reports/resolution_summary.json`。
+注意：A 是全局单次、串行的（不分片、不并行）；--part_id/--n_jobs 不参与处理，集群里单独跑一次即可。
+"""
 
 from __future__ import annotations
 

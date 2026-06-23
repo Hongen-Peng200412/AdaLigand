@@ -1,4 +1,8 @@
-"""Stage B: 下载 mmCIF、EMDB map 和元数据。"""
+"""Stage B 入口：分片 + joblib 并行下载原始件。
+
+读 pair_list，按 --part_id/--total_parts 取本分片，再用 joblib-loky(--n_jobs) 并行下载
+每个样本的 mmCIF/map/meta（--resources 控制），失败汇总到分片报告。配合 SLURM array 横向扩展。
+"""
 
 from __future__ import annotations
 

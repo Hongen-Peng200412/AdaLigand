@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    Safe sync AdaLigand Ori_Data code to the remote server.
+    Safe sync the AdaLigand project to the remote server.
 
 .DESCRIPTION
-    1. Keep the remote AdaLigand Ori_Data directory to avoid disturbing running jobs.
+    1. Keep the remote AdaLigand project directory to avoid disturbing running jobs.
     2. Verify rsync exists on the remote server.
     3. Remove any existing remote .git directory.
     4. Upload local files with rsync while excluding local-only files.
@@ -11,12 +11,12 @@
 #>
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$LocalPath = (Resolve-Path (Join-Path $ScriptDir "..\Data_Preprocessing\Ori_Data")).Path
+$LocalPath = (Resolve-Path (Join-Path $ScriptDir "..")).Path
 $RemoteUser = "penghongen"
 $RemoteIP = "10.102.33.220"
 $RemotePort = "10022"
-$RemoteBaseDir = "/storage/penghongen/AdaLigand"
-$RemoteTargetDir = "Ori_Data"
+$RemoteBaseDir = "/home/penghongen/My_Project"
+$RemoteTargetDir = "AdaLigand"
 
 function Resolve-MsysBin {
     $Candidates = @(
@@ -141,16 +141,20 @@ Write-Host "[4/6] Uploading local code with rsync..." -ForegroundColor Yellow
 & $RsyncExe -av `
     --exclude=".git/" `
     --exclude=".venv/" `
+    --exclude="**/.venv/" `
     --exclude="__pycache__/" `
+    --exclude="**/__pycache__/" `
     --exclude="*.pyc" `
     --exclude=".pytest_cache/" `
+    --exclude="**/.pytest_cache/" `
     --exclude=".ruff_cache/" `
-    --exclude="tests_output/" `
-    --exclude="mini-example/" `
-    --exclude="mini-example-20/" `
-    --exclude="mini-example-reorg/" `
-    --exclude="resolution-check-30/" `
-    --exclude="adaligand_stage1.egg-info/" `
+    --exclude="**/.ruff_cache/" `
+    --exclude="Data_Preprocessing/Ori_Data/tests_output/" `
+    --exclude="Data_Preprocessing/Ori_Data/mini-example/" `
+    --exclude="Data_Preprocessing/Ori_Data/mini-example-20/" `
+    --exclude="Data_Preprocessing/Ori_Data/mini-example-reorg/" `
+    --exclude="Data_Preprocessing/Ori_Data/resolution-check-30/" `
+    --exclude="Data_Preprocessing/Ori_Data/adaligand_stage1.egg-info/" `
     -e $RemoteShell `
     "$LocalPathPosix/" `
     $RemoteSpec

@@ -1,4 +1,10 @@
-"""Stage C: mmCIF 到 occurrence、受体 token 与 GT 坐标的解析。"""
+"""Stage C 核心：把一个 PDB 的 mmCIF 解析成 occurrence / 受体 token / 真实坐标。
+
+parse_one_pdb 的主流程：gemmi 读 mmCIF → 选原子(首 model + altloc) → 分 HET/受体 →
+并查集按共价(CCD 内部键 + struct_conn covale + branch_link)连出 occurrence →
+物化去重 LigandObject → 按 (residue, atom_name) 对齐抽取沉积态真实坐标 →
+落盘 occurrences.jsonl / ligand_coords.npz / receptor_tokens.npz 与单样本报告（resolve_failed 不入主产物）。
+"""
 
 from __future__ import annotations
 

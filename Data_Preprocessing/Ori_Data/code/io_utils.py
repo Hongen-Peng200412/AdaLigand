@@ -1,4 +1,11 @@
-"""文件读写工具。"""
+"""文件读写工具（原子写 + 并发安全）。
+
+供 A–C 三步共用的落盘原语：
+- atomic_save_npz：不压缩 `np.savez` + 临时文件原子替换（读快、抗中断）。
+- read_jsonl / write_jsonl：UTF-8 JSONL 读 / 原子写。
+- append_jsonl：带文件锁（Linux fcntl / Windows msvcrt）的并发安全追加，供多 array 任务同写失败报告。
+- safe_object_filename：object_key → 可落盘文件名（转义 `:`、`/` 等）。
+"""
 
 from __future__ import annotations
 

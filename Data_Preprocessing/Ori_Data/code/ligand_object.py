@@ -1,4 +1,11 @@
-"""AdaLigand 版 LigandObject 生成逻辑。"""
+"""配体化学对象 LigandObject 的生成（沿用 Emap2lig 血统）。
+
+把一个 CCD 或一条 BRANCHED 糖链变成可复用的参考化学对象：
+- get_ccd_mol：从本地 pkl 缓存或 RCSB ligand-CIF 取 CCD 的 RDKit 分子。
+- Atom / Bond：Emap2lig 的结构化 dtype（element/charge/ref_pos/chirality/in_ring/residue_id 等）。
+- process_molecule / process_branched_ligand：物化为 LigandObject 并以不压缩 npz 落盘（按 object_key 去重）。
+注意：这里只产出参考构象 ref_pos，不含沉积态真实坐标（真实坐标由 parse 单独抽取）。
+"""
 
 from __future__ import annotations
 

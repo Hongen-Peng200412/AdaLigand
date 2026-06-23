@@ -4,14 +4,15 @@
 
 ## 当前映射
 
-- 本地同步源：`C:\Users\15919\Desktop\AdaLigand\Data_Preprocessing\Ori_Data`
-- 远端目录：`/storage/penghongen/AdaLigand/Ori_Data`
+- 本地同步源：`C:\Users\15919\Desktop\AdaLigand`
+- 远端代码目录：`/home/penghongen/My_Project/AdaLigand`
+- Stage A-C 数据根目录：`/storage/penghongen/AdaLigand/Ori_Data`
 - 服务器：`penghongen@10.102.33.220:10022`
 - Stage A-C 专用环境：`/home/penghongen/anaconda3/envs/AdaLigand_stage1_py310`
 
 ## 同步入口
 
-- `run_sync.bat` / `sync_code.ps1`：安全同步，只上传本地 `Ori_Data`，不删除远端目录。
+- `run_sync.bat` / `sync_code.ps1`：安全同步，只上传本地 AdaLigand 项目根，不删除远端目录。
 - `run_syncWithClean.bat` / `sync_codeWithClean.ps1`：删除式同步，人类手动专用；agent 不擅自运行。
 
 同步脚本会排除本地环境、缓存、测试输出和旧小样本产物：
@@ -23,6 +24,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 tests_output/
+Data_Preprocessing/Ori_Data/tests_output/
 mini-example/
 mini-example-20/
 mini-example-reorg/
@@ -32,18 +34,21 @@ adaligand_stage1.egg-info/
 
 ## sbatch 草案位置
 
-当前简单版 Stage A/B 调度脚本位于：
+当前简单版 Stage A/B/C 调度脚本位于：
 
 ```text
-Data_Preprocessing/Ori_Data/code/sbatch/a.sbatch
-Data_Preprocessing/Ori_Data/code/sbatch/bc.sbatch
+Data_Preprocessing/Ori_Data/sbatch/a.sbatch
+Data_Preprocessing/Ori_Data/sbatch/b.sbatch
+Data_Preprocessing/Ori_Data/sbatch/c.sbatch
 ```
 
 约定：
 
 - A：单任务，不使用 array。
 - B：`--array=0-5`，每个 array task 申请 8 核，传给 joblib-loky 的 `--n_jobs` 为 7。
+- C：`--array=0-5`，资源申请与 B 一致，建议通过 Slurm dependency 在 B 全部成功后运行。
 - 数据根目录：`/storage/penghongen/AdaLigand/Ori_Data`
+- sbatch 运行目录：`/home/penghongen/My_Project/AdaLigand/Data_Preprocessing/Ori_Data`
 
 ## AI helper 使用纪律
 

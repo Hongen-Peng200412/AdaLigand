@@ -1,4 +1,8 @@
-"""失败记录与样本报告工具。"""
+"""失败记录与样本报告（支持 SLURM array 并发）。
+
+- sharded_report_path：分片运行时把报告写成 `reports/{name}.part_0000_of_0006.jsonl`，避免多 array 任务互相覆盖。
+- record_failure / write_report：并发安全地追加失败 JSONL（经 append_jsonl 文件锁）、原子写单样本 JSON 报告。
+"""
 
 from __future__ import annotations
 

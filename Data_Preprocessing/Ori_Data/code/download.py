@@ -1,4 +1,9 @@
-"""Stage B 下载实现。"""
+"""Stage B 下载实现。
+
+download_one_pair：按 --resources 下载一个样本的 mmCIF(RCSB)、EMDB map(EBI FTP)、EMDB meta(EMDB API)，
+3 次重试 + gzip 完整性校验 + 原子写；mmcif/map 落 `raw/`，meta 落 `reports/meta/`。
+write_failed_downloads：把本分片的下载失败汇总到 `reports/_failed_download.part_*`（并发安全追加）。
+"""
 
 from __future__ import annotations
 

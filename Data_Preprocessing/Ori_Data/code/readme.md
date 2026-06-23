@@ -1,6 +1,6 @@
-# AdaLigand Stage1（数据下载与解析）产物契约
+# AdaLigand 数据下载与解析（Ori_Data）产物契约
 
-> **这份文档是什么**：Stage1（数据侧 Stage A–C）**正式运行后产生的全部文件、字段、形状、含义和真实例子**。目标是新手不读代码也能看懂每个产物。
+> **这份文档是什么**：数据侧 Stage A–C **正式运行后产生的全部文件、字段、形状、含义和真实例子**。目标是新手不读代码也能看懂每个产物。
 > **不是什么**：不是实现历史/决策记录（那些在 `文档/exec_plan/数据下载与解析.md`），也不是计划书（`文档/规划文档/数据处理_v2.md`）。本文只描述**当前接口现实**。
 > **当前覆盖**：Stage A（枚举）、B（下载）、C（解析）。Stage D–G（标签/密度/质量/过滤）尚未实现，不产出。
 
@@ -40,8 +40,8 @@ ${ROOT}/
     {pdb_id}.json                   # 单样本解析报告
     meta/{pdb_id}.meta.json         # EMDB /entry API 原样响应(辅助)
     resolution_summary.json         # 本批分辨率状态统计(统计)
-    _failed_parse.jsonl             # 若有 PDB 级解析失败才出现
-    _failed_download.jsonl          # 若有下载失败才出现
+    _failed_parse[.part_*].jsonl    # 若有 PDB 级解析失败才出现; SLURM array 分片时带 .part_XXXX_of_YYYY 后缀
+    _failed_download[.part_*].jsonl # 若有下载失败才出现; 同上分片后缀
 ```
 
 ---
@@ -261,8 +261,8 @@ coords_0[0]     == [75.919, 74.287, 27.503]   # 真实世界坐标(Å)
 - `reports/{pdb_id}.json`：**这是诊断性文件**。`{pdb_id, status, counts:{atoms, het_atoms, receptor_atoms, occurrences}, warnings:[...], failed_occurrences:[{candidate_id, reason:"resolve_failed", unmatched_deposited:[...]}]}`。`failed_occurrences` 里的 occurrence **不会**写入主产物。
 - `reports/meta/{pdb_id}.meta.json`：**这是辅助性文件**——EMDB `/entry/{emdb_id}` 的原样 JSON（外部 schema，体量大）。蒸馏后的分辨率已进 `pair_list` 的 `resolution_info`，一般无需直接读它。
 - `reports/resolution_summary.json`：**这是统计性文件**——本批样本的分辨率状态计数（`single_unique / multi_candidate_consistent / ambiguous_emdb / fallback_rcsb / rcsb_disagree / missing / emdb_metadata_error`）+ 少量示例。
-- `reports/_failed_parse.jsonl`：PDB 级解析失败（每行 `{pdb_id, stage:"parse_failed", error}`）。
-- `reports/_failed_download.jsonl`：下载失败（每行 `{pdb_id, emdb_id, resource, error}`）。
+- `reports/_failed_parse.jsonl`：PDB 级解析失败（每行 `{pdb_id, stage:"parse_failed", error}`）。**SLURM array 分片运行时**文件名带后缀，形如 `_failed_parse.part_0000_of_0006.jsonl`。
+- `reports/_failed_download.jsonl`：下载失败（每行 `{pdb_id, emdb_id, resource, error}`）。同上，分片时为 `_failed_download.part_XXXX_of_YYYY.jsonl`。
 - 三个失败文件**仅在确有失败时出现**。
 
 ---

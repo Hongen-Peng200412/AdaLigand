@@ -1,4 +1,11 @@
-"""Stage A-C 共享常量。"""
+"""Stage A–C 共享常量表。
+
+集中存放解析与编码用的固定常量，避免散落：
+- JUNK_RESNAMES：枚举候选 ligand 时排除的水/溶剂/添加剂/占位 resname。
+- RES_VOCAB / RES_TO_ID：受体残基类型词表与索引（20 AA + 8 核苷酸 + UNK），用于 receptor_tokens 的 res_type。
+- PROTEIN_BACKBONE / NUCLEIC_BACKBONE：主链原子名集合，用于 is_backbone。
+- METAL_ELEMENTS：金属元素集合，用于把单原子金属判为 type_tag=ion。
+"""
 
 from __future__ import annotations
 

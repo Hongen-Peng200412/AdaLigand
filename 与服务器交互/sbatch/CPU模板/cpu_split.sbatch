@@ -1,9 +1,9 @@
 #!/bin/bash
+#SBATCH -J CPU_NoEx
 #SBATCH -o /home/penghongen/Stage1/Out/CPU_96_NonExclusive.txt
 #SBATCH -e /home/penghongen/Stage1/Error/CPU_96_NonExclusive.txt
 #SBATCH -p cpu                      # <--- 确认分区名
 #SBATCH --qos=Cpu96                 # <--- 依然遵守96核配额限制
-#SBATCH -J CPU_NoEx
 
 # --- [资源申请] ---
 #SBATCH -N 1                        # 单节点

@@ -1,4 +1,11 @@
-"""RCSB、PDBe 与 EMDB 元数据访问工具。"""
+"""Stage A 的 RCSB / EMDB 元数据访问与分辨率 provenance。
+
+- search_em_ligand_entries：一次 RCSB Search 查询，列出"EM + 有 EMDB + 含配体"的全部 PDB（全局，不分片）。
+- fetch_entry_metadata / fetch_emdb_metadata / choose_emdb_id：取条目元数据、为多 EMDB 选主 EMDB。
+- extract_resolution_info / build_resolution_summary：从 EMDB final reconstruction（优先）与 RCSB
+  resolution_combined（fallback）显式收集分辨率候选，给出选定值、来源、状态与本批统计。
+- 网络请求带少量重试。供 a_enumerate 写 pair_list / resolution_summary。
+"""
 
 from __future__ import annotations
 
