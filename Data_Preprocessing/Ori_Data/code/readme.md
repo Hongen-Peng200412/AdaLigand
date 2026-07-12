@@ -1,22 +1,30 @@
-# AdaLigand 数据下载与解析（Ori_Data）产物契约
+# AdaLigand A–G 数据流水线（Ori_Data）产物契约
 
-> **这份文档是什么**：数据侧 Stage A–C **正式运行后产生的全部文件、字段、形状、含义和真实例子**。目标是新手不读代码也能看懂每个产物。
+> **这份文档是什么**：数据侧 Stage A–G **正式运行后产生的全部文件、字段、形状和含义**。目标是新手不读代码也能看懂每个产物。
 > **不是什么**：不是实现历史/决策记录（那些在 `文档/exec_plan/数据下载与解析.md`），也不是计划书（`文档/规划文档/数据处理_v2.md`）。本文只描述**当前接口现实**。
-> **当前覆盖**：Stage A（枚举）、B（下载）、C（解析）。Stage D–G（标签/密度/质量/过滤）尚未实现，不产出。
+> **当前覆盖**：Stage A（冻结清单 guard）、B（增量下载）、C（契约迁移）、D（原子标签）、E（密度）、F（CC/Q-score）和 G（分布/过滤）。服务器全量产物尚需本轮正式运行生成。
 
 ---
 
 ## 1. 一句话总览 + 运行
 
-三个脚本，依次产出 `raw/ → parse/ + ligand_objects/ + reports/`。所有产物都落在你用 `--root` 指定的根目录下（服务器正式跑时是一个绝对路径，例如 `/storage/.../AdaLigand/run1`）。
+所有产物都落在 `--root` 指定的数据根。正式运行给整个 DAG 传同一个 `--run_id`；下列命令只展示接口，资源数和外部工具路径由 `sbatch/` 固化。
+
+正式 CPU96 调度默认 D/E 同作业并发 `D_N_JOBS=64,E_N_JOBS=24`，F 为 12 个 PDB 外层并发；每个 F PDB 的 MapQ 固定 `np=8`，因此最多约 96 个 MapQ Chimera worker。`cpu` 分区当前 `DefaultTime=NONE, MaxTime=UNLIMITED` 且 `Cpu96` 无 MaxWall，所以 DE/F/G sbatch 不写 `--time`。已提交作业若要原地调参，可在启动前原子预置 `/home/penghongen/run_cmd_${SLURM_JOB_ID}.sh`；专用 core 拒绝 symlink，要求普通非空文件并设为 `0700`，在首次及每次 `try_lock` 重试前都执行 `bash -n` 并记录 SHA-256，不存在预置文件时才调用 sbatch 内置生成钩子。
 
 ```bash
-python scripts/a_enumerate.py --root ${ROOT} --part_id 0 --total_parts 1 --n_jobs -1
-python scripts/b_download.py  --root ${ROOT} --resources mmcif,meta,map --n_jobs -1
-python scripts/c_parse.py     --root ${ROOT} --n_jobs -1
+python scripts/a_guard.py --root ${ROOT} --expected_count 22386 --run_id ${RUN_ID}
+python scripts/b_download.py --root ${ROOT} --resources mmcif,meta,map --n_jobs 1 --run_id ${RUN_ID}
+python scripts/c_parse.py --root ${ROOT} --n_jobs ${N_JOBS} --run_id ${RUN_ID}
+python scripts/abc_release_gate.py --root ${ROOT} --run_id ${RUN_ID}
+python scripts/d_atom_labels.py --root ${ROOT} --run_id ${RUN_ID} --n_jobs ${N_JOBS}
+python scripts/e_density.py --root ${ROOT} --run_id ${RUN_ID} --chimera ${CHIMERA}
+python scripts/f_quality.py --root ${ROOT} --run_id ${RUN_ID} --chimera ${CHIMERA} \
+  --chimera_root ${CHIMERA_ROOT} --mapq_cmd ${MAPQ_CMD} --mapq_zip ${MAPQ_ZIP}
+python scripts/g_filter.py --root ${ROOT} --run_id ${RUN_ID} --mode analyze
 ```
 
-**贯穿全程的主键**：`(pdb_id, candidate_id)`。`pdb_id` 一律小写；`candidate_id` 是该 PDB 内配体 occurrence 的稳定 0 起编号。
+**贯穿全程的主键**：`(pdb_id, candidate_id)`。`pdb_id` 一律小写；`candidate_id` 是该 PDB 在**同一冻结 mmCIF source snapshot 内**按排序派生的 0 起编号，不是跨 source revision 永久不变的 accession。source 更新可能因 atom serial 或候选排序变化而重排同一 occurrence 的 `candidate_id`，因此任何 source 迁移都必须同步重建该 PDB 的全部 candidate-indexed C 产物后才能释放下游。
 
 > **产物分两类**：`raw/`、`parse/`、`ligand_objects/` 是**核心产物**（下游训练/推理会消费）；`reports/` 下全是**统计/诊断/辅助产物**（不参与训练推理），其解释统一放在 §4 末尾的 4.7。
 
@@ -36,12 +44,33 @@ ${ROOT}/
     ligand_coords.npz               # 每个 occurrence 的真实沉积坐标
     receptor_tokens.npz             # 受体(聚合物)全原子 token
   ligand_objects/{safe_object_key}.npz   # 核心：去重的配体化学对象(跨 pdb 复用)
+  ligand_descriptors/{safe_object_key}.npz # Stage C：去重配体描述子
+  labels/{pdb_id}/atom_labels.npz        # Stage D：受体原子标签
+  density/{pdb_id}/exp.npz               # Stage E1：目标 1 Å、记录实际 voxel 的 canonical 实验图
+  density/{pdb_id}/sim.npz               # Stage E2：严格 ATOM-only 受体模拟图
+  density/{pdb_id}/ligand_area.npz       # Stage E3：体素 union + occurrence 稀疏 mask
+  quality_atoms/{pdb_id}.npz             # Stage F：配体逐原子 Q + occurrence 口袋受体原子 Q
+  quality/{pdb_id}.jsonl                 # Stage F：配体/口袋 occurrence 聚合 + 四种全局 CC
+  quality/{pdb_id}.provenance.json       # Stage F：工具、公式、输入和日志 provenance
+  keep_list.jsonl                        # Stage G：仅显式阈值配置后生成的最终主键清单
   reports/                          # 统计/诊断/辅助（不参与训练推理）
     {pdb_id}.json                   # 单样本解析报告
     meta/{pdb_id}.meta.json         # EMDB /entry API 原样响应(辅助)
     resolution_summary.json         # 本批分辨率状态统计(统计)
     _failed_parse[.part_*].jsonl    # 若有 PDB 级解析失败才出现; SLURM array 分片时带 .part_XXXX_of_YYYY 后缀
     _failed_download[.part_*].jsonl # 若有下载失败才出现; 同上分片后缀
+    runs/{run_id}/{stage}/status.part_*.jsonl # 当前运行唯一终态，不读历史失败猜状态
+    runs/{repair_run_id}/stage_c_source_repair/
+      audit.records.jsonl           # source-dirty 全集只读分类与冻结哈希
+      audit.summary.json            # 分类计数、dirty IDs/audit records SHA-256
+      apply.records.jsonl           # exact 不写；atom_name_only 原子迁移结果
+      apply.summary.json            # apply 计数与所消费 audit SHA-256
+    runs/{repair_run_id}/stage_c_ccd_prefetch/ # 唯一允许联网的显式 CCD cache 补足证据
+    runs/{repair_run_id}/stage_c_descriptor_prefetch/ # 已有 LigandObject → descriptor 的非覆盖依赖补足证据
+    runs/{repair_run_id}/stage_c_source_rebuild/ # 单次授权 full rebuild 的 staging/backup/receipt
+      primary_key_migration.records.jsonl # 本轮 before/after 审计，不是 C schema 或训练字段
+    runs/{run_id}/stage_g_analysis/quality_distribution.json
+  scratch/{run_id}/...              # 外部工具 attempt；成功后删除大型临时 MRC
 ```
 
 ---
@@ -49,7 +78,7 @@ ${ROOT}/
 ## 3. 全局约定
 
 - **世界坐标系**：所有坐标都是 mmCIF 沉积态的**世界坐标，单位 Å**；EMDB 密度图与之天然同框。
-- **npz 一律不压缩**（`np.savez`），读快；用 `np.load(path, allow_pickle=True)` 打开。
+- **npz 一律不压缩**（`np.savez`）并原子替换。除 `ligand_objects` 的 object 字段外均用 `allow_pickle=False`；读取 LigandObject 时才用 `allow_pickle=True`。
 - **小整数编码**：`element`=原子序数；`res_type`/原子名等是编码值，解码表见 §10。
 - **两套链/残基编号**：mmCIF 有 `label_*`（规范内部体系）和 `auth_*`（作者/PDB 网页体系），可能不同，两套都保留（见 §4.3 occurrences）。
 - **空值约定**：空 `[]` / `""` 与 `null` 同义，都表示"无/不适用"；单残基(CCD)与 BRANCHED 在某些字段上互斥取空，详见 §4.3、§4.4。
@@ -83,6 +112,8 @@ ${ROOT}/
 ### 4.2 原始下载件（核心）
 
 `raw/rcsb_mmcif/{pdb_id}.cif`（RCSB 全结构 mmCIF）、`raw/emdb_maps/emd_{num}.map.gz`（EMDB 密度图，`{num}`=去掉 `EMD-` 的数字）、`raw/ccd_cache/{CCD}.pkl`（解析时按需拉取的 CCD 分子 pickle）。都是原始外部文件，不做改写，下游会消费。
+
+Stage B 的复用判据必须保持低 I/O：既有 mmCIF 非空、去除前导空白后以 `data_` 开头，且前 1 MiB 含 `_entry.id` 即可复用；不得假设大文件的 `_atom_site.` 必定位于前 1 MiB。完整 mmCIF 结构由 Stage C 实际解析时验证。map 跳过路径只检查非空与 gzip magic，完整 CRC/MRC/三维内容由下载后校验和 Stage E 读取负责。run-scoped `known_failed` 也保存逐资源 `resources` 状态，不能只保留错误文本而丢掉本轮哪些 source 被刷新。
 
 ---
 
@@ -219,6 +250,7 @@ bonds[0] = (24, 25, [T,F,F,F,F], [F,F,F,F])   # 第24与第25个原子之间一�
 |---|---|---|
 | `coords_{cid}` | float32 (M,3) | 第 `cid` 个 occurrence 的沉积态真实坐标(Å)；**缺失原子填 `nan`** |
 | `present_{cid}` | bool (M,) | 第 i 个模板原子是否真在沉积结构里 |
+| `centroid_atom_{cid}` | float32 (3,) | `coords[present]` 的重原子几何中心，世界 XYZ Å；下游不得另行换口径 |
 
 `M` = 该 occurrence 对应 LigandObject 的原子数（来自 **CCD 模板**）。
 
@@ -247,14 +279,23 @@ coords_0[0]     == [75.919, 74.287, 27.503]   # 真实世界坐标(Å)
 | `atom_name` | S4 (N,) | 原子名（ascii 字节串，如 `b'CA'`） |
 | `res_index` | int32 (N,) | 所属残基的全局序号(0 起) |
 | `chain_index` | int32 (N,) | 所属链的全局序号(0 起) |
+| `bond_index` | int32 (2,E) | 无向唯一 COO，两端是本文件原子行下标，端点按小→大并字典序排序 |
+| `bond_type` | uint8 (E,) | `single=0,double=1,aromatic=2,backbone=3,disulfide=4,covale=5,triple=6`；6 为向后兼容追加，0–5 不变 |
+| `feat` | float32 (N,49) | 6 元素 + 25 残基 + 8 理化 + 1 质量 + 9 个 2 Å 邻居壳层 |
 
 **例（schema 示意，取自蛋白 ALA 的 CA）**：`coords=[12.3,4.5,6.7]`，`element=6`(C)，`res_type=0`(ALA)，`is_backbone=True`，`atom_name=b'CA'`，`res_index=37`，`chain_index=0`。
 
-> 提示：本文件足以**无损复现 Pocket_Plus 的 49 维原子特征**——其"局部密度"是结构邻居计数（由 `coords` 重算），不是电子密度图，故**密度图非必需**；只需把 `element`/`res_type` 经查表展开、再跑邻居计数即可。
+> `feat` 的 25 类残基通道与 29 类 `res_type` 是两套编码：前者为 20 AA + A/U/C/G + X，DNA 映射到 RNA 母体；后者继续区分 DA/DC/DG/DT。局部密度是结构邻居计数，不是电子密度图。
+
+### 4.7 `ligand_descriptors/{safe_object_key}.npz`（核心）
+
+每个 `object_key` 全局一份：`mol_weight/n_heavy/n_rings/n_rotatable/wiener_index/graph_energy/radius_gyration` 均为 scalar；`atom_local (M,5) float32` 依次为图偏心率、1/2/3-hop 邻居数、最近环 hop。无环的最近环距离为 `-1`；回转半径是 `ref_pos` 的非质量加权几何 Rg；图能量使用无权邻接矩阵。
+
+描述子临时 RDKit Mol 保留 LigandObject 的完整 CCD 模板和未出现 leaving atom，因此允许表观高价态：先 `UpdatePropertyCache(strict=False)`，再执行除 `SANITIZE_PROPERTIES` 外的全部 sanitize。该放宽只关闭严格价态检查；芳香性、kekulize、成环等剩余失败仍显式阻断，不会静默吞错或改写 LigandObject。
 
 ---
 
-### 4.7 统计 / 诊断 / 辅助产物（不参与训练推理）
+### 4.8 统计 / 诊断 / 辅助产物（不参与训练推理）
 
 以下文件**绝不**作为训练/推理字段使用，仅供人工审查、体检和失败诊断；放在这里以免干扰核心产物。
 
@@ -263,7 +304,112 @@ coords_0[0]     == [75.919, 74.287, 27.503]   # 真实世界坐标(Å)
 - `reports/resolution_summary.json`：**这是统计性文件**——本批样本的分辨率状态计数（`single_unique / multi_candidate_consistent / ambiguous_emdb / fallback_rcsb / rcsb_disagree / missing / emdb_metadata_error`）+ 少量示例。
 - `reports/_failed_parse.jsonl`：PDB 级解析失败（每行 `{pdb_id, stage:"parse_failed", error}`）。**SLURM array 分片运行时**文件名带后缀，形如 `_failed_parse.part_0000_of_0006.jsonl`。
 - `reports/_failed_download.jsonl`：下载失败（每行 `{pdb_id, emdb_id, resource, error}`）。同上，分片时为 `_failed_download.part_XXXX_of_YYYY.jsonl`。
-- 三个失败文件**仅在确有失败时出现**。
+- legacy `_failed_*` 只供诊断；当前分片即使无失败也会原子写空文件以清除旧污染。release gate 只消费 `reports/runs/{run_id}/...`，不根据 legacy 文件是否存在判断本轮成败。
+
+#### Stage C source-dirty audit/apply
+
+`scripts/snapshot_source_dirty.py` 用带 UTC offset 的显式 mtime 窗口冻结 dirty PDB 清单，要求预期数量完全一致，并把清单 SHA-256 写入 summary。`scripts/c_ccd_prefetch.py` 是 source 迁移中唯一允许联网补足 CCD cache 的阶段，完成后 audit/apply 均强制 cache-only。若 current source 新增了此前 `resolve_failed` 的 occurrence，且其 LigandObject 已存在但描述符尚未物化，`scripts/c_descriptor_prefetch.py` 可在最终 audit 前按冻结 object-key 清单以 `overwrite=False` 补齐 `ligand_descriptors/`；run-scoped records 必须同时绑定输入清单、源 LigandObject、实现和最终 descriptor 的 SHA-256。它不写 canonical `parse/`、不改变科学 schema，成功证据不可被失败或新实现静默覆盖。`scripts/c_source_repair.py` 必须使用独立 `repair_run_id`，分两次调用：先 `--mode audit`，仅当全集合都是 `exact` 或 `atom_name_only` 时才能 `--mode apply`。
+
+- `exact`：基础数组和 ligand-side 均一致；若旧 receptor 已含完整新字段，`bond_index/bond_type/feat` 也须与当前 source 重建逐位一致。不写任何 C 文件。
+- `atom_name_only`：occurrence、配体核心 `coords/present` 和六个其余受体基础数组逐位不变；当前 atom name 还必须非空、残基内唯一。严格 CCD 身份、atom-name 唯一性/覆盖和元素一致性只约束实际发生改名的 residue，不能被无关 `N/UNK` 占位 residue 误伤。旧 receptor 缺少 `bond_index/bond_type/feat` 时没有派生比较基线，但这不能豁免任何 ligand/base 漂移；当前完整重建通过后，apply 一次性补齐三项派生字段。旧 receptor 已完整时仍执行 feat 全局不变和未改名子图 bond 不变门禁。只更新 `receptor_tokens.npz` 的 `atom_name/bond_index/bond_type/feat`，额外 provenance key 原样保留。
+- `blocked/failed`：任一即阻止全局 apply。
+
+每条 audit 冻结 mmCIF、旧 receptor、occurrences、ligand_coords、单样本 report 五个直接输入，以及所引用 LigandObject/CCD cache 依赖闭包；summary 还冻结全部 `code/*.py` 与 repair CLI 的实现哈希。ID 清单和 audit JSONL 从各自同一份已哈希字节解析，apply 拒绝实现漂移。apply 先做全集合 preflight，再在 per-PDB artifact lock 内复核、cache-only 重建和 commit 前 CAS。中断时可能已有一部分 receptor 完成原子替换，因此**幂等恢复单位是重新运行完整 audit→apply**，不是单独重放旧 apply records。
+
+本轮冻结的 14-PDB ligand-side source revision 由用户单独授权走 `scripts/c_source_rebuild.py`，不放宽上述通用分类。专用 audit 先把完整 `occurrences/ligand_coords/receptor/report` 写入 run-scoped staging，精确核对新增/删除/reassigned 计数及所有匹配 occurrence 的 coords/present/centroid；联合 2,156 条 pre-apply gate 把这些记录标成 `delegated_full_rebuild_ready` 后仍必须做到 blocked=0、failed=0，才允许 canonical 写入。apply 在首个 commit 前完成全部 before backup 和二次全局 CAS，每个 PDB 用 durable transaction receipt、原子单文件替换及异常 rollback 收敛。`primary_key_migration.records.jsonl` 只用于本次审计与恢复，不是 Stage C 主产物、训练字段、stable occurrence id、跨 source 永久映射或未来自动 rebuild 许可。
+
+带 `--pdb_ids_file` 的 `c_parse.py` 会拒绝复用已有正式 A guard 或任何 Stage C status 的 run id；filtered smoke/repair 必须使用全新独立 run id。正式 run 的 C 状态只能由无过滤全量命令刷新，防止把 22,386 行状态覆盖成子集。
+
+---
+
+## 5. Stage D：`labels/{pdb_id}/atom_labels.npz`
+
+| key | dtype·shape | 含义 |
+|---|---|---|
+| `binding_atom` | bool (N_rec,) | 最近 present ligand 重原子距离 `<= binding_threshold` |
+| `instance_id` | int32 (N_rec,) | binding 原子取最近 occurrence cid，背景固定 `-1` |
+| `nearest_dist` | float32 (N_rec,) | 每个受体原子的真实最近距离，背景也保留 |
+| `binding_threshold` | float32 scalar | 正式默认 4.0 Å，含等号 |
+
+还保存 schema version、受体/配体坐标输入 SHA-256。完全等距时按较小 `candidate_id`、再按拼接行号稳定决胜。
+
+## 6. Stage E：密度与体素标签
+
+### 6.0 Pocket Plus MRC 祖传基线与全部适配差异
+
+MRC 数值原语的可信祖先是 `Pocket_Plus/processedPDB_EMDB_binder/utils/mrc_tools.py`；vendoring 时仓库 HEAD 为 `f4c3e5ce3c706f8d52fed7fa3cc40570cfb5b4b5`，该文件最后修改 commit 为 `a8380721fb555d42408a5ab558a675caa537ed80`，完整源文件 SHA-256 为 `d8e543e4c6763a44cde3d350434c51506d794ecf1c2143db2ce304419bc06ca8`。`mrc_pocket_legacy.py` 原样保存 `load_map`、`make_cubic`、`normalize_voxel_size`、`rescale_real`、`rescale_fourier`、`make_model_grid` 六个函数，副本 SHA-256 为 `acf74c256e6d88f9e40e972c0d86d35262aa9ac6ac790346adbd54e3109e8a45`；六个函数的源码片段和标准化 AST 均为零差异。机器可读来源、逐函数哈希和模块级差异在 `mrc_pocket_legacy.source.json`，回归在 `tests/test_mrc_pocket_legacy_parity.py`。Git 提交 `6de3fb8` 冻结该快照，`.gitattributes` 强制副本使用 LF，避免 Windows/Linux checkout 改变字节哈希。
+
+祖传函数体之外只有以下适配，其他数值逻辑不得在 AdaLigand 内另写一套：
+
+| 位置 | 与祖先的差异 | 必要性与行为影响 | 回归证据 |
+|---|---|---|---|
+| `mrc_pocket_legacy.py` 模块层 | 只选六个相关函数；imports 缩为 `mrcfile/numpy`；增加来源 Docstring | 隔离无关的 class-weight、B-factor、padding/save helper 及其依赖；六个函数体不变 | manifest + 逐函数源码/AST hash |
+| `mrc.py::load_map` | `Path→str`；显式暴露祖传 `multiply_global_origin`；返回值包成 `MapGrid`；网格实体化并转 float32；只做 shape/finite/positive 验收 | 适配 AdaLigand 接口、关闭 MRC handle 后不保留悬空 memmap，并满足 artifact dtype；不改祖传轴/origin 数值 | 六轴、gzip、OWNDATA、两种 origin mode parity |
+| `mrc.py::make_canonical_grid` | 校验正 target；调用祖传 `make_model_grid`；返回值包成 `MapGrid` 并转 float32；核对 padded 输入与输出物理长度闭合 | AdaLigand 参数/落盘 dtype 适配；普通 `all_equal/all_diff` 的 shape、padding、Fourier、origin 与实际 voxel 全由祖传函数决定 | wrapper 与祖传函数逐值 parity、偶数 shape、actual voxel、物理闭合 |
+| `mrc.py::_rescale_real_mixed_axis_compat` | 代码与祖传 `rescale_real` 相同，唯一行为差异是条件由 `np.all(out_sz != box.shape)` 改为 `np.any(...)`；仍调用祖传 `rescale_fourier`，并直接复用祖传已经返回的补偶 grid | 全量 header 审计只发现 EMD-11978/12465 两张 mixed-axis 图；祖传分支会跳过全部 resize 却返回拟输出 voxel。本兼容只在物理闭合失败且严格满足 mixed 关系时触发，模式显式落盘；复用补偶结果避免奇数输入重复分配大型数组 | mixed 常数/odd-shape/幅值/shape/闭合回归；全量审计 2/22,269；两张真实图 smoke |
+| native 与 generated 调用点 | native EMDB 使用祖传默认 `multiply_global_origin=True`；AdaLigand/Chimera 写出的 `nstart=0`、header.origin 为 Å 的图使用 `False` | 保留 Pocket native-map 语义，同时让非单位 voxel 的 canonical MRC→Chimera→读取闭合 | 非单位 voxel+非零 origin 往返、合成 C→G smoke；真实 Chimera smoke 的两图 header/重载几何闭合 |
+| `write_canonical_mrc` | AdaLigand 自有原子 writer，标准轴、`nstart=0`、header.origin 直接写 Å | 为 Chimera `onGrid` 提供显式几何；它不是祖传六函数的修改 | 标准 header 与非单位 voxel 往返 |
+| E/F artifact/QC | E1/E2/E3 schema 由 v1 升 v2；E1 保存 target、actual voxel、祖先/副本/算法/origin-mode、native/even/canonical shape 与 resample mode；不再要求 actual voxel 精确等于 1，仍要求 exp/sim shape、actual voxel、origin 严格相同 | 阻止旧 Ada 独立重采样产物被复用，并让下游消费祖传返回的真实几何 | 旧 schema/算法拒绝、identity 精确匹配、非单位 voxel pair QC |
+| recommended contour | Pocket grid 逐值不变；保存 `contour_native`、`contour_scale_to_canonical=prod(even_input)/prod(actual_output)`、`contour_canonical`，F 只把 canonical 值传给 Chimera；F provenance 与当前 E1 的三值/scale/mode/path/source 逐项绑定 | 祖传 FFT 不做点数幅值补偿；Ada 新增的 canonical-map contour CC 必须迁移 threshold 单位，但不能因此改 Pocket 训练输入；单独破坏 provenance 不能被幂等 skip 接受 | 常数 up/down、odd padding、随机 mask 0 mismatch、缺 contour 三 null、provenance 腐败重建、合成 C→G correlation 脚本 |
+
+祖传 `make_model_grid` 的契约是“目标体素 + 偶数网格 + 物理长度决定实际 voxel”，不是把 header 强制声明为精确 1.0 Å。正式 target 仍为 `1.0`，但所有消费者必须读取 artifact 的 `voxel_size`。
+
+正式 header-only 审计 run `adaligand_mrc_contract_audit_20260712T192000_v2` 覆盖 pair list 22,386 行、22,274 张唯一 EMDB 图：22,269 张 header 可读，其中 `all_diff=21,941`、`all_equal=326`、`mixed_equality=2`；5 张缺图与 B known failure 一致。mixed 仅为 EMD-11978/12465。22,267 张几何闭合图的 contour scale 分布为 min `0.000354`、median `0.943052`、p95 `3.152994`、max `56.895767`，证明 raw contour 不能原样用于 canonical 图。summary/risk SHA-256 分别为 `a9300d2d…44a7fe8` / `81784ee1…3a6712`；完整证据保留在服务器 run-scoped reports，不进入科学主键或训练字段。
+
+真实 geometry smoke run `adaligand_mrc_geometry_smoke_20260712T200227` 直接使用两张 mixed 图和真实 Chimera 1.19：7b14 从 native `91×48×47` 得到 canonical/sim `94×48×48`，7nll 从 `101×55×88` 得到 `104×56×88`；两者 actual voxel 均非精确 1 Å、origin 均非零，canonical 与 sim 的 shape/voxel/origin 完全一致，两个 MRC 都是 `mapc/mapr/maps=1/2/3`、`nstart=0`，三维内容与受体包围盒 QC 零错误。机器 summary 和 Markdown SHA-256 分别为 `0e40d866…96957` / `451a6dce…de5`，完整 MRC、CIF、Chimera 脚本和日志保留在 `/storage/penghongen/AdaLigand/Ori_Data/reports/runs/adaligand_mrc_geometry_smoke_20260712T200227/mrc_geometry_smoke/`。同一代码在本地与服务器 Python 3.10 均为 172 tests passed。
+
+### 6.1 `exp.npz`
+
+- `grid (1,Z,Y,X) float32`：native EMDB map 经 Pocket Plus 祖传函数按 **target=1.0 Å** 重采样得到的原始幅值；不归一化。
+- `target_voxel_size float32 scalar=1.0`；`voxel_size (3,) float32` 是祖传函数按偶数输出 shape 返回的**实际 XYZ voxel**，通常接近但不强制逐轴等于 1.0；`origin (3,) float32` 是 `grid[0,0,0]` 体素中心的世界 XYZ 坐标。
+- `contour` 与 `contour_native`（float32 scalar）保存主图 `map.contour_list.contour[*]` 中唯一 `primary=true` 的原始 level；`contour_scale_to_canonical float64` 保存祖传幅值比例；`contour_canonical float32 = float32(contour_native × scale)` 是 F 实际传给 Chimera 的 threshold。缺失/歧义时 native/canonical 均为 `NaN`、`contour_present=False`，scale 和 geometry provenance 仍保存；不递归误取 additional map，也不猜 fallback。
+- `native_shape_zyx/even_input_shape_zyx/canonical_shape_zyx int64(3,)` 与 `resample_mode` 记录普通祖传或 mixed-axis 薄兼容路径。
+- `schema_version=2`；`mrc_algorithm/mrc_ancestor_sha256/mrc_vendor_sha256/source_origin_mode` 冻结祖传 lineage。任何 v1 或旧 `scipy.signal.resample` identity 都必须重建，不能 skip。
+
+### 6.2 `sim.npz`
+
+专用于 receptor-only 模拟图：从首 model、与 C 同款 altloc 选择的重原子中**严格只留 `group_PDB==ATOM`**，所有 HETATM（含水、配体和共价修饰）均删除。Chimera 在 E1 canonical MRC 上显式 `region all step 1 limitVoxelCount false`，再 `molmap ... onGrid`；不做第二次独立重采样。缺 resolution 时该样本记 `known_failed`，不猜默认值。
+
+正式字段仍为 `grid/voxel_size/origin`，并保存 `schema_version=2`、resolution、Chimera 版本、输入 hash、`strict_hetatm_removed=True` 和 `generated_mrc_origin_mode=header_origin_angstrom_nstart_zero`。验收要求：`sim.grid.shape == exp.grid.shape == (1,Z,Y,X)`；两图实际 voxel 与 origin 相同，并且 sim 精确绑定当前 E1 identity；数组有限、非零、有方差且 X/Y/Z 每轴至少两个切片有内容；受体包围盒与网格相交。只有单平面的“伪三维图”会失败。
+
+### 6.3 `ligand_area.npz`
+
+- `union_mask (1,Z,Y,X) bool`。
+- `mask_{cid} (K,3) int32`：唯一且字典序排序的稀疏 **ZYX** voxel 索引。
+- `centroid_voxel_{cid} (3,) float32`：字段名沿用计划，但数值明确是 mask 体素中心均值的**世界 XYZ Å**。
+
+球半径按原子元素：C/N/O/P/S 使用计划锁定的 1.70/1.55/1.52/1.80/1.80 Å；其他有效元素调用 RDKit `PeriodicTable.GetRvdw`，绝不使用统一默认半径。实现只枚举逐原子局部 bbox/stencil，不构造 `D*H*W` 世界坐标 KD-tree。
+
+## 7. Stage F：四种 CC、配体 Q 与口袋 Q
+
+`quality/{pdb_id}.jsonl` 每个 occurrence 一行。配体本身保存 `q_score`（mean，兼容字段）、`q_score_median`、`q_score_min`、`n_valid`、`n_present`；对应受体口袋保存 `pocket_q_score`、`pocket_q_score_median`、`pocket_q_score_min`、`pocket_n_valid`、`pocket_n_atoms`、`pocket_radius_angstrom=6.0`。另外保存 `map_resolution`、`livq=null`，并重复以下四个 PDB 全局原始量：
+
+| 字段 | mask | 是否减均值 |
+|---|---|---|
+| `cc_contour` | 实验 canonical 图高于 `contour_canonical`（native recommended contour 已按祖传幅值比例映射）的 grid 点 | 否 |
+| `cc_contour_about_mean` | 同一 contour mask | 两图各自在 mask 内减自身均值 |
+| `cc_all` | Chimera `aboveThreshold false`，即**实验图非零 grid 点**，不是所有 padded box 体素 | 否 |
+| `cc_all_about_mean` | 同一实验图非零 mask | 两图各自在 mask 内减自身均值 |
+
+实验图必须是 `measure correlation` 的第一张图。contour 缺失时只允许前两项为 JSON `null`；`cc_all*` 仍计算。四项非空值必须有限且在 `[-1,1]`。
+
+Q-score 使用 native EMDB map、首 model/规范 altloc 的完整 `ATOM+HETATM` 重原子模型、MapQ 2.9.7 固定包（commit `c3bdf...`，zip SHA-256 `ee004e...fe55`）、显式 `sigma=0.4,np=8`。MapQ 输出先按原始 `_atom_site.id` join，再核对完整身份和坐标；随后用 `components.index + atom_name` 投到 LigandObject 行序。禁止按输出行序、残基遍历顺序或坐标最近邻猜测。正式 F 默认 12 个 PDB 并发，因此 MapQ 子进程上限约 96；真实 smoke 还会把 np=8 的配体/口袋子集逐 id 对照已保存的 np=1 基线，验证并行数值一致性。
+
+固定 MapQ CLI 的 CIF 分支漏掉了 `mmcif.ReadMol` 结果的 `chimera.openModels.add`，会在 classic Chimera 1.19 中触发 `ValueError: unopen model`。适配器不修改安装目录，而是在每个 PDB 的 scratch 中生成 basename 仍为 `mapq_cmd.py` 的一次性兼容副本，只插入这一行；原始 CLI SHA、固定 zip SHA 和补丁标识 `mapq_cmd_cif_readmol_openmodels_v1` 均写入 provenance。任何上游源码 anchor 漂移会直接失败，不静默跳过补丁。
+
+口袋定义固定为：同一首 model/altloc 选择下，`group_PDB=ATOM` 的受体重原子中，到该 occurrence **任一** `present=True` 配体重原子的距离 ≤ 6.0 Å 的原子并集。它不是配体中心球，因此长条或分支配体两端的局部受体都能进入；配体自身 HETATM 不进入口袋。若某个 occurrence 的 6 Å 包络确实没有受体原子，保留该 occurrence：写 typed empty 原子/Q 数组、`pocket_n_atoms=pocket_n_valid=0`、三个 Q 聚合为 JSON `null`、`pocket_status=no_receptor_atoms_within_radius`；不得把它升级为整 PDB 失败或预先过滤。
+
+`quality_atoms/{pdb_id}.npz` 保存 `qscore_{cid} (M,) float32`；`present=False` 固定 `NaN`，成功 occurrence 必须 `n_valid == n_present`。同时保存数值升序的 `pocket_atom_site_id_{cid} (K,) int64` 与同序 `pocket_qscore_{cid} (K,) float32`，以及标量 `pocket_radius_angstrom` 和 `pocket_definition`；非空口袋必须 `pocket_n_valid == pocket_n_atoms == K > 0`，空口袋则两个 typed array 均为 `(0,)` 且聚合为 null。两种状态都保留 occurrence。不复制整份受体 Q 表，只保留每个 occurrence 实际口袋的可审计子集。四量公式、口袋规则、工具版本、输入 manifest 和日志位置另见 `quality/{pdb_id}.provenance.json`。
+
+## 8. Stage G：分布与正式过滤
+
+- `--mode analyze` 自动检查本轮 D/E/F 每个 A 样本恰有一个终态，unknown、重复、额外或 silent missing 立即失败；随后写 `reports/runs/{run_id}/stage_g_analysis/quality_distribution.json` 和 `candidates.pending.jsonl`。分布同时包含四个 CC、配体 Q 和口袋 Q 原始统计；它**不会**写 `keep_list.jsonl`。
+- `--mode filter --config filter_config.json` 才写正式 `keep_list.jsonl`。配置必须显式给 `q_score_min`、`resolution_max`（可为 null）、`resolution_policy=exclude|flag_only` 和 `comparison=inclusive`；配置内容与 hash 进入 summary。
+- `keep_list.jsonl` 稳定按 `(pdb_id,candidate_id)` 排序；known-failed PDB 明确排除；任何 unknown/silent missing 阻塞。
+
+## 9. run-scoped 终态与失败纪律
+
+每个 stage 分片原子写 `reports/runs/{run_id}/{stage}/status.part_XXXX_of_YYYY.jsonl`。每个 PDB 的 `status` 只允许 `success/skipped/known_failed/unknown_failed`。只有在 `failures.KnownFailureCode` 明确枚举的数据不适用情形才可继续；普通 Python 异常、schema 漂移、Chimera/MapQ 输出异常均为 unknown，最终 gate 必须阻塞。
 
 ---
 
@@ -317,7 +463,8 @@ for o in occ:
 
 ## 13. 当前覆盖与边界
 
-- 覆盖 **Stage A–C**。Stage D–G（原子标签、密度重采样、质量 Q-score、过滤）**未实现、无产出**。
+- 代码与契约覆盖 **Stage A–G**；服务器正式全量产物以本轮 run-scoped release 报告为准，不以代码存在或历史文件计数代替完成。
 - `raw/emdb_maps/` 是否生成取决于 `b_download.py --resources` 是否含 `map`（默认含）。Stage C 不消费 map。
 - 解析失败的 occurrence 记 `resolve_failed` 入 `reports`，**不**进主产物；严格依赖 `_atom_site.label_atom_id` 与 CCD 原子名精确对齐（无图同构兜底）。
-- 实现历史、决策、漂移收口见 `文档/exec_plan/数据下载与解析.md`；当前规格见 `文档/规划文档/数据处理_v2.md`。
+- G 的最终分辨率、选定 CC、配体 Q 和口袋 Q 阈值仍按“先看正式分布再由用户确认”；当前 analyze 可自动完成但不冒充最终科学筛选。现有 filter schema v1 只表达 Q/resolution；收到四类阈值及 contour-null 策略后再显式升级 schema，禁止预猜。
+- 历史 A–C 见 `文档/exec_plan/数据下载与解析.md`；当前长任务日志见 `文档/exec_plan/A-G数据流水线实现与全量运行.md`；规格见 `文档/规划文档/数据处理_v2.md`。
