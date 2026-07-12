@@ -45,7 +45,7 @@ if [[ ! -e "${REPAIR_STAGE_E_STATUS}" ]]; then
         --root "${DATA_ROOT}" \
         --chimera "${CHIMERA}" \
         --scratch_root "${SCRATCH_ROOT}" \
-        --n_jobs 4 \
+        --n_jobs 2 \
         --timeout_seconds 21600 \
         --pdb_ids_file "${IDS_FILE}" \
         --run_id "${REPAIR}"

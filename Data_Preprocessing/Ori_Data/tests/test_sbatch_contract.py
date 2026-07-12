@@ -90,7 +90,7 @@ def test_de_e_repair_is_filtered_then_refreshes_formal_status_without_d() -> Non
     assert 'REPAIR="adaligand_ag_20260711T154658_eeng_v1"' in script
     assert "6f9bea3a9448f8f24940d3241520633890aefad88d737fad0580f47ff0b280be" in script
     assert "b03b7c72a00730f5fc0bb56b718f0f7f5a7313f11212fbc034fc74f4a6a6c7b0" in script
-    assert "--n_jobs 4" in script
+    assert "--n_jobs 2" in script
     assert "--timeout_seconds 21600" in script
     assert "--require_success" in script
 
