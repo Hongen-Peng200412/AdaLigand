@@ -26,3 +26,4 @@ tmp*
 *old/
 Data_Preprocessing/Ori_Data/tests_output/
 Data_Preprocessing/Ori_Data/.pytest_cache/
+/tests_output/
