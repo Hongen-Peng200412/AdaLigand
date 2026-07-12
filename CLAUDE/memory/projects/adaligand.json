@@ -1,0 +1,38 @@
+{
+  "name": "AdaLigand",
+  "phase": "active",
+  "goals": [
+    "按最新数据契约增量完成 Stage A-G，并产出未经阈值预过滤的正式质量分布",
+    "A-G 完成并验收后，再进入 Stage1 重训"
+  ],
+  "progress": [
+    "2026-07-10：完成本地计划/代码与服务器 A-C 产物的只读审计，证据报告见 CLAUDE/memory/handoffs/2026-07-10-abc服务器产物与增量重跑审计.md",
+    "2026-07-11：完成 A-G 本地实现、94 项测试、真实 Chimera/MapQ 正负 smoke 与工具安装；F 包含四 CC、配体 Q 和 6 Å occurrence 口袋 Q，G 仅运行 analyze。",
+    "2026-07-11：提交全量 run adaligand_ag_20260711T154658，依赖链为 316114→316115→316116→316117；C 已完成 22,386/22,386，B 继续单节点单 task/n_jobs=1 增量补图。",
+    "2026-07-12：用户要求 DE/F/G 运行前复核并发和 walltime；仅将 316115 设为 JobHeldUser，ABC 继续运行，下游参数待用户明确确认（历史暂停状态，已由下一条进展解除）。",
+    "2026-07-12：用户确认保留原 Job ID 的原地方案；316115/316116 已原子预置 D64/E24 与 F12 命令，316115-316117 原地改为 UNLIMITED，316115 已 release 且只等待 afterok:316114；本地 97 项测试通过。",
+    "2026-07-12：ABC gate 阻断 366 个 Stage C unknown failure（336 descriptor 价态、23 source mismatch、7 合法 TRIPLE）；316114 保留 allocation 并进入精确 try_lock，下游未释放。",
+    "2026-07-12：用户接受 triple=6 与当前 RCSB source 的严格受检迁移。文件系统证据确认 source-dirty 是 2,156 份而非早期低估的 400 份；本地实现 cache-only 全集 audit、完整数据/实现依赖哈希、严格 CCD 身份/name/元素覆盖、receptor-only apply 与 filtered 正式状态保护，119 项测试通过。",
+    "2026-07-12：冻结 2,156-ID 清单（SHA fc6f0068...b135349），远端 119 tests 通过；正式 audit 完成 exact=1,749、atom_name_only=379、blocked=23、failed=5，records SHA 8a1336d0...109e38。未 apply、未解锁。",
+    "2026-07-12：用户授权冻结 14-PDB CCD:5GP 集合按当前 source 完整重建 C，接受新增20、删除0与1,995个 candidate_id 重排；manifest 仅作本轮审计。下游尚未训练。额外48 CPU只可用于独立测试/审计/补足，316114仍是唯一正式C写入者。",
+    "2026-07-12：本地实现 changed-residue-only CCD coverage、derived-delta门禁、显式prefetch、14-PDB audit/prepare、2,156联合零阻断gate、四件套事务与阶段感知try-lock恢复；独立审查修复auth-only struct_conn、全体CAS和额外受体key保留缺口，全套136项测试通过。",
+    "2026-07-12：安全同步并在316114 allocation复验136项测试；CH/0UO/BB9 prefetch成功。csrc_v2的14-PDB rebuild audit因缺ligand_descriptors/CCD_5GP.npz而14/14安全阻断，migration为空、canonical C零写入。",
+    "2026-07-12：实现run-scoped CCD:5GP descriptor supplement（冻结key/SHA、overwrite=False、源/实现/产物哈希、成功证据重验），恢复证据切换为csrc_v3并保留v2失败证据；本地/远端全套146项测试通过。",
+    "2026-07-12：csrc_v3成功materialize CCD:5GP descriptor，14-PDB staging精确通过14 ready、+20/-0/1995；2,156联合gate随后安全阻断为exact1756、atom_name_only345、delegated14、blocked41，未apply。",
+    "2026-07-12：41/41 blocked仅由atom_name变化+旧receptor缺派生schema构成；按既有规格修复为只有旧数据完整时才比较derived，保留所有base/ligand门禁，新增3回归，全套149项测试通过，正式恢复切换csrc_v4。",
+    "2026-07-12：csrc_v4完成14-PDB事务、386 receptor-only repair和2,156 post-exact；原run id无过滤全量C完成22,386行（22,056 skipped+330 success），316114正在ABC gate全量读盘审计。",
+    "2026-07-12：用户将Pocket Plus MRC实现冻结为可信祖传基线。六函数源码/AST零差异vendoring，ancestor SHA d8e543e4...06ca8、vendor SHA acf74c25...8a45，Git checkpoint 6de3fb8；Ada只保留薄适配、native=True/generated=False、schema v2/provenance和actual-voxel QC，本地153 tests通过。",
+    "2026-07-12：316115保留原Job ID/排位并由MRC contract hold阻断；run_cmd SHA a1ca224d...3cb0、pre_lock存在、release marker不存在。只有安全同步、远端全套和真实Chimera非单位voxel/非零origin geometry smoke通过后才能原子创建release，pre_lock由run_cmd自行清理。",
+    "2026-07-12：316114已COMPLETED 0:0；ABC gate确认22,386/22,386 C release-ready，1,761个B失败均为显式download_failed，316114全部精确锁和run_cmd已清理。",
+    "2026-07-12：MRC全量header audit覆盖22,274唯一EMDB：21,941 all_diff、326 all_equal、2 mixed、5缺图；两张mixed图7b14/7nll的真实Chimera geometry smoke通过标准轴、nstart=0、actual voxel、非零origin和canonical/sim闭合。本地/远端均172 tests passed；316115仅待独立release audit和原子marker。"
+  ],
+  "blockers": [
+    "316115在独立MRC release audit与原子release marker完成前继续保持hold；不得手工删除pre_lock，marker后由既有run_cmd自行清理并启动D64/E24。"
+  ],
+  "failures": [
+    "2026-07-12 Stage C gate 事件：366/22,386 为 unknown_failed，涉及 43,175 occurrences、506 object_keys；这是系统性工程/契约问题，不能按小比例忽略。",
+    "2026-07-12 source audit 安全阻断：5 条缺 CCD cache，9 条 N/UNK coverage（其中 7 条可 exact、2 条改名在 6MZ），14 条为 5GP ligand-side source revision；没有任何 receptor 写入。",
+    "2026-07-12 csrc_v2 full-rebuild audit 安全阻断：当前source新增的5GP occurrence首次需要此前未物化的CCD:5GP descriptor；14条均失败且migration为空，未进入pre-apply gate。",
+    "2026-07-12 csrc_v3联合gate安全阻断：41条均只有atom_name差异，旧receptor缺bond_index/bond_type/feat被实现误当derived差异；未写canonical C、未解锁，v3证据保留。"
+  ]
+}
