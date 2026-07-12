@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "policy": "Pocket_Plus ancestor functions are vendored without function-level changes; every module-level deviation is enumerated below.",
+  "ancestor": {
+    "logical_path": "Pocket_Plus/processedPDB_EMDB_binder/utils/mrc_tools.py",
+    "sha256": "d8e543e4c6763a44cde3d350434c51506d794ecf1c2143db2ce304419bc06ca8",
+    "size_bytes": 12783
+  },
+  "vendored": {
+    "logical_path": "AdaLigand/Data_Preprocessing/Ori_Data/code/mrc_pocket_legacy.py",
+    "sha256": "acf74c256e6d88f9e40e972c0d86d35262aa9ac6ac790346adbd54e3109e8a45",
+    "size_bytes": 6047
+  },
+  "function_body_deviations": [],
+  "module_level_deviations": [
+    {
+      "kind": "selection",
+      "ancestor": "The ancestor module contains unrelated class-weight, map-normalization, B-factor, padding and atomic-save helpers.",
+      "vendored": "Only load_map, make_cubic, normalize_voxel_size, rescale_real, rescale_fourier and make_model_grid are present.",
+      "reason": "Keep the trusted MRC primitive snapshot isolated from unrelated dependencies."
+    },
+    {
+      "kind": "imports",
+      "ancestor": "Imports mrcfile, os, numpy, pandas, torch and tempfile.",
+      "vendored": "Imports only mrcfile and numpy.",
+      "reason": "The selected functions reference only mrcfile and numpy."
+    },
+    {
+      "kind": "provenance",
+      "ancestor": "No vendoring provenance header.",
+      "vendored": "Adds one module docstring pointing to this manifest.",
+      "reason": "Make source lineage and future drift machine-visible."
+    }
+  ],
+  "functions": {
+    "load_map": {
+      "ancestor_lines": [75, 126],
+      "exact_source_sha256": "f5ecc58aa8236488af359c9165d52ad933e09957e1b173957991c0c5f36359aa",
+      "ast_sha256": "ea2e22a6f5e34d9a3ffdc6a26b75dd0de8ec33990eca583120462cbb4c8c9a0b"
+    },
+    "make_cubic": {
+      "ancestor_lines": [137, 145],
+      "exact_source_sha256": "6a62bf4bde3d8cd53caffa6aae95dea51f015514847807831cad4f58a29f3349",
+      "ast_sha256": "a93bdefe1199111989354734b1be64952ccf0edada84ada7f6dd16f96adf4c8d"
+    },
+    "normalize_voxel_size": {
+      "ancestor_lines": [146, 165],
+      "exact_source_sha256": "f344391b42e6a0082f5d86cb04597594cf04ff1c93734a071390340f2d03284d",
+      "ast_sha256": "34bdd75b2e2a043ddcf993213e09da14498de50fbbb3e4828e26b256214331f6"
+    },
+    "rescale_real": {
+      "ancestor_lines": [166, 172],
+      "exact_source_sha256": "26f9fd35c83af5c9cc8f1201c9345b3e964007dceada9ec91305d59cb9e1a9b1",
+      "ast_sha256": "899b49cf6ea301e4c942f7e60ebbad8aa9545d0b9075da8fc4de0c3629aa1b9c"
+    },
+    "rescale_fourier": {
+      "ancestor_lines": [173, 201],
+      "exact_source_sha256": "997eb3572ba7d2b39170560c041406ccea916f53d2be7a6e5a6fa9c9dbd0bfe1",
+      "ast_sha256": "36115fa000b34307f3fa0b55aa35a9e5471811ae40bfba0b8d58d62f90c8570f"
+    },
+    "make_model_grid": {
+      "ancestor_lines": [206, 214],
+      "exact_source_sha256": "637e193a98f8a1cea850f4db47418ab151e9ac58150886fd8cf389f43c2ced33",
+      "ast_sha256": "349a465c01ce9331e51e13afe399faea983cfbafc18162392ff26fbef03e0bd3"
+    }
+  }
+}
