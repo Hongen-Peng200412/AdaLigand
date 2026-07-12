@@ -59,6 +59,7 @@
 - [x] (2026-07-12 20:04+08:00) MRC 接入已无删除安全同步；远端代码哈希与本地一致，本地/服务器 Python 3.10 均为 172 tests passed。真实 smoke `adaligand_mrc_geometry_smoke_20260712T200227` 让 7b14/7nll 两张 mixed 图通过真实 Chimera `onGrid`、非精确 1 Å actual voxel、非零 origin、标准轴、`nstart=0`、真三维内容和 canonical/sim 几何闭合；summary/report SHA 为 `0e40d866…96957` / `451a6dce…de5`。316115 仍保持 hold，等待独立 release audit 与原子 marker。
 - [x] (2026-07-12 19:08+08:00) v4 已完成依赖补足、14-PDB audit/prepare、2,156 联合零阻断 gate、受检 full rebuild、386 receptor-only apply、2,156 post-exact、原 run id 无过滤全量 C 和 ABC gate；316114 为 `COMPLETED 0:0`，未重跑 B。
 - [x] (2026-07-12 20:02+08:00) 按“一个可验证任务一个精确提交”整理累计工作树：祖传快照、header 审计、contour 分布、Stage C 修复/事务、D、工具适配、E、F/G、release smoke、Slurm 与服务器工具均已有独立 Git checkpoint；暂存均使用精确路径，未使用 `git add -A`、未改写历史。
+- [x] (2026-07-12 20:21+08:00) 独立 MRC release audit 判定无阻断；把祖传/代码/run_cmd、持久 172-test、header audit、真实 smoke 与无 D/E 污染快照写入普通临时文件并原子发布 `/home/penghongen/mrc_contract_release_316115`，marker SHA-256 `2ca92614…b6b2`。既有 run_cmd 自行删除 pre_lock 并记录 `[MRCContractRelease]`；D64/E24 已实际启动，日志分别出现 `Parallel(n_jobs=64)` 与 `Parallel(n_jobs=24)`。
 - [ ] 持续监控、自动诊断/修复/重提，只在科学契约变化或外部不可恢复阻塞时请求用户。
 - [ ] 完成全量验收、计划漂移收口、mapping/契约 README/项目记忆更新和最终报告。
 
@@ -307,7 +308,7 @@
 
 ## Outcomes & Retrospective
 
-尚未完成。Stage C v4 已完成 14-PDB 事务、386 receptor-only repair、2,156 post-exact、原 run id 无过滤全量 C 和 ABC gate；316114 为 `COMPLETED 0:0`，22,386/22,386 C release-ready，1,761 个 B 失败全部是显式 `download_failed`。MRC 祖传基线、薄适配、schema/provenance、正式 header audit、本地/远端 172 tests 和两张 mixed 图真实 Chimera geometry smoke 均已完成；`316115` 仍由 `pre_lock` 与缺省不存在的 release marker 安全阻断，等待独立 release audit 后原子放行，DE/F/G 尚未产出正式结果。最终 G 阈值仍等待正式 F 分布。
+尚未完成。Stage C v4 已完成 14-PDB 事务、386 receptor-only repair、2,156 post-exact、原 run id 无过滤全量 C 和 ABC gate；316114 为 `COMPLETED 0:0`，22,386/22,386 C release-ready，1,761 个 B 失败全部是显式 `download_failed`。MRC 祖传基线、薄适配、schema/provenance、正式 header audit、本地/远端 172 tests、两张 mixed 图真实 Chimera geometry smoke、独立 release audit 与原子 marker 均已完成；316115 已由既有 run_cmd 自行清理 pre_lock 并启动 D64/E24。下一主线是 DE release gate、自动 afterok 的 F12、G analyze 和最终全量 QC；G 阈值仍等待正式 F 分布。
 
 ## Context and Orientation
 
@@ -418,9 +419,11 @@ Stage B 逐文件恢复，不覆盖已验证下载；但当前 316114 repair 明
 
 2026-07-12 source audit 证据：冻结清单位于 `/storage/penghongen/AdaLigand/Ori_Data/reports/runs/adaligand_ag_20260711T154658/source_dirty/mmcif_refreshed_ids.txt`，数量 2,156，SHA-256 `fc6f0068a1cd1529346e90e265c7d5844df38b69d3087bde19b0237d5b135349`。正式 repair run 为 `adaligand_ag_20260711T154658_csrc_v1`，audit records SHA-256 `8a1336d06de15f4a0bef27539a8fb24d1cda96fe5c941e21a9fd6ae492109e38`；分类 exact=1,749、atom_name_only=379、blocked=23、failed=5。audit step 读取/计算活跃并正常完成 2,156/2,156，因门禁非零退出；未进入 apply。
 
-2026-07-12 MRC 祖传快照证据：源文件 `Pocket_Plus/processedPDB_EMDB_binder/utils/mrc_tools.py` SHA-256 `d8e543e4c6763a44cde3d350434c51506d794ecf1c2143db2ce304419bc06ca8`；vendored 文件 SHA-256 `acf74c256e6d88f9e40e972c0d86d35262aa9ac6ac790346adbd54e3109e8a45`；六函数源码与 AST 零差异；Git checkpoint `6de3fb8`。跨 Python portable AST 修复为 `f26b737`，Stage E 薄适配 checkpoint 为 `17b95d5`，真实几何 smoke 入口 checkpoint 为 `4d27af2`。本地与服务器 Python 3.10 全套均为 172 passed、compileall 通过。316115 MRC hold 的 run_cmd SHA 仍为 `a1ca224dc23030aa483a5b102e55ed5f8860266d09f21542c1612aa0619a3cb0`；`pre_lock_316115` 存在、release marker 不存在。
+2026-07-12 MRC 祖传快照证据：源文件 `Pocket_Plus/processedPDB_EMDB_binder/utils/mrc_tools.py` SHA-256 `d8e543e4c6763a44cde3d350434c51506d794ecf1c2143db2ce304419bc06ca8`；vendored 文件 SHA-256 `acf74c256e6d88f9e40e972c0d86d35262aa9ac6ac790346adbd54e3109e8a45`；六函数源码与 AST 零差异；Git checkpoint `6de3fb8`。跨 Python portable AST 修复为 `f26b737`，Stage E 薄适配 checkpoint 为 `17b95d5`，真实几何 smoke 入口 checkpoint 为 `4d27af2`。本地与服务器 Python 3.10 全套均为 172 passed、compileall 通过。放行前 316115 的 run_cmd SHA 为 `a1ca224dc23030aa483a5b102e55ed5f8860266d09f21542c1612aa0619a3cb0`，当时 `pre_lock_316115` 存在且 release marker 不存在；最终放行见下述独立证据。
 
 2026-07-12 MRC 全量/真实验收证据：header-only run `adaligand_mrc_contract_audit_20260712T192000_v2` 的 summary/risk SHA-256 为 `a9300d2db48c658301af36d116e751c705ffa5b7f8eae93b682bfc9683447fe8` / `81784ee19ab0a7fcee5814aed4e5e251a518018b28bcc8ec277f5446e83a6712`；22,269 张可读 header 中只有 EMD-11978/12465 为 mixed，另 5 张缺图均对应 B known failure。真实 smoke `adaligand_mrc_geometry_smoke_20260712T200227` 的 ID/summary/report SHA-256 为 `41c7a456e2c31b19c02636e19d1462adced837a83e81787694ca101e2744cd56` / `0e40d866c3a30a408921c48ce6831e110fe6c8f7929b7c22bcc1ce0370096957` / `451a6dced12cb81e1c816de185ec0baa2f05000935643928da29d02e09ca9de5`；7b14/7nll 的 canonical/sim shape、actual voxel、origin、标准轴和 `nstart=0` 全部通过，错误列表为空。
+
+2026-07-12 MRC 放行证据：持久测试 run `adaligand_mrc_release_evidence_20260712T201306` 的 command/log/code-manifest/summary SHA-256 为 `fbe3b3c8…c6aa` / `f48d397a…f11a` / `9dc710fd…9f1f` / `1ef89ae0…3ffd`，Slurm step `316115.6 COMPLETED 0:0`，日志为 172 passed。独立只读审计复核祖传直比、所有代码/证据哈希、四个真实 MRC 和放行前锁/零污染状态后判定 pass。`/home/penghongen/mrc_contract_release_316115` 于 `2026-07-12T20:21:28+08:00` 原子发布，权限 0600、SHA-256 `2ca92614cb53a9f08058a5186afe677264928b6a64ba2a4b60a044d8cea6b6b2`；pre_lock 只由 run_cmd 删除。
 
 ## Interfaces and Dependencies
 
@@ -455,7 +458,7 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 
 ### Unfinished scope
 
-- C source repair、全量 C 和 ABC gate 已完成；D–G 代码已实现。MRC 祖传迁移、本地/远端 172 tests、全量 header audit 与真实 Chimera actual-voxel/origin smoke 均已验收；仅剩独立 release audit、原子 marker 和随后 DE→F→G 的正式运行/验收。
+- C source repair、全量 C 和 ABC gate 已完成；D–G 代码已实现。MRC 祖传迁移、本地/远端 172 tests、全量 header audit、真实 Chimera actual-voxel/origin smoke、独立 release audit 与原子 marker 均已验收；DE 正在运行，未完成范围是 DE→F→G 的正式产物、release gate 与最终独立 QC。
 - G 的最终分辨率、选定 CC、配体 Q、口袋 Q 阈值及 contour-null 策略仍须先看正式分布再由用户确认；不得把猜测阈值写死在数值代码里。
 
 Revision note 2026-07-10 14:38+08:00: 创建本 ExecPlan，记录已确认边界、旧产物证据、科学语义、资源/许可纪律和从实现到服务器全量验收的恢复路径。
@@ -477,3 +480,5 @@ Revision note 2026-07-12 14:45+08:00: 记录用户对冻结 14-PDB 完整 C 重�
 Revision note 2026-07-12 MRC contract recovery: 用户明确把 Pocket Plus 训练/验证/测试过的实现设为可信祖传基线，并要求 diff 近零、每一项兼容改动可审计。六个相关函数已零差异 vendoring，Git checkpoint 为 `6de3fb8`；Ada 只保留 Path/MapGrid/float32、两种祖传 origin mode、标准 writer、schema/provenance 和 actual-voxel QC。纠正此前由不符合 Pocket native 输入契约的人工 fixture 导出的 45 Å 批评；当前本地 153 tests 通过。316115 在真实 Chimera 几何 smoke 和远端哈希验收前继续由 MRC contract hold 阻断。
 
 Revision note 2026-07-12 20:04+08:00: 收口 MRC release 前证据。完整差异清单追加两张 mixed-axis 的 `np.any` 薄兼容、祖传补偶 grid 复用和 native/scale/canonical contour 映射；F provenance 逐项绑定当前 E1。正式 header audit、两张 mixed 图真实 Chimera geometry smoke、本地/远端 172 tests 通过，ABC 已完成。Git 按任务拆分 checkpoint；316115 在独立 release audit 和原子 marker 前仍保持 hold。
+
+Revision note 2026-07-12 20:21+08:00: 补齐持久远端 pytest 证据与独立只读 release audit；在同一原 Job 316115 内原子发布带完整哈希的 MRC marker，run_cmd 自行删除 pre_lock 并启动 D64/E24。更新 Outcomes、Artifacts、Plan Drift 与项目记忆到“DE 正式运行”状态。

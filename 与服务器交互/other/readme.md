@@ -96,10 +96,10 @@ AdaLigand 专用 core 保留四锁与动态 `run_cmd`：若 `/home/penghongen/ru
 
 `Data_Preprocessing/Ori_Data/sbatch/resume_abc_316114_source_v2.sh` 是本轮 try-lock 重启的唯一阶段感知恢复入口；脚本实现版本名保留 `source_v2`，当前正式 repair 证据使用 `adaligand_ag_20260711T154658_csrc_v4`。`csrc_v2` 保留缺 descriptor 的失败证据，`csrc_v3` 保留 14-PDB staging 成功但联合 gate 因旧 schema 过度阻断 41 条的失败证据；二者均不得覆盖或作为 v4 apply 输入。成功的 dependency supplement、专用 audit/pre-gate summary 必须只读复用；14-PDB rebuild apply 可按 receipt 幂等重放；generic receptor apply 若 partial/中断，必须换新的 `generic_attempt_N` run id 从当前 canonical 重做 audit→apply，绝不能复用旧 before records，也不能重新覆盖已经成功的 pre-rebuild audit。post-exact 使用独立 run id 和 `--require_all_exact`，不会覆盖 preapply 证据。
 
-## 316115 MRC contract hold 与放行纪律
+## 316115 MRC contract 放行与当前运行
 
-Pocket Plus MRC 祖传迁移发生在 Stage E 前，D 本身不消费 MRC，但 316115 在同一 allocation 内并发执行 D/E，因此必须整作业 hold，不能只赌 E 较晚开始。当前 `/home/penghongen/run_cmd_316115.sh` SHA-256 为 `a1ca224dc23030aa483a5b102e55ed5f8860266d09f21542c1612aa0619a3cb0`；`/home/penghongen/pre_lock_316115` 存在，`/home/penghongen/mrc_contract_release_316115` 缺省不存在。保留原 Job ID、提交顺序、D64/E24 命令、96 CPU allocation 与 `afterok:316114`，不得取消或重提。
+Pocket Plus MRC 祖传迁移发生在 Stage E 前，D 本身不消费 MRC，但 316115 在同一 allocation 内并发执行 D/E，因此放行前曾整作业 hold。`/home/penghongen/run_cmd_316115.sh` SHA-256 为 `a1ca224dc23030aa483a5b102e55ed5f8860266d09f21542c1612aa0619a3cb0`；保留了原 Job ID、提交顺序、D64/E24 命令、96 CPU allocation 与 `afterok:316114`，没有取消或重提。
 
 放行前必须依次完成：本地六函数零差异/薄适配/172 tests → 无删除安全同步 → 远端代码与 manifest 哈希复核 → 远端 Python 3.10 全套 172 tests → 真实 Chimera `molmap onGrid` smoke。上述条件已全部满足：正式 header audit run `adaligand_mrc_contract_audit_20260712T192000_v2` 只有 EMD-11978/12465 两张 mixed；真实 run `adaligand_mrc_geometry_smoke_20260712T200227` 使用对应 PDB 7b14/7nll，验证 actual voxel 非精确 1 Å、origin 非零、canonical/sim 同 shape/voxel/origin、标准轴和 `nstart=0`。其 ID/summary/report SHA-256 分别为 `41c7a456…cd56` / `0e40d866…96957` / `451a6dce…de5`。
 
-全部代码/祖先/副本、正式 audit、测试和真实 smoke 哈希必须写入 release 文件；先写同目录临时文件、检查内容/权限，再原子 rename 为 `/home/penghongen/mrc_contract_release_316115`。不得手工删除 `pre_lock_316115`：既有 run_cmd 观察到 release 后自行清理并继续 D64/E24。若独立 release audit 发现证据不闭合，继续保留 hold；只能回到本地 `apply_patch` 修复薄适配，不得改祖传六函数体。
+全部代码/祖先/副本、正式 audit、测试和真实 smoke 哈希已写入 release 文件；`/home/penghongen/mrc_contract_release_316115` 于 `2026-07-12T20:21:28+08:00` 从同目录普通临时文件原子发布，权限 0600、SHA-256 `2ca92614cb53a9f08058a5186afe677264928b6a64ba2a4b60a044d8cea6b6b2`。既有 run_cmd 随后自行删除 `pre_lock_316115` 并打印 `[MRCContractRelease]`，没有人工删除。当前 D/E 日志已分别确认 `n_jobs=64` 与 `n_jobs=24`；`after_lock_316115` 在 DE release gate 完成前继续保留。

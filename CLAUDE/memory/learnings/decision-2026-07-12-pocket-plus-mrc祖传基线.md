@@ -35,3 +35,5 @@ AdaLigand 必须原样保存以下六个函数：`load_map`、`make_cubic`、`no
 合成测试之外，Stage E 放行前必须用真实 Chimera `molmap onGrid` 输出验证非单位 voxel、非零 origin、`nstart=0`、header.origin Å 语义和 exp/sim 几何完全一致。若失败，只修薄适配并重新验收；不得改祖传六函数体。
 
 本轮正式证据已完成：header audit `adaligand_mrc_contract_audit_20260712T192000_v2` 为 all_diff=21,941、all_equal=326、mixed=2、缺图=5（均为 B known failure）；真实 smoke `adaligand_mrc_geometry_smoke_20260712T200227` 对 7b14/7nll 两张 mixed 图使用 Chimera 1.19，两个 generated MRC 均为标准轴、`nstart=0`，canonical/sim shape、actual voxel、非零 origin 完全一致且三维 QC 零错误。本地与服务器 Python 3.10 均为 172 tests passed。完整哈希和服务器路径见 `文档/exec_plan/A-G数据流水线实现与全量运行.md` 与 `Data_Preprocessing/Ori_Data/code/readme.md`。
+
+独立 release audit 复核通过后，`/home/penghongen/mrc_contract_release_316115` 于 2026-07-12 20:21+08:00 原子发布，SHA-256 为 `2ca92614cb53a9f08058a5186afe677264928b6a64ba2a4b60a044d8cea6b6b2`。marker 固化祖传/代码/run_cmd、持久 pytest、header audit、真实 smoke 和放行前零 D/E 污染证据；`pre_lock_316115` 只由既有 run_cmd 删除，随后 D64/E24 启动。后续 Agent 不得把这一 marker 当作修改祖传六函数的通用授权。
