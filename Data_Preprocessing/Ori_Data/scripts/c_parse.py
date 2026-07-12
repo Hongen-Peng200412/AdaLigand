@@ -15,9 +15,16 @@ from joblib import Parallel, delayed
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "code"))
 
 from io_utils import read_jsonl
-from parallel import shard_items
+from contracts import CArtifactState, inspect_stage_c
+from parallel import filter_pair_records, read_pdb_id_filter, shard_items
 from parse import parse_one_pdb
-from reports import record_failure, sharded_report_path
+from reports import (
+    failure_stage_result,
+    resolve_run_id,
+    stage_report_path,
+    stage_result,
+    write_stage_results,
+)
 
 
 def main() -> None:
@@ -32,24 +39,75 @@ def main() -> None:
     parser.add_argument("--part_id", type=int, default=0)
     parser.add_argument("--total_parts", type=int, default=1)
     parser.add_argument("--n_jobs", type=int, default=1)
+    parser.add_argument("--run_id")
+    parser.add_argument("--pdb_ids_file", type=Path)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
+    run_id = resolve_run_id(args.run_id)
+    ensure_filtered_run_is_isolated(
+        args.root,
+        run_id,
+        args.pdb_ids_file,
+    )
     records = read_jsonl(args.root / "raw" / "pair_list.jsonl")
+    records = filter_pair_records(records, read_pdb_id_filter(args.pdb_ids_file))
     pdb_ids = [str(record["pdb_id"]).lower() for record in records]
     pdb_ids = shard_items(pdb_ids, args.part_id, args.total_parts)
-    failed_parse_path = sharded_report_path(args.root, "_failed_parse.jsonl", args.part_id, args.total_parts)
 
     def _process(pdb_id: str) -> dict:
         try:
-            return parse_one_pdb(args.root, pdb_id, args.overwrite)
+            result = parse_one_pdb(args.root, pdb_id, args.overwrite)
+            inspection = inspect_stage_c(args.root, pdb_id)
+            if inspection.state is not CArtifactState.COMPLETE:
+                raise RuntimeError(
+                    f"Stage C did not reach COMPLETE: {inspection.state.value}: {inspection.reasons}"
+                )
+            raw_status = str(result.get("status", "ok"))
+            status = "skipped" if raw_status == "skipped" else "success"
+            return stage_result(pdb_id, "stage_c", status, action=raw_status)
         except Exception as exc:
-            record_failure(failed_parse_path, pdb_id, "parse_failed", str(exc))
-            return {"pdb_id": pdb_id, "status": "failed", "error": str(exc)}
+            return failure_stage_result(pdb_id, "stage_c", exc)
 
-    Parallel(n_jobs=args.n_jobs, backend="loky", verbose=10)(
+    results = Parallel(n_jobs=args.n_jobs, backend="loky", verbose=10)(
         delayed(_process)(pdb_id) for pdb_id in pdb_ids
     )
+    write_stage_results(
+        stage_report_path(args.root, run_id, "stage_c", args.part_id, args.total_parts),
+        results,
+    )
+
+
+def ensure_filtered_run_is_isolated(
+    root: Path,
+    run_id: str,
+    pdb_ids_file: Path | None,
+) -> None:
+    """
+    防止 filtered Stage C 覆盖正式全量 run 的状态证据。
+
+    输入参数:
+        - root: Path, Stage root
+        - run_id: str, 本次状态目录名
+        - pdb_ids_file: Path | None, 非空表示只处理子集
+    输出:
+        - None: run id 没有正式 A guard 且整个 C 状态目录尚为空
+
+    filtered smoke/repair 必须使用独立的新 run id。正式 A guard 是全量 run 的稳定标记；
+    已存在的目标 C 状态也不得被子集结果覆盖。
+    """
+    if pdb_ids_file is None:
+        return
+    run_dir = root / "reports" / "runs" / run_id
+    formal_a_guard = run_dir / "stage_a" / "guard.json"
+    existing_c_status = sorted((run_dir / "stage_c").glob("status.part_*.jsonl"))
+    conflicts = ([formal_a_guard] if formal_a_guard.exists() else []) + existing_c_status
+    if conflicts:
+        rendered = ",".join(str(path) for path in conflicts)
+        raise RuntimeError(
+            "filtered Stage C requires a fresh independent run_id; "
+            f"refusing to overwrite existing run evidence: {rendered}"
+        )
 
 
 if __name__ == "__main__":

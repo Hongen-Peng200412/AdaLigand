@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import os
 import pickle
 import tempfile
 from dataclasses import asdict, dataclass
@@ -21,7 +22,7 @@ from pdbeccdutils.core import ccd_reader
 from rdkit import Chem
 from rdkit.Chem.rdchem import Mol
 
-from io_utils import atomic_save_npz, safe_object_filename
+from io_utils import atomic_replace, atomic_save_npz, file_lock, safe_object_filename
 
 Chem.SetDefaultPickleProperties(Chem.PropertyPickleOptions.AllProps)
 
@@ -135,13 +136,19 @@ class LigandRecord:
     bonds: list[tuple[int, str, int, str]] | None = None
 
 
-def get_ccd_mol(code: str, ccd_cache_dir: Path) -> Mol:
+def get_ccd_mol(
+    code: str,
+    ccd_cache_dir: Path,
+    *,
+    allow_fetch: bool = True,
+) -> Mol:
     """
     从本地缓存或 RCSB CCD CIF 解析 RDKit Mol。
 
     输入参数:
         - code: str, CCD 三字母代码, 大小写不敏感
         - ccd_cache_dir: Path, `raw/ccd_cache` 目录
+        - allow_fetch: bool, 缓存缺失时是否允许访问 RCSB；只读审计必须传 False
 
     输出:
         - mol: rdkit.Chem.rdchem.Mol, 带 CCD atom name 和 conformer 的分子对象
@@ -150,38 +157,86 @@ def get_ccd_mol(code: str, ccd_cache_dir: Path) -> Mol:
     if not normalized_code:
         raise CCDFetchError("empty CCD code")
 
-    ccd_cache_dir.mkdir(parents=True, exist_ok=True)
     ccd_pickle = ccd_cache_dir / f"{normalized_code}.pkl"
-    if ccd_pickle.exists():
+    if not allow_fetch:
+        if not ccd_pickle.exists():
+            raise CCDFetchError(
+                f"CCD cache is missing during read-only audit: {normalized_code}"
+            )
         with ccd_pickle.open("rb") as handle:
             return pickle.load(handle)
 
-    url = _RCSB_CIF_URL.format(code=normalized_code)
-    try:
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        raise CCDFetchError(f"failed to fetch CCD {normalized_code}: {exc}") from exc
+    ccd_cache_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = ccd_cache_dir / ".locks" / f"{normalized_code}.lock"
+    with file_lock(lock_path):
+        if ccd_pickle.exists():
+            with ccd_pickle.open("rb") as handle:
+                return pickle.load(handle)
 
-    tmp_path: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".cif", delete=False) as tmp:
-            tmp.write(response.text)
-            tmp_path = tmp.name
-        result = ccd_reader.read_pdb_cif_file(tmp_path, sanitize=False)
-        mol = result.component.mol
-    except Exception as exc:
-        raise CCDFetchError(f"failed to parse CCD {normalized_code}: {exc}") from exc
-    finally:
-        if tmp_path is not None:
-            Path(tmp_path).unlink(missing_ok=True)
+        url = _RCSB_CIF_URL.format(code=normalized_code)
+        try:
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            raise CCDFetchError(f"failed to fetch CCD {normalized_code}: {exc}") from exc
 
-    if mol.GetNumAtoms() == 0:
-        raise CCDFetchError(f"CCD {normalized_code} contains no atoms")
-    mol.SetProp("PDB_NAME", normalized_code)
-    with ccd_pickle.open("wb") as handle:
-        pickle.dump(mol, handle)
-    return mol
+        tmp_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".cif", delete=False) as tmp:
+                tmp.write(response.text)
+                tmp_path = tmp.name
+            result = ccd_reader.read_pdb_cif_file(tmp_path, sanitize=False)
+            mol = result.component.mol
+        except Exception as exc:
+            raise CCDFetchError(f"failed to parse CCD {normalized_code}: {exc}") from exc
+        finally:
+            if tmp_path is not None:
+                Path(tmp_path).unlink(missing_ok=True)
+
+        if mol.GetNumAtoms() == 0:
+            raise CCDFetchError(f"CCD {normalized_code} contains no atoms")
+        mol.SetProp("PDB_NAME", normalized_code)
+        pickle_tmp = ccd_pickle.with_name(f"{ccd_pickle.name}.tmp.{os.getpid()}")
+        with pickle_tmp.open("wb") as handle:
+            pickle.dump(mol, handle)
+        atomic_replace(pickle_tmp, ccd_pickle)
+        return mol
+
+
+def ligand_object_is_valid(path: Path, object_key: str) -> bool:
+    """
+    检查去重 LigandObject 是否满足当前稳定 schema。
+
+    输入参数:
+        - path: Path, `ligand_objects/*.npz`
+        - object_key: str, 期望写入 `name` 的去重键
+
+    输出:
+        - valid: bool, 必需字段、dtype、行数和 name 均正确时为 True
+    """
+    required = {
+        "atoms", "bonds", "atom_names", "residue_names", "smiles", "name", "symmetries", "blobs",
+    }
+    try:
+        with np.load(path, allow_pickle=True) as data:
+            if not required.issubset(data.files):
+                return False
+            atoms = data["atoms"]
+            bonds = data["bonds"]
+            atom_names = data["atom_names"]
+            if atoms.dtype != np.dtype(Atom) or bonds.dtype != np.dtype(Bond):
+                return False
+            if atoms.ndim != 1 or bonds.ndim != 1 or len(atom_names) != len(atoms):
+                return False
+            if str(data["name"].item()) != object_key:
+                return False
+            if bonds.size:
+                endpoints = np.concatenate((bonds["atom_1"], bonds["atom_2"]))
+                if endpoints.min() < 0 or endpoints.max() >= len(atoms):
+                    return False
+            return True
+    except (OSError, ValueError, KeyError):
+        return False
 
 
 def convert_atom_name(name: str) -> tuple[int, int, int, int]:

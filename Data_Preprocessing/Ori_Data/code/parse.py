@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,17 +24,46 @@ from constants import (
     METAL_ELEMENTS,
     NUCLEIC_BACKBONE,
     PROTEIN_BACKBONE,
-    RES_TO_ID,
 )
-from io_utils import atomic_save_npz, safe_object_filename, write_jsonl
+from io_utils import atomic_save_npz, file_lock, safe_object_filename, write_jsonl
+from ligand_descriptors import materialize_ligand_descriptor
 from ligand_object import (
     Atom,
     get_ccd_mol,
+    ligand_object_is_valid,
     materialize_ccd_ligand,
     process_branched_ligand,
 )
+from receptor import build_receptor_arrays, build_receptor_base_arrays
+from reports import write_report
 
 _MATERIALIZED_OBJECT_KEYS: set[tuple[str, str]] = set()
+
+
+@dataclass
+class StageCSourceView:
+    """
+    当前 mmCIF 在不落盘条件下重建出的 Stage C 核心视图。
+
+    字段:
+        - occurrences: list[dict[str,Any]], 当前成功 occurrence 列表
+        - ligand_coords: dict[str,np.ndarray], `coords_{cid}`/`present_{cid}` 数组
+        - receptor_atoms: list[dict[str,Any]], 已选择的受体重原子行
+        - receptor_base: dict[str,np.ndarray], 七个受体基础数组
+        - struct_conns: list[dict[str,str]], 当前 `_struct_conn` 行
+        - ccd_ids: tuple[str,...], dry-build 与受体化学键依赖的 CCD 缓存键
+        - object_keys: tuple[str,...], dry-build 读取的 LigandObject 键
+        - report: dict[str,Any], 内存中的计数、warning 与 failed occurrence
+    """
+
+    occurrences: list[dict[str, Any]]
+    ligand_coords: dict[str, np.ndarray]
+    receptor_atoms: list[dict[str, Any]]
+    receptor_base: dict[str, np.ndarray]
+    struct_conns: list[dict[str, str]]
+    ccd_ids: tuple[str, ...]
+    object_keys: tuple[str, ...]
+    report: dict[str, Any]
 
 
 class UnionFind:
@@ -129,15 +159,23 @@ def clean_value(value: str) -> str:
     return value
 
 
-def selected_atom_rows(atom_rows: list[dict[str, str]]) -> list[dict[str, Any]]:
+def selected_raw_atom_rows(
+    atom_rows: list[dict[str, str]],
+    *,
+    include_hydrogen: bool = False,
+) -> list[dict[str, str]]:
     """
-    从 atom_site 中选择第一个 model 和规范 altloc 的重原子行。
+    选择首 model 和规范 altloc，同时保留原始 atom_site 全字段。
 
     输入参数:
-        - atom_rows: list[dict[str, str]], `_atom_site` 原始行
+        - atom_rows: list[dict[str,str]], `_atom_site` 原始行
+        - include_hydrogen: bool, 是否保留 H/D；Stage C 与 E/F 标准模型均传 False
 
     输出:
-        - atoms: list[dict[str, Any]], 已清洗并选择 altloc 的原子行
+        - rows: list[dict[str,str]], 按原始 atom_site.id 排序的选中行
+
+    该函数是 Stage C、E 和 F 唯一的 model/altloc 选择实现。E/F 需要原始 ``atom_site.id``
+    和完整身份字段，不能先经过 Stage C 的简化字典再猜回去。
     """
     first_model = None
     grouped: dict[tuple[str, ...], list[dict[str, str]]] = defaultdict(list)
@@ -148,7 +186,7 @@ def selected_atom_rows(atom_rows: list[dict[str, str]]) -> list[dict[str, Any]]:
         if model_num != first_model:
             continue
         element = clean_value(row.get("type_symbol", "")).upper()
-        if element in {"H", "D"}:
+        if not include_hydrogen and element in {"H", "D"}:
             continue
         key = (
             clean_value(row.get("label_asym_id", "")),
@@ -160,10 +198,26 @@ def selected_atom_rows(atom_rows: list[dict[str, str]]) -> list[dict[str, Any]]:
         )
         grouped[key].append(row)
 
-    atoms: list[dict[str, Any]] = []
+    selected = []
     for rows in grouped.values():
         rows.sort(key=_altloc_sort_key)
-        row = rows[0]
+        selected.append(rows[0])
+    selected.sort(key=lambda row: int(row["id"]))
+    return selected
+
+
+def selected_atom_rows(atom_rows: list[dict[str, str]]) -> list[dict[str, Any]]:
+    """
+    从 atom_site 中选择第一个 model 和规范 altloc 的重原子行。
+
+    输入参数:
+        - atom_rows: list[dict[str, str]], `_atom_site` 原始行
+
+    输出:
+        - atoms: list[dict[str, Any]], 已清洗并选择 altloc 的原子行
+    """
+    atoms: list[dict[str, Any]] = []
+    for row in selected_raw_atom_rows(atom_rows):
         atoms.append(
             {
                 "atom_site_id": int(row["id"]),
@@ -184,7 +238,6 @@ def selected_atom_rows(atom_rows: list[dict[str, str]]) -> list[dict[str, Any]]:
                 "z": float(row["Cartn_z"]),
             }
         )
-    atoms.sort(key=lambda item: item["atom_site_id"])
     return atoms
 
 
@@ -223,6 +276,117 @@ def residue_key(atom: dict[str, Any]) -> tuple[str, str, str, str]:
     return (atom["label_asym_id"], atom["label_comp_id"], str(seq), atom["icode"])
 
 
+def build_stage_c_source_view(
+    root: Path,
+    pdb_id: str,
+    materialize_objects: bool,
+) -> StageCSourceView:
+    """
+    从当前 mmCIF 重建不含派生 receptor bond/feat 的 Stage C 核心视图。
+
+    输入参数:
+        - root: Path, Stage root，包含 raw、ligand_objects 与旧 parse 产物
+        - pdb_id: str, PDB id，大小写不敏感
+        - materialize_objects: bool, 正式解析时补齐 LigandObject；只读 source audit 时必须为 False
+
+    输出:
+        - view: StageCSourceView, occurrence、配体坐标、受体基础数组与内存报告
+    """
+    normalized_id = pdb_id.lower()
+    cif_path = root / "raw" / "rcsb_mmcif" / f"{normalized_id}.cif"
+    block = gemmi.cif.read(str(cif_path)).sole_block()
+    atom_rows = selected_atom_rows(category_rows(block, "_atom_site."))
+    entity_types = {row["id"]: row["type"].lower() for row in category_rows(block, "_entity.")}
+    chem_comp_types = {
+        row["id"].upper(): row["type"].upper()
+        for row in optional_category_rows(block, "_chem_comp.")
+        if "id" in row and "type" in row
+    }
+    branch_rows = optional_category_rows(block, "_pdbx_branch_scheme.")
+    branch_links = optional_category_rows(block, "_pdbx_entity_branch_link.")
+    struct_conns = optional_category_rows(block, "_struct_conn.")
+
+    report: dict[str, Any] = {
+        "pdb_id": normalized_id,
+        "status": "ok",
+        "counts": {},
+        "warnings": [],
+        "failed_occurrences": [],
+    }
+
+    het_atoms, receptor_atoms = split_candidate_atoms(atom_rows, entity_types)
+    uf = UnionFind(len(het_atoms))
+    residue_atoms, atom_lookup = build_het_indices(het_atoms)
+    all_atom_lookup = build_all_atom_lookup(atom_rows)
+    residue_covalent = set()
+    inter_bond_candidates: set[
+        tuple[tuple[str, str, str, str], str, tuple[str, str, str, str], str]
+    ] = set()
+
+    add_ccd_internal_edges(
+        uf,
+        residue_atoms,
+        root / "raw" / "ccd_cache",
+        report,
+        allow_ccd_fetch=materialize_objects,
+    )
+    add_branch_edges(uf, branch_rows, branch_links, residue_atoms, inter_bond_candidates)
+    add_struct_conn_edges(
+        uf,
+        struct_conns,
+        atom_lookup,
+        all_atom_lookup,
+        het_atoms,
+        residue_covalent,
+        inter_bond_candidates,
+        entity_types,
+    )
+
+    components = build_components(
+        normalized_id,
+        uf,
+        het_atoms,
+        residue_atoms,
+        residue_covalent,
+        inter_bond_candidates,
+        entity_types,
+        chem_comp_types,
+    )
+    components.sort(key=lambda item: item["sort_key"])
+    for candidate_id, component in enumerate(components):
+        component["candidate_id"] = candidate_id
+        component.pop("sort_key")
+
+    if materialize_objects:
+        materialize_ligand_objects(root, components, overwrite=False)
+    coords_arrays, kept_components = build_ligand_coords(
+        root,
+        components,
+        het_atoms,
+        residue_atoms,
+        report,
+    )
+    report["counts"] = {
+        "atoms": len(atom_rows),
+        "het_atoms": len(het_atoms),
+        "receptor_atoms": len(receptor_atoms),
+        "occurrences": len(kept_components),
+    }
+    dependency_ccd_ids = {key[1] for key in residue_atoms}
+    dependency_ccd_ids.update(atom["label_comp_id"] for atom in receptor_atoms)
+    dependency_object_keys = {str(item["object_key"]) for item in components}
+    return StageCSourceView(
+        occurrences=kept_components,
+        ligand_coords=coords_arrays,
+        receptor_atoms=receptor_atoms,
+        receptor_base=build_receptor_base_arrays(receptor_atoms),
+        struct_conns=struct_conns,
+        ccd_ids=tuple(sorted(dependency_ccd_ids)),
+        object_keys=tuple(sorted(dependency_object_keys)),
+        report=report,
+    )
+
+
 def parse_one_pdb(root: Path, pdb_id: str, overwrite: bool) -> dict[str, Any]:
     """
     解析一个 PDB 的 Stage C 产物。
@@ -241,80 +405,32 @@ def parse_one_pdb(root: Path, pdb_id: str, overwrite: bool) -> dict[str, Any]:
     receptor_path = parse_dir / "receptor_tokens.npz"
     coords_path = parse_dir / "ligand_coords.npz"
     report_path = root / "reports" / f"{pdb_id}.json"
-    if occurrence_path.exists() and receptor_path.exists() and coords_path.exists() and not overwrite:
-        return {"pdb_id": pdb_id, "status": "skipped"}
+    if not overwrite:
+        from contracts import CArtifactState, inspect_stage_c
 
-    cif_path = root / "raw" / "rcsb_mmcif" / f"{pdb_id}.cif"
-    block = gemmi.cif.read(str(cif_path)).sole_block()
-    atom_rows = selected_atom_rows(category_rows(block, "_atom_site."))
-    entity_types = {row["id"]: row["type"].lower() for row in category_rows(block, "_entity.")}
-    chem_comp_types = {
-        row["id"].upper(): row["type"].upper()
-        for row in optional_category_rows(block, "_chem_comp.")
-        if "id" in row and "type" in row
-    }
-    branch_rows = optional_category_rows(block, "_pdbx_branch_scheme.")
-    branch_links = optional_category_rows(block, "_pdbx_entity_branch_link.")
-    struct_conns = optional_category_rows(block, "_struct_conn.")
+        inspection = inspect_stage_c(root, pdb_id)
+        if inspection.state == CArtifactState.COMPLETE:
+            return {"pdb_id": pdb_id, "status": "skipped"}
+        if inspection.state == CArtifactState.UPGRADE:
+            from c_upgrade import upgrade_stage_c
 
-    report: dict[str, Any] = {
-        "pdb_id": pdb_id,
-        "status": "ok",
-        "counts": {},
-        "warnings": [],
-        "failed_occurrences": [],
-    }
+            return upgrade_stage_c(root, pdb_id)
 
-    het_atoms, receptor_atoms = split_candidate_atoms(atom_rows, entity_types)
-    uf = UnionFind(len(het_atoms))
-    residue_atoms, atom_lookup = build_het_indices(het_atoms)
-    all_atom_lookup = build_all_atom_lookup(atom_rows)
-    residue_covalent = set()
-    inter_bond_candidates: set[tuple[tuple[str, str, str, str], str, tuple[str, str, str, str], str]] = set()
-
-    add_ccd_internal_edges(uf, residue_atoms, root / "raw" / "ccd_cache", report)
-    add_branch_edges(uf, branch_rows, branch_links, residue_atoms, inter_bond_candidates)
-    add_struct_conn_edges(
-        uf,
-        struct_conns,
-        atom_lookup,
-        all_atom_lookup,
-        het_atoms,
-        residue_covalent,
-        inter_bond_candidates,
-        entity_types,
+    # 样本级 overwrite 不再联动覆盖全局去重 LigandObject，避免并发最后写者胜。
+    view = build_stage_c_source_view(root, pdb_id, materialize_objects=True)
+    write_jsonl(occurrence_path, view.occurrences)
+    atomic_save_npz(coords_path, **view.ligand_coords)
+    write_receptor_tokens(
+        receptor_path,
+        view.receptor_atoms,
+        view.struct_conns,
+        root / "raw" / "ccd_cache",
     )
+    for object_key in sorted({str(component["object_key"]) for component in view.occurrences}):
+        materialize_ligand_descriptor(root, object_key, overwrite=False)
 
-    components = build_components(
-        pdb_id,
-        uf,
-        het_atoms,
-        residue_atoms,
-        residue_covalent,
-        inter_bond_candidates,
-        entity_types,
-        chem_comp_types,
-    )
-    components.sort(key=lambda item: item["sort_key"])
-    for candidate_id, component in enumerate(components):
-        component["candidate_id"] = candidate_id
-        component.pop("sort_key")
-
-    materialize_ligand_objects(root, components, overwrite)
-    coords_arrays, kept_components = build_ligand_coords(root, components, het_atoms, residue_atoms, report)
-    write_jsonl(occurrence_path, kept_components)
-    atomic_save_npz(coords_path, **coords_arrays)
-    write_receptor_tokens(receptor_path, receptor_atoms)
-
-    report["counts"] = {
-        "atoms": len(atom_rows),
-        "het_atoms": len(het_atoms),
-        "receptor_atoms": len(receptor_atoms),
-        "occurrences": len(kept_components),
-    }
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    return report
+    write_report(report_path, view.report)
+    return view.report
 
 
 def split_candidate_atoms(
@@ -400,6 +516,8 @@ def add_ccd_internal_edges(
     residue_atoms: dict[tuple[str, str, str, str], dict[str, int]],
     ccd_cache_dir: Path,
     report: dict[str, Any],
+    *,
+    allow_ccd_fetch: bool = True,
 ) -> None:
     """
     根据 CCD 模板添加 residue 内部键。
@@ -409,6 +527,7 @@ def add_ccd_internal_edges(
         - residue_atoms: dict, residue 到 atom index 的映射
         - ccd_cache_dir: Path, CCD 缓存目录
         - report: dict[str, Any], 样本报告
+        - allow_ccd_fetch: bool, 缓存缺失时是否允许访问 RCSB；source audit 为 False
 
     输出:
         - None: 并查集原地更新
@@ -416,7 +535,10 @@ def add_ccd_internal_edges(
     for rkey, atom_by_name in residue_atoms.items():
         ccd_id = rkey[1]
         try:
-            mol = Chem.RemoveHs(get_ccd_mol(ccd_id, ccd_cache_dir), sanitize=False)
+            mol = Chem.RemoveHs(
+                get_ccd_mol(ccd_id, ccd_cache_dir, allow_fetch=allow_ccd_fetch),
+                sanitize=False,
+            )
         except Exception as exc:
             report["warnings"].append({"type": "ccd_failed", "ccd_id": ccd_id, "error": str(exc)})
             continue
@@ -806,23 +928,30 @@ def materialize_ligand_objects(root: Path, components: list[dict[str, Any]], ove
         object_key = component["object_key"]
         materialized_key = (str(root.resolve()), object_key)
         output_path = ligands_dir / f"{safe_object_filename(object_key)}.npz"
-        if output_path.exists() and (not overwrite or materialized_key in _MATERIALIZED_OBJECT_KEYS):
-            continue
-        if component["kind"] == "CCD":
-            materialize_ccd_ligand(
-                component["components"][0]["ccd_id"],
-                object_key,
-                ligands_dir,
-                ccd_cache_dir,
-                overwrite,
-            )
-        else:
-            branched_config = {
-                "residues": [f"{item['index']}. {item['ccd_id']}" for item in component["components"]],
-                "bonds": component["inter_bonds"],
-            }
-            process_branched_ligand(branched_config, object_key, ligands_dir, ccd_cache_dir, None)
-        _MATERIALIZED_OBJECT_KEYS.add(materialized_key)
+        lock_path = root / "reports" / "locks" / "ligand_objects" / f"{safe_object_filename(object_key)}.lock"
+        with file_lock(lock_path):
+            if (
+                ligand_object_is_valid(output_path, object_key)
+                and (not overwrite or materialized_key in _MATERIALIZED_OBJECT_KEYS)
+            ):
+                continue
+            if component["kind"] == "CCD":
+                materialize_ccd_ligand(
+                    component["components"][0]["ccd_id"],
+                    object_key,
+                    ligands_dir,
+                    ccd_cache_dir,
+                    overwrite=True,
+                )
+            else:
+                branched_config = {
+                    "residues": [f"{item['index']}. {item['ccd_id']}" for item in component["components"]],
+                    "bonds": component["inter_bonds"],
+                }
+                process_branched_ligand(branched_config, object_key, ligands_dir, ccd_cache_dir, None)
+            if not ligand_object_is_valid(output_path, object_key):
+                raise ValueError(f"invalid LigandObject after materialization: {object_key}")
+            _MATERIALIZED_OBJECT_KEYS.add(materialized_key)
 
 
 def build_ligand_coords(
@@ -891,51 +1020,34 @@ def build_ligand_coords(
         cid = component["candidate_id"]
         coords_arrays[f"coords_{cid}"] = coords
         coords_arrays[f"present_{cid}"] = present
+        coords_arrays[f"centroid_atom_{cid}"] = coords[present].mean(
+            axis=0,
+            dtype=np.float64,
+        ).astype(np.float32)
         kept_components.append(component)
     return coords_arrays, kept_components
 
 
-def write_receptor_tokens(path: Path, receptor_atoms: list[dict[str, Any]]) -> None:
+def write_receptor_tokens(
+    path: Path,
+    receptor_atoms: list[dict[str, Any]],
+    struct_conns: list[dict[str, str]],
+    ccd_cache_dir: Path,
+) -> None:
     """
     保存 receptor token 表。
 
     输入参数:
         - path: Path, 输出 `receptor_tokens.npz`
-        - receptor_atoms: list[dict[str, Any]], polymer 重原子
+        - receptor_atoms: list[dict[str,Any]], polymer 重原子
+        - struct_conns: list[dict[str,str]], `_struct_conn` 行
+        - ccd_cache_dir: Path, `raw/ccd_cache` 目录
 
     输出:
         - None: receptor token 文件写入完成
     """
-    periodic_table = Chem.GetPeriodicTable()
-    coords = np.array([(atom["x"], atom["y"], atom["z"]) for atom in receptor_atoms], dtype=np.float32)
-    element = np.array([periodic_table.GetAtomicNumber(atom["element"].title()) for atom in receptor_atoms], dtype=np.uint8)
-    res_type = np.array([RES_TO_ID.get(normalize_residue(atom["label_comp_id"]), RES_TO_ID["UNK"]) for atom in receptor_atoms], dtype=np.uint8)
-    is_backbone = np.array([is_backbone_atom(atom) for atom in receptor_atoms], dtype=bool)
-    atom_name = np.array([atom["label_atom_id"].encode("ascii", errors="ignore")[:4] for atom in receptor_atoms], dtype="S4")
-
-    residue_to_index: dict[tuple[str, str, str, str], int] = {}
-    chain_to_index: dict[str, int] = {}
-    res_indices = []
-    chain_indices = []
-    for atom in receptor_atoms:
-        rkey = residue_key(atom)
-        if rkey not in residue_to_index:
-            residue_to_index[rkey] = len(residue_to_index)
-        if atom["label_asym_id"] not in chain_to_index:
-            chain_to_index[atom["label_asym_id"]] = len(chain_to_index)
-        res_indices.append(residue_to_index[rkey])
-        chain_indices.append(chain_to_index[atom["label_asym_id"]])
-
-    atomic_save_npz(
-        path,
-        coords=coords,
-        element=element,
-        res_type=res_type,
-        is_backbone=is_backbone,
-        atom_name=atom_name,
-        res_index=np.array(res_indices, dtype=np.int32),
-        chain_index=np.array(chain_indices, dtype=np.int32),
-    )
+    arrays = build_receptor_arrays(receptor_atoms, struct_conns, ccd_cache_dir)
+    atomic_save_npz(path, **arrays)
 
 
 def normalize_residue(resname: str) -> str:

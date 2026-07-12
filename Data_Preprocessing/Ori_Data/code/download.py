@@ -2,20 +2,22 @@
 
 download_one_pair：按 --resources 下载一个样本的 mmCIF(RCSB)、EMDB map(EBI FTP)、EMDB meta(EMDB API)，
 3 次重试 + gzip 完整性校验 + 原子写；mmcif/map 落 `raw/`，meta 落 `reports/meta/`。
-write_failed_downloads：把本分片的下载失败汇总到 `reports/_failed_download.part_*`（并发安全追加）。
+write_failed_downloads：把本分片的最终失败原子覆盖到 `reports/_failed_download.part_*`，空结果也清除旧污染。
 """
 
 from __future__ import annotations
 
 import gzip
 import io
+import json
+import os
 import time
 from pathlib import Path
 from typing import Any
 
 import requests
 
-from io_utils import append_jsonl
+from io_utils import atomic_replace, write_jsonl
 from rcsb import EMDB_META_URL, PDB_CIF_URL, emdb_map_url
 from reports import sharded_report_path
 
@@ -57,9 +59,9 @@ def write_bytes(path: Path, content: bytes) -> None:
         - None: 文件写入完成
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_name(f"{path.name}.tmp")
+    tmp_path = path.with_name(f"{path.name}.tmp.{os.getpid()}")
     tmp_path.write_bytes(content)
-    tmp_path.replace(path)
+    atomic_replace(tmp_path, path)
 
 
 def validate_gzip_bytes(content: bytes) -> None:
@@ -98,6 +100,7 @@ def download_one_pair(
     pdb_id = str(record["pdb_id"]).lower()
     emdb_id = str(record["emdb_id"]).upper()
     result = {"pdb_id": pdb_id, "emdb_id": emdb_id, "ok": True, "failures": []}
+    result["resources"] = {}
 
     targets = [
         ("mmcif", PDB_CIF_URL.format(pdb_id=pdb_id.upper()), root / "raw" / "rcsb_mmcif" / f"{pdb_id}.cif"),
@@ -108,17 +111,65 @@ def download_one_pair(
     for resource, url, path in targets:
         if resource not in resources:
             continue
-        if path.exists() and not overwrite:
+        if path.exists() and not overwrite and resource_path_is_reusable(path, resource):
+            result["resources"][resource] = "skipped"
             continue
         try:
             content = download_bytes(url)
             if resource == "map":
                 validate_gzip_bytes(content)
+            elif resource == "meta":
+                parsed = json.loads(content)
+                if not isinstance(parsed, dict):
+                    raise ValueError("EMDB metadata root is not a JSON object")
+            elif resource == "mmcif" and b"data_" not in content[:1024]:
+                raise ValueError("downloaded mmCIF has no data_ block")
             write_bytes(path, content)
+            result["resources"][resource] = "downloaded"
         except Exception as exc:
             result["ok"] = False
             result["failures"].append({"resource": resource, "error": str(exc)})
+            result["resources"][resource] = "failed"
     return result
+
+
+def resource_targets(root: Path, record: dict[str, Any]) -> dict[str, Path]:
+    """返回一个 pair 的 mmCIF/meta/map 最终路径。"""
+    pdb_id = str(record["pdb_id"]).lower()
+    emdb_id = str(record["emdb_id"]).upper()
+    return {
+        "mmcif": root / "raw" / "rcsb_mmcif" / f"{pdb_id}.cif",
+        "meta": root / "reports" / "meta" / f"{pdb_id}.meta.json",
+        "map": root / "raw" / "emdb_maps" / f"emd_{emdb_id.replace('EMD-', '')}.map.gz",
+    }
+
+
+def resource_path_is_reusable(path: Path, resource: str) -> bool:
+    """
+    以低 I/O 判据判断既有下载件是否可复用。
+
+    map 只检查非空与 gzip magic；mmCIF 只检查文件头的 data block 与 entry 标识。完整
+    mmCIF/CRC/MRC/三维内容由 Stage C/E 实际读取时验证，避免为了跳过 22k 份大文件而
+    扫描全部正文。尤其不能假设 `_atom_site.` 必定位于前 1 MiB。
+    """
+    try:
+        if not path.is_file() or path.stat().st_size == 0:
+            return False
+        if resource == "map":
+            if path.stat().st_size < 18:
+                return False
+            with path.open("rb") as handle:
+                return handle.read(2) == b"\x1f\x8b"
+        if resource == "meta":
+            value = json.loads(path.read_text(encoding="utf-8"))
+            return isinstance(value, dict)
+        if resource == "mmcif":
+            with path.open("rb") as handle:
+                prefix = handle.read(1024 * 1024)
+            return prefix.lstrip().startswith(b"data_") and b"_entry.id" in prefix
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return False
+    raise ValueError(f"unknown download resource: {resource}")
 
 
 def write_failed_downloads(
@@ -135,7 +186,7 @@ def write_failed_downloads(
         - results: list[dict[str, Any]], `download_one_pair` 返回列表
 
     输出:
-        - None: 若存在失败则写入 `reports/_failed_download.jsonl`
+        - None: 原子覆盖 `reports/_failed_download.jsonl`；无失败时写空文件
     """
     failed: list[dict[str, Any]] = []
     for result in results:
@@ -149,6 +200,5 @@ def write_failed_downloads(
                 }
             )
     failed_path = sharded_report_path(root, "_failed_download.jsonl", part_id, total_parts)
-    if failed:
-        for record in failed:
-            append_jsonl(failed_path, record)
+    # 每个分片以本次最终结果原子覆盖自己的 legacy 诊断文件，空列表也写空文件，清除旧污染。
+    write_jsonl(failed_path, failed)

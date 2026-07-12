@@ -5,6 +5,7 @@
 - RES_VOCAB / RES_TO_ID：受体残基类型词表与索引（20 AA + 8 核苷酸 + UNK），用于 receptor_tokens 的 res_type。
 - PROTEIN_BACKBONE / NUCLEIC_BACKBONE：主链原子名集合，用于 is_backbone。
 - METAL_ELEMENTS：金属元素集合，用于把单原子金属判为 type_tag=ion。
+- RECEPTOR_BOND_TYPE_TO_ID：受体化学键的稳定、向后兼容枚举。
 """
 
 from __future__ import annotations
@@ -77,6 +78,16 @@ RES_TO_ID = {name: idx for idx, name in enumerate(RES_VOCAB)}
 PROTEIN_BACKBONE = {"N", "CA", "C", "O"}
 NUCLEIC_BACKBONE = {"P", "O5'", "C5'", "C4'", "C3'", "O3'"}
 
+RECEPTOR_BOND_TYPE_TO_ID = {
+    "single": 0,
+    "double": 1,
+    "aromatic": 2,
+    "backbone": 3,
+    "disulfide": 4,
+    "covale": 5,
+    "triple": 6,
+}
+
 METAL_ELEMENTS = {
     "LI",
     "BE",
@@ -147,4 +158,3 @@ METAL_ELEMENTS = {
     "PA",
     "U",
 }
-

@@ -14,7 +14,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "code"))
 
 from constants import METAL_ELEMENTS
 from io_utils import append_jsonl, atomic_save_npz, read_jsonl, safe_object_filename
-from ligand_object import BranchedBondError, process_branched_ligand
+from ligand_object import (
+    BranchedBondError,
+    CCDFetchError,
+    get_ccd_mol,
+    process_branched_ligand,
+)
 from parse import (
     build_components,
     build_het_indices,
@@ -420,6 +425,15 @@ def test_single_ccd_ligand_object_name_and_residue_name_are_separate(tmp_path):
 
     assert str(obj["name"]) == "CCD:HOH"
     assert obj["residue_names"].tolist() == ["HOH"]
+
+
+def test_get_ccd_mol_read_only_mode_refuses_network_fetch(tmp_path):
+    """只读 source audit 遇到缺失 CCD 缓存时必须显式失败，不能静默访问网络。"""
+    with pytest.raises(CCDFetchError, match="read-only audit"):
+        get_ccd_mol("ZZZ", tmp_path / "ccd_cache", allow_fetch=False)
+
+    assert not (tmp_path / "ccd_cache").exists()
+    assert not (tmp_path / "ccd_cache" / "ZZZ.pkl").exists()
 
 
 def test_occurrence_schema_omits_molecular_weight():

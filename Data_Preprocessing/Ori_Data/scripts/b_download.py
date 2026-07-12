@@ -14,9 +14,20 @@ from joblib import Parallel, delayed
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "code"))
 
-from download import download_one_pair, write_failed_downloads
-from io_utils import read_jsonl
+from download import (
+    download_one_pair,
+    resource_path_is_reusable,
+    resource_targets,
+)
+from io_utils import read_jsonl, write_jsonl
 from parallel import shard_items
+from reports import (
+    resolve_run_id,
+    sharded_report_path,
+    stage_report_path,
+    stage_result,
+    write_stage_results,
+)
 
 
 def main() -> None:
@@ -32,16 +43,71 @@ def main() -> None:
     parser.add_argument("--total_parts", type=int, default=1)
     parser.add_argument("--n_jobs", type=int, default=1)
     parser.add_argument("--resources", default="mmcif,meta,map")
+    parser.add_argument("--run_id")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
+    run_id = resolve_run_id(args.run_id)
     records = read_jsonl(args.root / "raw" / "pair_list.jsonl")
     records = shard_items(records, args.part_id, args.total_parts)
     resources = {item.strip() for item in args.resources.split(",") if item.strip()}
+    invalid_resources = resources.difference({"mmcif", "meta", "map"})
+    if not resources or invalid_resources:
+        raise ValueError(f"resources must be a non-empty subset of mmcif,meta,map: {invalid_resources}")
     results = Parallel(n_jobs=args.n_jobs, backend="loky", verbose=10)(
         delayed(download_one_pair)(args.root, record, args.overwrite, resources) for record in records
     )
-    write_failed_downloads(args.root, results, args.part_id, args.total_parts)
+    stage_records = []
+    final_legacy_failures = []
+    for record, result in zip(records, results, strict=True):
+        final_failures = []
+        for resource in sorted(resources):
+            path = resource_targets(args.root, record)[resource]
+            if not resource_path_is_reusable(path, resource):
+                attempted_error = next(
+                    (
+                        item["error"]
+                        for item in result["failures"]
+                        if item["resource"] == resource
+                    ),
+                    "final artifact is missing or invalid",
+                )
+                final_failures.append(
+                    {"resource": resource, "path": str(path), "error": attempted_error}
+                )
+        pdb_id = str(record["pdb_id"]).lower()
+        if final_failures:
+            for failure in final_failures:
+                final_legacy_failures.append(
+                    {
+                        "pdb_id": pdb_id,
+                        "emdb_id": str(record["emdb_id"]).upper(),
+                        **failure,
+                    }
+                )
+            stage_records.append(
+                stage_result(
+                    pdb_id,
+                    "stage_b",
+                    "known_failed",
+                    reason="download_failed",
+                    failures=final_failures,
+                    resources=result["resources"],
+                )
+            )
+        else:
+            status = "success" if "downloaded" in result["resources"].values() else "skipped"
+            stage_records.append(
+                stage_result(pdb_id, "stage_b", status, resources=result["resources"])
+            )
+    write_jsonl(
+        sharded_report_path(args.root, "_failed_download.jsonl", args.part_id, args.total_parts),
+        final_legacy_failures,
+    )
+    write_stage_results(
+        stage_report_path(args.root, run_id, "stage_b", args.part_id, args.total_parts),
+        stage_records,
+    )
 
 
 if __name__ == "__main__":
