@@ -11,6 +11,8 @@
 > **第一版默认 vs 实验档**：默认精简档——细分支对 PP/A **解耦**；粗分支默认 **2 类 rep**（`CCD_repr` + 耦合 `blob_repr`），**4 类 rep 为并列一等实验**（早晚都要跑，非边角消融）。Stage2 跨集合 cross-attn **只读不写回**，Stage3 写回。context 图只实现 gated 消息传递（A-only）；配体内部直接复用 Emap2lig `PairFormer`；不实现等变坐标更新 / 3D RoPE / softmax 版 context 图。
 >
 > **flash / eager**：无逐对 bias 的注意力走 flash-attn（已在目标老 glibc 装好）；带逐对 bias 的走 eager / torch SDPA mem-efficient（见 §2.2、§13）。两条 kernel 自动切换，并备无 flash 兜底。
+>
+> **边界（就地声明）**：本文 owns 算子 / 批维 / 块 / **featurizer 契约（§4.1：运行时标签定义、blob 选择旋钮、CPU 闸）** / **监督全清单（§12，带标签来源指针）**；不 owns 盘上数据（`BOX 契约`）、任务/损失语义（`模型总规划`）、blob 产法（`Stage1`）。
 
 ---
 
@@ -95,6 +97,7 @@
 - **定义**（COO 扁平、PocketXMol `NodeBlock` 式）：逐边 `msg = message_mlp(edge_mlp(edge_features) ⊙ node_mlp(neighbor))`；`gate = sigmoid(gate_mlp(edge_features, neighbor))`；`scatter_sum`（不归一化）；残差 + LayerNorm + out_transform。
 - **A-only**：只在受体节点跑，无 PP/A typed 分支。
 - **结合概率进消息 bias**：边特征拼两端 `receptor_binding_probability`（**detach**）。MP 本就逐边算消息，加概率天然、不涉 flash。
+- **边 = 落盘化学键 ∪ 运行时 radius**：`receptor_edge_index` 的**键**这半由 `数据处理 §5.3′`/`BOX §2` 落盘的受体键表切片（残基模板内 + 主链/骨架 + `_struct_conn` 交联）；**radius** 这半 featurizer 运行时按截断算（D21：几何 radius 图不落盘）。二者并成 COO 喂本算子。
 - **用几何**：是（边含距离 GaussianSmearing，间接）。**等变**：否。**更新坐标**：否。**块数 \~4**（对齐 Emap2lig `InstanceSeg` `num_blocks=4`，浅层避免过平滑）。
 
 ### 2.2 `TypedAttention`（统一跨/自注意力原语；从头写）
@@ -203,6 +206,14 @@ ligand_atom_features = ligand_atom_features + slot_index_embedding              
 > **PP 采样粒度（`select_top_k_points`）**：Emap2lig 默认是「体素打平 `[B, D·H·W, C]` → 按 `ligand_area` 概率 top-k → gather」，坐标 = `整数体素索引 × voxel_size + origin`，即**体素中心、1Å 量化、top-k 索引天然去重**（§13 已核）。这对 Stage2 覆盖（α/β 本就是数体素的标量）无所谓，但对 Stage3 几何 cross-attn 的位置 bias 是精度地板。两个注意：(1) **可以考虑 PP 预算按真实正类体素分布定**——实测 1.7Å 包络平均 ~3000 正类体素/配体，故 `PP=4096/8192` 已越过正类、必然掺进低概率背景，盲目上 8192 多半灌背景而非加信号；(2) **始终保留 Emap2lig 默认实现可用**，更细采样（不固定体素中心 / 亚体素峰值插值 / 比 1Å 更密）只作未来钩子，不替换默认。
 
 > **`FusePtoPP` 默认实现**：Pock_Plus 分类头式的**截断 cross-attn + MLP**（对应 `stage1_atom_head` 的 radius-graph 几何 cross-attn），PP 当 query 向 KNN/radius 邻近 P，把相对坐标 + 两侧 `ligand_area` 概率送 BiasMLP（同帧、几何合法、不涉位置泄露，故 bias 可开）。截断后分数矩阵小，材化 bias 便宜。**套1（全局 flash、无 bias、不截断）暂不写**，列为消融钩子（§14）：担心截断漏掉本该用的稀疏 P 时，先调大 K/半径，而非另接全局路。
+
+### 4.1 featurizer 契约（运行时标签 / blob 选择 / CPU 预算）
+
+featurizer 是"盘上块 → 模型张量"的装配层（`BOX §10` 三层分离的中间层）。除上面的表示前导外，它还 **owns 三件消费侧的事**（就地声明，防这几件"落在文档之间"）：
+
+- **运行时标签定义**：主通路会丢、又能从本地 BOX 级块廉价现算的辅助监督标签，**定义写在这里**（生产方 = featurizer）：`ligand_pair_features` 的**图距离**（键跳数 BFS）、`blob_repr` 的 **blob 形状**（`blob_mask` 的 PMI 形状比 + \|b\| + 伸长度）。`§12` 只指针指到本节。
+- **"用哪些 blob"选择旋钮**：blob 落盘**只存不删**、附 `scores` 套打分（`BOX §4.2`、`Stage1 §4`）；**选哪些进样本是消费侧决定**——一个选择旋钮（阈值 + 指标 F1/F_α + 可选 scorer），住在 featurizer，不进存储、不进 Stage1。打分器（含迷你网）产分数、featurizer 截取、添油只存分数（**存 / 用分离**）。
+- **CPU 预算闸**：运行时派生量必须在最大规模（PP≈8096、口袋 A≈3k 原始）下 CPU 扛得住（训推共用 builder，`Stage1 §3.1`）；扛不住的退回预计算（进 `数据处理`/`BOX` 添油）。这条闸决定一个标签走"运行时"还是"预计算"。
 
 ---
 
@@ -413,19 +424,22 @@ for t in diffusion_steps:
 
 ---
 
-## §12 监督全清单（两级辅助 + 覆盖；预期有效性已标）
+## §12 监督全清单（两级辅助 + 覆盖；标签来源已指针化）
 
-| 损失 | 挂在哪 | 说明 / 预期有效性 |
-| --- | --- | --- |
-| Loss_coverage（主） | coverage_O_logit（分类，跨档）+ coverage_recall/precision_logit（A/B 回归，密度档） | O focal/CE + A/B 软回归 + 身份内匈牙利。课程 §5.1：阶段一只 O、阶段二 A/B/O。 |
-| 粗分支块内深监督 | 粗分支专属 MLP（逐层 loss_cfg） | 着重 **O 分类**（粗 rep 细节盲、宜判匹配）；末几层廉价深监督，推动 rep 全局推理早对齐。 |
-| 粗 rep 全局属性 | CCD_repr / blob_repr（/ PP_repr,A_repr） | 预测口袋/PP/配体的大小、形状、分子量、原子数 → 正则/防 rep 塌缩（非供梯度，粗分支本就有梯度）。 |
-| 细 ligand 逐原子/键属性 | ligand_atom_features / ligand_pair_features | 复用 Emap2lig AuxiliaryModule（元素/手性/环 + 键类型/环/存在 + pair 距离，可选）→ 防配体表示塌缩。 |
-| Loss_binding | binding 概率重预测头（A 上） | 反向监督受体结合概率；也支撑"概率作 bias 时已 detach"的解耦（§3）。 |
-| ligand_area 辅助 | ligand_area 概率重预测头（PP 上） | 对称于结合概率，可选。 |
-| 逐配体原子覆盖辅助 | fine_probe_recall 读出前 | 逐配体原子"被覆盖"，可选细粒度深监督（配体全程更新，有意义）。**逐 PP"属于"已删**——PP 初始化后全程冻结（§3），无可防的逐点表示塌缩、且与 Stage1 ligand_area 概率冗余；precision 故走融合 readout 不材化逐点 probe（§11）。 |
+> **本表 owns"哪个模块 + 什么损失 + 防谁塌缩"；标签定义随生产方，"标签来源"列只留指针**——预计算标签 → `数据处理` / `BOX 契约`，运行时标签 → 本文 §4 featurizer。**判据：每项辅助监督须指名它防哪个模块的塌缩，指不出就不上。**（`模型总规划` 只 owns 更高层的任务/损失语义 §5.3/§8，本详表在此。）
 
-> **去掉 `slot_is_present`**（假定 count 正确）。每个辅助头标了预期作用；上线前评估，不无脑堆。所有损失项的开关/权重/类型挂在逐层 `loss_cfg`（§5/§8）。
+| 损失 | 挂哪个模块 | 标签来源（指针） | 说明 / 防谁塌缩 |
+| --- | --- | --- | --- |
+| Loss_coverage（主） | coverage_O_logit（分类，跨档）+ coverage_recall/precision_logit（A/B 回归，密度档） | `BOX §4.3` coverage（α/β/O_IoU）+ `BOX §3.2` occ_distances（O_dist） | O focal/CE + A/B 软回归 + 身份内匈牙利。课程 §5.1：阶段一只 O、阶段二 A/B/O。 |
+| 粗分支块内深监督 | 粗分支专属 MLP（逐层 loss_cfg） | 同主损失（O） | 着重 O 分类（粗 rep 细节盲、宜判匹配）；末几层廉价深监督，推 rep 全局推理早对齐。 |
+| 配体全局描述子 | `CCD_repr`（粗辅助） | `数据处理 §5.2″` ligand_descriptors | 防单向量 rep 塌缩：规模（`mol_weight`/`n_heavy`）+ 拓扑（`wiener_index`）+ 谱（`graph_energy`）+ 3D 形状（`radius_gyration`），多尺度、去重摊薄。 |
+| blob 形状 | `blob_repr`（粗辅助，密度档） | **运行时** featurizer（从 `blob_mask` 算 PMI 形状比 + \|b\| + 伸长度） | 防 `blob_repr` 塌缩、记住密度块形状。本地 BOX 级、CPU 闸内（§4）。 |
+| 细 ligand 逐原子/键属性 | `ligand_atom_features` / `ligand_pair_features`（trunk） | `LigandObject`（元素/手性/环 + 键型/键环/键存在）+ `数据处理 §5.2″` `atom_local` + 图距离**运行时** | Emap2lig AuxiliaryModule + pair 距离 + 键跳数图距离 → 防配体表示塌缩。 |
+| 逐配体原子覆盖 | `fine_probe_recall` 读出前（细分支） | `BOX §4.3′` atom_coverage | 正则只读的细 recall 分支（防死码），细分支上线时开。**逐 PP"属于"已删**——PP 全程冻结（§3），与 Stage1 ligand_area 概率冗余；precision 走融合 readout 不材化逐点 probe（§11）。 |
+| Loss_binding（可选，受体档默认开） | binding 概率重预测头（A 上，`SparseGraphInteraction` 后） | `Stage D` `binding_atom`（GT） | **A 图的指定防塌缩目标**：Stage1 仅点特征、无边，重预测逼 A 图用上边（键 ∪ radius + gated MP）重建结合倾向——**非冗余**。也支撑"概率作 bias 已 detach"的解耦（§3）。 |
+| ligand_area / 逐 PP 重预测 | —（**否决**） | — | PP 全程冻结（§3），逐 PP 无可防塌缩、与 Stage1 概率冗余，故不设。 |
+
+> **口袋全局描述子**（#受体原子 / 残基型直方图，挂 `A_repr`/`blob_repr`）与持久同调 / 谱口袋描述子作**可选钩子、不进 v1**（per-实例不去重、较贵）。**去掉 `slot_is_present`**（假定 count 正确）。每个辅助头标了防谁塌缩；上线前评估，不无脑堆。所有损失项的开关/权重/类型挂在逐层 `loss_cfg`（§5/§8）。
 
 ---
 
