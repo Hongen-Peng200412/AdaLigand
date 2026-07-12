@@ -24,8 +24,25 @@ from mrc_contract_audit import (
     canonical_shape_zyx,
     collect_unique_emdb_inputs,
     execute_header_audit,
+    numeric_distribution,
     shard_emdb_inputs,
 )
+
+
+def test_numeric_distribution_is_json_safe_and_counts_scale_direction() -> None:
+    """contour scale 分布必须保留相对 1 的方向，并让空输入只产生 null。"""
+    summary = numeric_distribution([0.25, 0.5, 1.0, 2.0])
+    assert summary["count"] == 4
+    assert summary["less_than_one_count"] == 2
+    assert summary["equal_to_one_count"] == 1
+    assert summary["greater_than_one_count"] == 1
+    assert summary["min"] == 0.25
+    assert summary["median"] == 0.75
+    assert summary["max"] == 2.0
+
+    empty = numeric_distribution([])
+    assert empty["count"] == 0
+    assert empty["median"] is None
 
 
 def test_all_equal_geometry_keeps_shape_and_unit_ratio() -> None:
@@ -210,6 +227,7 @@ def test_execute_audit_atomically_writes_frozen_summary_and_risks(tmp_path: Path
     assert summary["selected_emdb_count"] == 1
     assert summary["risk_record_count"] == 1
     assert summary["risk_code_counts"][MIXED_EQUALITY_RISK] == 1
+    assert summary["canonical_contour_scale_distribution"]["count"] == 0
     assert len(summary["audited_header_projection_sha256"]) == 64
     assert summary["risk_jsonl_sha256"] == _sha256(risks_path)
     risk = json.loads(risks_path.read_text(encoding="utf-8").strip())

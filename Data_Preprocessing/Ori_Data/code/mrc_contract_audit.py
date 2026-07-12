@@ -444,6 +444,55 @@ def implementation_manifest(paths: dict[str, Path]) -> dict[str, Any]:
     return {"files": files, "sha256": hashlib.sha256(payload).hexdigest()}
 
 
+def numeric_distribution(values: Sequence[float]) -> dict[str, float | int | None]:
+    """
+    把有限数值压缩为稳定的计数、方向计数和分位数摘要。
+
+    输入参数:
+        - values: Sequence[float], 待汇总的有限数值；允许空序列
+
+    输出:
+        - distribution: dict, JSON-safe 的 count/min/quantile/mean/max 与相对 1 的计数
+    """
+    array = np.asarray(values, dtype=np.float64)
+    if array.ndim != 1 or (len(array) and not np.isfinite(array).all()):
+        raise ValueError("numeric distribution requires a one-dimensional finite sequence")
+    if len(array) == 0:
+        return {
+            "count": 0,
+            "less_than_one_count": 0,
+            "equal_to_one_count": 0,
+            "greater_than_one_count": 0,
+            "min": None,
+            "p01": None,
+            "p05": None,
+            "p25": None,
+            "median": None,
+            "p75": None,
+            "p95": None,
+            "p99": None,
+            "mean": None,
+            "max": None,
+        }
+    quantiles = np.quantile(array, [0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99])
+    return {
+        "count": int(len(array)),
+        "less_than_one_count": int(np.count_nonzero(array < 1.0)),
+        "equal_to_one_count": int(np.count_nonzero(array == 1.0)),
+        "greater_than_one_count": int(np.count_nonzero(array > 1.0)),
+        "min": float(np.min(array)),
+        "p01": float(quantiles[0]),
+        "p05": float(quantiles[1]),
+        "p25": float(quantiles[2]),
+        "median": float(quantiles[3]),
+        "p75": float(quantiles[4]),
+        "p95": float(quantiles[5]),
+        "p99": float(quantiles[6]),
+        "mean": float(np.mean(array)),
+        "max": float(np.max(array)),
+    }
+
+
 def execute_header_audit(
     root: Path,
     pair_list_path: Path,
@@ -518,6 +567,12 @@ def execute_header_audit(
         for record in risks
         for risk_code in record["risk_codes"]
     )
+    contour_scales = [
+        float(record["geometry"]["normal_rescale_amplitude_ratio"])
+        for record in records
+        if record["status"] == "audited"
+        and bool(record["geometry"]["effective_physical_closure"])
+    ]
     header_projection = [
         {
             "emdb_id": record["emdb_id"],
@@ -550,6 +605,7 @@ def execute_header_audit(
         "axis_relation_counts": dict(sorted(relation_counts.items())),
         "risk_record_count": len(risks),
         "risk_code_counts": dict(sorted(risk_code_counts.items())),
+        "canonical_contour_scale_distribution": numeric_distribution(contour_scales),
         "risk_jsonl_path": str(risks_path),
         "risk_jsonl_sha256": sha256_file(risks_path),
         "audited_header_projection_sha256": hashlib.sha256(
