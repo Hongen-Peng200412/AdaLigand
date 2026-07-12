@@ -19,7 +19,7 @@ def write_normalized_model_cif(
     atom_only: bool,
 ) -> dict[str, Any]:
     """
-    写首 model、规范 altloc、重原子的标准化模型，并保留原始 atom_site.id。
+    写只含受检 atom_site 的最小标准化模型，并保留原始字段值与行序。
 
     输入参数:
         - source_path: Path, RCSB 原始完整 mmCIF
@@ -27,15 +27,19 @@ def write_normalized_model_cif(
         - atom_only: bool, True 时严格仅保留 ``group_PDB==ATOM``；仅供 E2 receptor-only map
 
     输出:
-        - stats: dict, 选中原子数、ATOM/HETATM 数和源 model 编号
+        - stats: dict[str, Any], 包含:
+            - "n_atoms": int, 选中的重原子总数
+            - "n_atom": int, 选中的 ``group_PDB=ATOM`` 原子数
+            - "n_hetatm": int, 选中的 ``group_PDB=HETATM`` 原子数
+            - "model_num": str, 源 mmCIF 中被选中的首 model 编号
 
     说明:
         ``atom_only=False`` 用于 F 的 full-model CC/Q-score，保留选中 model 的全部 ATOM/HETATM
         重原子。``atom_only=True`` 只用于 E2；所有 HETATM（含共价修饰）一律删除。
     """
-    document = gemmi.cif.read(str(source_path))
-    block = document.sole_block()
-    raw_rows = category_rows(block, "_atom_site.")
+    source_document = gemmi.cif.read(str(source_path))
+    source_block = source_document.sole_block()
+    raw_rows = category_rows(source_block, "_atom_site.")
     selected = selected_raw_atom_rows(raw_rows, include_hydrogen=False)
     if atom_only:
         selected = [row for row in selected if clean_value(row.get("group_PDB", "")).upper() == "ATOM"]
@@ -43,24 +47,38 @@ def write_normalized_model_cif(
         model_kind = "ATOM-only" if atom_only else "full"
         raise ValueError(f"normalized {model_kind} model contains no heavy atom")
 
-    category = block.get_mmcif_category("_atom_site.")
+    category = source_block.get_mmcif_category("_atom_site.")
     if not category:
         raise ValueError("source mmCIF has no _atom_site category")
     # category_rows 构造了新字典，不能按对象 id 回索；以 atom_site.id 精确选择原列。
-    selected_atom_ids = {str(row["id"]) for row in selected}
     raw_ids = category.get("id")
     if raw_ids is None or len(raw_ids) != len(set(str(value) for value in raw_ids)):
         raise ValueError("source _atom_site.id is missing or non-unique")
-    keep_indices = [index for index, value in enumerate(raw_ids) if str(value) in selected_atom_ids]
+    raw_index_by_id = {str(value): index for index, value in enumerate(raw_ids)}
+    keep_indices = [raw_index_by_id[str(row["id"])] for row in selected]
     filtered = {
         key: [values[index] for index in keep_indices]
         for key, values in category.items()
     }
-    block.set_mmcif_category("_atom_site.", filtered)
+    filtered_ids = [str(value) for value in filtered["id"]]
+    selected_ids = [str(row["id"]) for row in selected]
+    if filtered_ids != selected_ids:
+        raise RuntimeError("normalized atom_site ids changed during selection")
+
+    # 外部工具只消费所选原子的 Cartesian atom_site。复制整个源 document 会让已删除的
+    # model/altloc/HETATM/H 原子继续被 anisotrop、struct_conn 等类别引用，Classic Chimera
+    # 会花数小时打印悬挂引用 warning。最小独立 document 保留每个 atom_site 字段原值，
+    # 同时从结构上消除这些无效跨类别引用。
+    normalized_document = gemmi.cif.Document()
+    normalized_block = normalized_document.add_new_block(source_block.name)
+    entry_id = source_block.find_value("_entry.id")
+    if entry_id and clean_value(str(entry_id)):
+        normalized_block.set_pair("_entry.id", str(entry_id))
+    normalized_block.set_mmcif_category("_atom_site.", filtered)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = output_path.with_name(f"{output_path.name}.tmp.{os.getpid()}")
-    tmp_path.write_text(document.as_string(), encoding="utf-8", newline="\n")
+    tmp_path.write_text(normalized_document.as_string(), encoding="utf-8", newline="\n")
     atomic_replace(tmp_path, output_path)
     groups = [clean_value(row.get("group_PDB", "")).upper() for row in selected]
     model_num = clean_value(selected[0].get("pdbx_PDB_model_num", "1")) or "1"

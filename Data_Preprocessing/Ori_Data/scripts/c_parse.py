@@ -19,6 +19,7 @@ from contracts import CArtifactState, inspect_stage_c
 from parallel import filter_pair_records, read_pdb_id_filter, shard_items
 from parse import parse_one_pdb
 from reports import (
+    ensure_filtered_stage_run_is_isolated,
     failure_stage_result,
     resolve_run_id,
     stage_report_path,
@@ -96,18 +97,7 @@ def ensure_filtered_run_is_isolated(
     filtered smoke/repair 必须使用独立的新 run id。正式 A guard 是全量 run 的稳定标记；
     已存在的目标 C 状态也不得被子集结果覆盖。
     """
-    if pdb_ids_file is None:
-        return
-    run_dir = root / "reports" / "runs" / run_id
-    formal_a_guard = run_dir / "stage_a" / "guard.json"
-    existing_c_status = sorted((run_dir / "stage_c").glob("status.part_*.jsonl"))
-    conflicts = ([formal_a_guard] if formal_a_guard.exists() else []) + existing_c_status
-    if conflicts:
-        rendered = ",".join(str(path) for path in conflicts)
-        raise RuntimeError(
-            "filtered Stage C requires a fresh independent run_id; "
-            f"refusing to overwrite existing run evidence: {rendered}"
-        )
+    ensure_filtered_stage_run_is_isolated(root, run_id, "stage_c", pdb_ids_file)
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ e_exit=0
   --chimera "${CHIMERA}" \
   --scratch_root "${SCRATCH_ROOT}" \
   --n_jobs "${E_N_JOBS:-24}" \
+  --timeout_seconds "${E_TIMEOUT_SECONDS:-3600}" \
   --run_id "${ADALIGAND_RUN_ID}" || e_exit=$?
 d_exit=0
 wait "${d_pid}" || d_exit=$?

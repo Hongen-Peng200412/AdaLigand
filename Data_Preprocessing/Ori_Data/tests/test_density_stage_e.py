@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
@@ -33,6 +34,7 @@ from mrc import (
     POCKET_MRC_VENDOR_SHA256,
     POCKET_RESAMPLE_ALL_DIFF,
 )
+from reports import ensure_filtered_stage_run_is_isolated
 
 
 def _valid_experimental_density() -> dict[str, np.ndarray]:
@@ -320,3 +322,44 @@ def test_simulated_density_validator_rejects_plane_and_geometry_mismatch() -> No
         source_cif_mtime_ns=40,
     )
     assert "sim_provenance:source_exp_identity_mismatch" in mismatched
+
+
+def test_filtered_stage_e_cannot_overwrite_formal_or_existing_status(tmp_path: Path) -> None:
+    """Stage E 子集修复必须使用没有正式 A/E 证据的独立 run id。"""
+    ids_path = tmp_path / "ids.txt"
+    ids_path.write_text("1abc\n", encoding="utf-8")
+    formal_guard = tmp_path / "reports" / "runs" / "formal" / "stage_a" / "guard.json"
+    formal_guard.parent.mkdir(parents=True)
+    formal_guard.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="fresh independent run_id"):
+        ensure_filtered_stage_run_is_isolated(
+            tmp_path,
+            "formal",
+            "stage_e",
+            ids_path,
+        )
+
+    existing = (
+        tmp_path
+        / "reports"
+        / "runs"
+        / "repair_used"
+        / "stage_e"
+        / "status.part_0000_of_0001.jsonl"
+    )
+    existing.parent.mkdir(parents=True)
+    existing.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="fresh independent run_id"):
+        ensure_filtered_stage_run_is_isolated(
+            tmp_path,
+            "repair_used",
+            "stage_e",
+            ids_path,
+        )
+
+    ensure_filtered_stage_run_is_isolated(
+        tmp_path,
+        "repair_fresh",
+        "stage_e",
+        ids_path,
+    )

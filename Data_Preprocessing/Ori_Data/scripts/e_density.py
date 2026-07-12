@@ -15,6 +15,7 @@ from density import build_experimental_density, build_ligand_area, build_simulat
 from io_utils import read_jsonl
 from parallel import filter_pair_records, read_pdb_id_filter, shard_items
 from reports import (
+    ensure_filtered_stage_run_is_isolated,
     failure_stage_result,
     resolve_run_id,
     stage_report_path,
@@ -42,6 +43,12 @@ def main() -> None:
     args = parser.parse_args()
 
     run_id = resolve_run_id(args.run_id)
+    ensure_filtered_stage_run_is_isolated(
+        args.root,
+        run_id,
+        STAGE_NAME,
+        args.pdb_ids_file,
+    )
     scratch_root = args.scratch_root or (args.root / "scratch")
     probe_runner = ChimeraRunner([str(args.chimera)], timeout_seconds=args.timeout_seconds)
     chimera_version = probe_runner.probe(scratch_root / run_id / "stage_e" / "_probe")

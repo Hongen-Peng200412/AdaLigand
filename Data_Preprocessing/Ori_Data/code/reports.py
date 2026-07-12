@@ -132,6 +132,41 @@ def write_stage_results(path: Path, records: list[dict[str, Any]]) -> None:
     write_jsonl(path, ordered)
 
 
+def ensure_filtered_stage_run_is_isolated(
+    root: Path,
+    run_id: str,
+    stage: str,
+    pdb_ids_file: Path | None,
+) -> None:
+    """
+    防止 filtered stage 覆盖正式全量 run 的状态证据。
+
+    输入参数:
+        - root: Path, 数据处理根目录
+        - run_id: str, 本次状态目录名
+        - stage: str, 目标 stage 名，例如 ``stage_c`` 或 ``stage_e``
+        - pdb_ids_file: Path | None, 非空表示只处理显式 PDB 子集
+
+    输出:
+        - None: 无过滤，或 filtered run 使用了尚无正式证据的新 run id
+
+    正式 A guard 标记该 run id 属于全量 DAG；已有目标 stage 状态也不能被
+    子集原子替换。filtered smoke/repair 必须使用独立的新 run id。
+    """
+    if pdb_ids_file is None:
+        return
+    run_dir = root / "reports" / "runs" / resolve_run_id(run_id)
+    formal_a_guard = run_dir / "stage_a" / "guard.json"
+    existing_status = sorted((run_dir / stage).glob("status.part_*.jsonl"))
+    conflicts = ([formal_a_guard] if formal_a_guard.exists() else []) + existing_status
+    if conflicts:
+        rendered = ",".join(str(path) for path in conflicts)
+        raise RuntimeError(
+            f"filtered {stage} requires a fresh independent run_id; "
+            f"refusing to overwrite existing run evidence: {rendered}"
+        )
+
+
 def sharded_report_path(root: Path, filename: str, part_id: int, total_parts: int) -> Path:
     """
     构造支持 SLURM array 并发运行的报告路径。

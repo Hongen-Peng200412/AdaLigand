@@ -35,6 +35,7 @@ def test_full_pipeline_resource_defaults_match_cpu96_contract() -> None:
 
     assert '${D_N_JOBS:-64}' in de_script
     assert '${E_N_JOBS:-24}' in de_script
+    assert '${E_TIMEOUT_SECONDS:-3600}' in de_script
     assert '${F_N_JOBS:-12}' in f_script
     assert "#SBATCH --cpus-per-task=1" in g_script
     assert "D_N_JOBS=64,E_N_JOBS=24" in submit_script
@@ -77,3 +78,31 @@ def test_abc_source_resume_is_stage_aware_and_never_runs_b() -> None:
     assert "--pdb_ids_file" not in final_c
     assert "--overwrite" not in final_c
     assert '--run_id "$FORMAL"' in final_c
+
+
+def test_de_e_repair_is_filtered_then_refreshes_formal_status_without_d() -> None:
+    """316115 恢复先隔离 18 个工程失败，再以正式 run id 无过滤复核 E。"""
+    script = (SBATCH_ROOT / "resume_de_316115_e_repair_v1.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "scripts/d_atom_labels.py" not in script
+    assert 'REPAIR="adaligand_ag_20260711T154658_eeng_v1"' in script
+    assert "6f9bea3a9448f8f24940d3241520633890aefad88d737fad0580f47ff0b280be" in script
+    assert "b03b7c72a00730f5fc0bb56b718f0f7f5a7313f11212fbc034fc74f4a6a6c7b0" in script
+    assert "--n_jobs 4" in script
+    assert "--timeout_seconds 21600" in script
+    assert "--require_success" in script
+
+    repair_start = script.index('"${PYTHON}" scripts/e_density.py')
+    repair_end = script.index('"${PYTHON}" scripts/stage_release_gate.py', repair_start)
+    repair_command = script[repair_start:repair_end]
+    assert '--pdb_ids_file "${IDS_FILE}"' in repair_command
+    assert '--run_id "${REPAIR}"' in repair_command
+
+    formal_start = script.rindex('"${PYTHON}" scripts/e_density.py')
+    formal_end = script.index('"${PYTHON}" scripts/stage_release_gate.py', formal_start)
+    formal_command = script[formal_start:formal_end]
+    assert "--pdb_ids_file" not in formal_command
+    assert "--overwrite" not in formal_command
+    assert '--run_id "${FORMAL}"' in formal_command

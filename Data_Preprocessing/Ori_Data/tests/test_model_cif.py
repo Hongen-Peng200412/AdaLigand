@@ -46,6 +46,16 @@ ATOM 12 O O . ALA A 1 1 ? 2 0 0 1.0 O ALA A 1 1
 ATOM 13 H H . ALA A 1 1 ? 2 1 0 1.0 H ALA A 1 1
 HETATM 14 C C1 . LIG B 2 . ? 3 0 0 1.0 C1 LIG B 9 1
 ATOM 20 C CA . ALA A 1 1 ? 100 0 0 1.0 CA ALA A 1 2
+loop_
+_atom_site_anisotrop.id
+_atom_site_anisotrop.type_symbol
+10 C
+14 C
+loop_
+_struct_conn.id
+_struct_conn.ptnr1_label_asym_id
+_struct_conn.ptnr2_label_asym_id
+covale1 A B
 """,
         encoding="utf-8",
     )
@@ -67,7 +77,12 @@ def test_normalized_full_model_preserves_ids_and_selected_full_heavy_atoms(tmp_p
     rows = _atom_rows(output)
 
     assert [row["id"] for row in rows] == ["11", "12", "14"]
+    assert [row["Cartn_x"] for row in rows] == ["1", "2", "3"]
     assert stats == {"n_atoms": 3, "n_atom": 2, "n_hetatm": 1, "model_num": "1"}
+
+    block = gemmi.cif.read(str(output)).sole_block()
+    assert block.get_mmcif_category("_atom_site_anisotrop.") == {}
+    assert block.get_mmcif_category("_struct_conn.") == {}
 
 
 def test_normalized_atom_only_strictly_removes_every_hetatm(tmp_path: Path) -> None:
@@ -81,4 +96,9 @@ def test_normalized_atom_only_strictly_removes_every_hetatm(tmp_path: Path) -> N
 
     assert [row["group_PDB"] for row in rows] == ["ATOM", "ATOM"]
     assert [row["id"] for row in rows] == ["11", "12"]
+    assert [row["Cartn_x"] for row in rows] == ["1", "2"]
     assert stats["n_hetatm"] == 0
+
+    block = gemmi.cif.read(str(output)).sole_block()
+    assert block.get_mmcif_category("_atom_site_anisotrop.") == {}
+    assert block.get_mmcif_category("_struct_conn.") == {}

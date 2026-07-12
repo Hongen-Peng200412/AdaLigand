@@ -368,9 +368,13 @@ MRC 数值原语的可信祖先是 `Pocket_Plus/processedPDB_EMDB_binder/utils/m
 
 ### 6.2 `sim.npz`
 
-专用于 receptor-only 模拟图：从首 model、与 C 同款 altloc 选择的重原子中**严格只留 `group_PDB==ATOM`**，所有 HETATM（含水、配体和共价修饰）均删除。Chimera 在 E1 canonical MRC 上显式 `region all step 1 limitVoxelCount false`，再 `molmap ... onGrid`；不做第二次独立重采样。缺 resolution 时该样本记 `known_failed`，不猜默认值。
+专用于 receptor-only 模拟图：从首 model、与 C 同款 altloc 选择的重原子中**严格只留 `group_PDB==ATOM`**，所有 HETATM（含水、配体和共价修饰）均删除。标准模型写成只含 `_entry.id`（若源存在）与逐字段原样筛选 `_atom_site` 的最小独立 mmCIF；不复制会引用已删除 model/altloc/HETATM/H 原子的 `_atom_site_anisotrop`、`_struct_conn` 等类别。F 的完整模型沿用同一最小文档规则，但其 `_atom_site` 保留首 model 的 ATOM+HETATM 重原子。Chimera 在 E1 canonical MRC 上显式 `region all step 1 limitVoxelCount false`，再 `molmap ... onGrid`；不做第二次独立重采样。缺 resolution 时该样本记 `known_failed`，不猜默认值。
 
 正式字段仍为 `grid/voxel_size/origin`，并保存 `schema_version=2`、resolution、Chimera 版本、输入 hash、`strict_hetatm_removed=True` 和 `generated_mrc_origin_mode=header_origin_angstrom_nstart_zero`。验收要求：`sim.grid.shape == exp.grid.shape == (1,Z,Y,X)`；两图实际 voxel 与 origin 相同，并且 sim 精确绑定当前 E1 identity；数组有限、非零、有方差且 X/Y/Z 每轴至少两个切片有内容；受体包围盒与网格相交。只有单平面的“伪三维图”会失败。
+
+`e_density.py --timeout_seconds` 显式控制每次 Chimera `molmap` 的最长运行时间；正式默认仍为 3600 秒，超大 map/model 的受检恢复可显式延长，不能把超时降级成成功。Classic Chimera 1.19 对部分金属配位连接会在已经生成完整 MRC 后打印固定两行 `Error processing trigger "monitor changes":` / `KeyError: '?'`；外部工具层只豁免这一精确序列，同一日志中的其他 `Error`、Traceback、缺文件或无原子错误仍阻断，且豁免后必须继续通过输出存在、shape/voxel/origin、三维内容和受体包围盒全部 QC。
+
+带 `--pdb_ids_file` 的 Stage E smoke/repair 必须使用没有正式 A guard、也没有既有 Stage E status 的独立新 `run_id`。正式 run 的 22,386 行 E 状态只能由无过滤、无 `--overwrite` 的全量命令刷新；子集修复只负责原子补齐公共 artifact，不能覆盖正式状态证据。
 
 ### 6.3 `ligand_area.npz`
 

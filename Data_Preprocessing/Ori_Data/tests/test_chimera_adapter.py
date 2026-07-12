@@ -35,6 +35,15 @@ if mode == 'exit':
 if mode == 'fatal':
     print('Traceback (most recent call last):')
     raise SystemExit(0)
+if mode == 'benign_monitor':
+    print('Error processing trigger "monitor changes":')
+    print("KeyError: '?'")
+    raise SystemExit(0)
+if mode == 'benign_then_fatal':
+    print('Error processing trigger "monitor changes":')
+    print("KeyError: '?'")
+    print('Error: real failure')
+    raise SystemExit(0)
 if mode == 'sleep':
     time.sleep(5)
 script = Path(sys.argv[sys.argv.index('--script') + 1])
@@ -160,3 +169,29 @@ def test_external_runner_rejects_nonzero_fatal_and_timeout(
             timeout_seconds=timeout,
         )
     assert captured.value.code is expected_code
+
+
+def test_external_runner_allows_only_exact_benign_monitor_trigger_warning(
+    tmp_path: Path,
+) -> None:
+    """只豁免 Chimera 固定 monitor-trigger 两行警告，后续真实 Error 仍阻断。"""
+    fake = tmp_path / "fake.py"
+    _write_fake_chimera(fake)
+    accepted = run_external_tool(
+        [sys.executable, str(fake), "--mode", "benign_monitor"],
+        cwd=tmp_path / "benign",
+        stdout_path=tmp_path / "benign" / "stdout.log",
+        stderr_path=tmp_path / "benign" / "stderr.log",
+        timeout_seconds=10,
+    )
+    assert accepted.returncode == 0
+
+    with pytest.raises(ExternalToolError) as captured:
+        run_external_tool(
+            [sys.executable, str(fake), "--mode", "benign_then_fatal"],
+            cwd=tmp_path / "fatal_after_benign",
+            stdout_path=tmp_path / "fatal_after_benign" / "stdout.log",
+            stderr_path=tmp_path / "fatal_after_benign" / "stderr.log",
+            timeout_seconds=10,
+        )
+    assert captured.value.code is ToolFailureCode.FATAL_LOG

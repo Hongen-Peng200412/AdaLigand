@@ -21,6 +21,11 @@ _FATAL_LOG_PATTERNS = (
     re.compile(r"No atoms", re.IGNORECASE),
     re.compile(r"(?:^|\n)\s*(?:ERROR|Error)(?::|\s)", re.MULTILINE),
 )
+_BENIGN_MONITOR_TRIGGER_PATTERN = re.compile(
+    r'^\s*Error processing trigger "monitor changes":\s*\r?\n'
+    r"\s*KeyError: ['\"]\?['\"]\s*(?=\r?\n|$)",
+    re.MULTILINE,
+)
 _NUMBER_PATTERN = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
 
 
@@ -103,13 +108,36 @@ def run_external_tool(
             f"external tool returned {returncode}; stdout={stdout_path}; stderr={stderr_path}",
         )
     combined_log = _read_logs(result)
-    matched = [pattern.pattern for pattern in _FATAL_LOG_PATTERNS if pattern.search(combined_log)]
+    matched = _fatal_log_matches(combined_log)
     if matched:
         raise ExternalToolError(
             ToolFailureCode.FATAL_LOG,
             f"fatal external-tool log pattern {matched}; stdout={stdout_path}; stderr={stderr_path}",
         )
     return result
+
+
+def _fatal_log_matches(log: str) -> list[str]:
+    """
+    返回外部工具日志中仍需阻断的致命模式。
+
+    Classic Chimera 1.19 在处理部分金属配位 ``struct_conn`` 时，会在已经成功
+    生成完整 MRC 后打印固定的 ``monitor changes``/``KeyError '?'`` 两行警告。
+    这里只移除该精确序列；同一日志中的普通 ``Error``、Traceback、缺文件或
+    无原子错误仍会继续触发 fail-fast，输出 artifact 也仍需后续完整 QC。
+
+    输入参数:
+        - log: str, 一次外部工具运行合并后的 stdout 与 stderr
+
+    输出:
+        - matched: list[str], 命中的致命正则表达式文本
+    """
+    actionable_log = _BENIGN_MONITOR_TRIGGER_PATTERN.sub("", log)
+    return [
+        pattern.pattern
+        for pattern in _FATAL_LOG_PATTERNS
+        if pattern.search(actionable_log)
+    ]
 
 
 class ChimeraRunner:
