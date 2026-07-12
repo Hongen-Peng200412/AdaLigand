@@ -149,6 +149,7 @@ Write-Host "[4/6] Uploading local code with rsync..." -ForegroundColor Yellow
     --exclude="**/.pytest_cache/" `
     --exclude=".ruff_cache/" `
     --exclude="**/.ruff_cache/" `
+    --exclude="tests_output/" `
     --exclude="Data_Preprocessing/Ori_Data/tests_output/" `
     --exclude="Data_Preprocessing/Ori_Data/mini-example/" `
     --exclude="Data_Preprocessing/Ori_Data/mini-example-20/" `
