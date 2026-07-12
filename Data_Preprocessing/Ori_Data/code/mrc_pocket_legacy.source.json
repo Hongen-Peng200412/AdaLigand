@@ -1,8 +1,11 @@
 {
   "schema_version": 1,
   "policy": "Pocket_Plus ancestor functions are vendored without function-level changes; every module-level deviation is enumerated below.",
+  "portable_ast_policy": "Serialize node names and fields as JSON while omitting Python 3.12+ empty type_params, so Python 3.10 and newer interpreters produce one semantic hash.",
   "ancestor": {
     "logical_path": "Pocket_Plus/processedPDB_EMDB_binder/utils/mrc_tools.py",
+    "repository_head_at_vendoring": "f4c3e5ce3c706f8d52fed7fa3cc40570cfb5b4b5",
+    "last_file_commit": "a8380721fb555d42408a5ab558a675caa537ed80",
     "sha256": "d8e543e4c6763a44cde3d350434c51506d794ecf1c2143db2ce304419bc06ca8",
     "size_bytes": 12783
   },
@@ -36,32 +39,32 @@
     "load_map": {
       "ancestor_lines": [75, 126],
       "exact_source_sha256": "f5ecc58aa8236488af359c9165d52ad933e09957e1b173957991c0c5f36359aa",
-      "ast_sha256": "ea2e22a6f5e34d9a3ffdc6a26b75dd0de8ec33990eca583120462cbb4c8c9a0b"
+      "portable_ast_sha256": "253968ef20339af467da3a23e0494065434d9ff6ac4c7a5c4daf7cb74e25489c"
     },
     "make_cubic": {
       "ancestor_lines": [137, 145],
       "exact_source_sha256": "6a62bf4bde3d8cd53caffa6aae95dea51f015514847807831cad4f58a29f3349",
-      "ast_sha256": "a93bdefe1199111989354734b1be64952ccf0edada84ada7f6dd16f96adf4c8d"
+      "portable_ast_sha256": "9064f5a67a259bc7abb137e94847159d11517f9ff83992d48718390119f441cd"
     },
     "normalize_voxel_size": {
       "ancestor_lines": [146, 165],
       "exact_source_sha256": "f344391b42e6a0082f5d86cb04597594cf04ff1c93734a071390340f2d03284d",
-      "ast_sha256": "34bdd75b2e2a043ddcf993213e09da14498de50fbbb3e4828e26b256214331f6"
+      "portable_ast_sha256": "cf49609f1b3d6a4a1d904e9f5ff9f6c3cf60611ada33cdedb3ee06aa55aa3519"
     },
     "rescale_real": {
       "ancestor_lines": [166, 172],
       "exact_source_sha256": "26f9fd35c83af5c9cc8f1201c9345b3e964007dceada9ec91305d59cb9e1a9b1",
-      "ast_sha256": "899b49cf6ea301e4c942f7e60ebbad8aa9545d0b9075da8fc4de0c3629aa1b9c"
+      "portable_ast_sha256": "090da0549e41ec87ffece30024b0459dd12eb23adf1e3a1f4d77ec10cd765dd1"
     },
     "rescale_fourier": {
       "ancestor_lines": [173, 201],
       "exact_source_sha256": "997eb3572ba7d2b39170560c041406ccea916f53d2be7a6e5a6fa9c9dbd0bfe1",
-      "ast_sha256": "36115fa000b34307f3fa0b55aa35a9e5471811ae40bfba0b8d58d62f90c8570f"
+      "portable_ast_sha256": "e58a7c397f56fb826e8c21a1e443a7c4e7349b543fab240bdbb6b00a54b47344"
     },
     "make_model_grid": {
       "ancestor_lines": [206, 214],
       "exact_source_sha256": "637e193a98f8a1cea850f4db47418ab151e9ac58150886fd8cf389f43c2ced33",
-      "ast_sha256": "349a465c01ce9331e51e13afe399faea983cfbafc18162392ff26fbef03e0bd3"
+      "portable_ast_sha256": "2bdf39647510e411340aae305a131cc8071f076795205d28ad0c10ac7b981d9d"
     }
   }
 }

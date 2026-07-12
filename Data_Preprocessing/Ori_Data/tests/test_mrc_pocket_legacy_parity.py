@@ -46,6 +46,31 @@ def _function_sources(path: Path) -> tuple[str, dict[str, tuple[ast.FunctionDef,
     return source, functions
 
 
+def _portable_ast(value: object) -> object:
+    """把 AST 规范为跨 Python 3.10+ 稳定的纯 JSON 结构。"""
+    if isinstance(value, ast.AST):
+        fields = []
+        for field_name in value._fields:
+            # Python 3.12 为 FunctionDef/ClassDef 新增 type_params；空列表不改变本项目函数语义。
+            if field_name == "type_params":
+                continue
+            fields.append((field_name, _portable_ast(getattr(value, field_name))))
+        return {"node": type(value).__name__, "fields": fields}
+    if isinstance(value, list):
+        return [_portable_ast(item) for item in value]
+    return value
+
+
+def _portable_ast_sha256(node: ast.AST) -> str:
+    """返回忽略解释器新增非语义字段的稳定 AST SHA256。"""
+    payload = json.dumps(
+        _portable_ast(node),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return _sha256_bytes(payload)
+
+
 def test_vendored_functions_match_frozen_ancestor_hashes_exactly() -> None:
     """验证 vendored 文件及六个函数都与 manifest 中冻结的祖传哈希一致。"""
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
@@ -60,8 +85,7 @@ def test_vendored_functions_match_frozen_ancestor_hashes_exactly() -> None:
     for function_name, frozen in manifest["functions"].items():
         node, exact_source = vendored_functions[function_name]
         assert _sha256_bytes(exact_source.encode("utf-8")) == frozen["exact_source_sha256"]
-        normalized_ast = ast.dump(node, include_attributes=False).encode("utf-8")
-        assert _sha256_bytes(normalized_ast) == frozen["ast_sha256"]
+        assert _portable_ast_sha256(node) == frozen["portable_ast_sha256"]
 
     tree = ast.parse(vendored_source)
     imports = [
@@ -90,7 +114,4 @@ def test_direct_ancestor_parity_when_sibling_checkout_is_available() -> None:
         ancestor_node, ancestor_source = ancestor_functions[function_name]
         vendored_node, vendored_source = vendored_functions[function_name]
         assert vendored_source == ancestor_source
-        assert ast.dump(vendored_node, include_attributes=False) == ast.dump(
-            ancestor_node,
-            include_attributes=False,
-        )
+        assert _portable_ast(vendored_node) == _portable_ast(ancestor_node)
