@@ -61,13 +61,14 @@
 - [x] (2026-07-12 20:02+08:00) 按“一个可验证任务一个精确提交”整理累计工作树：祖传快照、header 审计、contour 分布、Stage C 修复/事务、D、工具适配、E、F/G、release smoke、Slurm 与服务器工具均已有独立 Git checkpoint；暂存均使用精确路径，未使用 `git add -A`、未改写历史。
 - [x] (2026-07-12 20:21+08:00) 独立 MRC release audit 判定无阻断；把祖传/代码/run_cmd、持久 172-test、header audit、真实 smoke 与无 D/E 污染快照写入普通临时文件并原子发布 `/home/penghongen/mrc_contract_release_316115`，marker SHA-256 `2ca92614…b6b2`。既有 run_cmd 自行删除 pre_lock 并记录 `[MRCContractRelease]`；D64/E24 已实际启动，日志分别出现 `Parallel(n_jobs=64)` 与 `Parallel(n_jobs=24)`。
 - [x] (2026-07-13 06:27+08:00) Stage D/E 首轮全量运行完成写状态但被 gate 正确阻断：D 为 22,339 success、3 skipped、44 `no_occurrences`、0 unknown；E 为 22,295 success、72 known_failed、19 unknown。316115 保留原 96 核 allocation，精确 `try_lock_316115/after_lock_316115` 存在，F/G 未释放。
-- [ ] (2026-07-13 07:25+08:00) 19 个 E unknown 已取证分解为 15 个 Chimera 3600 秒超时、3 个已完整出图但被 `monitor changes` 警告误判、1 个 2zhc model/map frame 不相交。最小 atom_site-only CIF、精确日志豁免、filtered 状态保护、21600 秒/2 并发独立恢复脚本已实现；其中 2 并发是针对最大 13.5 GB map 的内存与临时 I/O 安全约束，正式无过滤复核仍保持 E24。本地全套 175 tests、compileall、bash -n 与 diff check 通过；剩余工作是 18-ID repair 和正式无过滤 E 复核。2zhc 决定已在下一条获得，仍禁止猜平移。
+- [x] (2026-07-13 07:25+08:00) 19 个 E unknown 已取证分解为 15 个 Chimera 3600 秒超时、3 个已完整出图但被 `monitor changes` 警告误判、1 个 2zhc model/map frame 不相交。最小 atom_site-only CIF、精确日志豁免、filtered 状态保护和 21600 秒独立恢复入口均已实现；最初以 `n_jobs=2` 启动恢复，随后确认该值偏离此前实测冻结的资源方案并成为主线瓶颈，改由独立 48 CPU、`n_jobs=12` 的标准 Chimera 补足作业推进。这里记录的是本轮恢复路径，不把 12 写成所有未来 repair 的通用最优值。
 - [x] (2026-07-13 07:30+08:00) 无删除安全同步和远端 175 tests 通过后，独立 smoke run `adaligand_ag_20260711T154658_eeng_smoke_v1` 使 8ro0/9qqp 2/2 success；release gate、实验/模拟图网格配对、严格 HETATM 删除和 E3 后验全部通过。8ro0 仅保留被精确豁免的 monitor warning，其他 fatal 检查未放宽。已原子发布 316115 run_cmd（SHA-256 `d4c0ff53…a1c1`）并在全部校验后精确删除 `try_lock_316115`；18-ID repair run `adaligand_ag_20260711T154658_eeng_v1` 正在原 allocation 以 E2/21600 秒运行，`after_lock_316115` 与 F/G 依赖仍保留。
 - [x] (2026-07-13 10:02+08:00) 用户显式接受将合法但完全不相交的 model/map 归类为 `known_failed:model_map_frame_mismatch`，要求 E/F 统一确定性包围盒检查并记入全套日志。本地已实现单一纯 QC + 单一失败策略包装器，E/F 均在外部工具和 artifact reuse 前调用；禁止 PDB allowlist、猜平移/fitmap，非法输入和后置密度/工具失败仍为 unknown。专项 22 tests 和本地全套 178 tests、compileall、diff check 通过；待独立审查、Git checkpoint、安全同步、远端 smoke/全套和正式 E 复核。
 - [x] (2026-07-13 11:42+08:00) 用户冻结 Stage G 为唯一 `schema_version=2` map-level 过滤契约，并明确无需兼容从未正式运行的 occurrence 级 v1。实现直接消费 analyze 的扁平 F 字段，按 PDB 验证唯一 CC/resolution、严格 Q pair、空口袋计分母、含等号比例门和“通过 map 保留全部 occurrence”；新增 map diagnostics，专项 9 tests 与本地全套 182 tests、compileall、diff check 通过。316117 仍保持 analyze-only，本次未同步服务器或执行正式 filter。
 - [x] (2026-07-13 15:45+08:00) 取证确认一次性 Chimera 分块/变形路线只服务于超大资源异常 `8ckb`；用户授权撤销该私有算法。专用脚本与隔离 scratch 已删除，`8ckb` 仍保留在 22,386 样本宇宙和审计中，但由正式 run 的 `exclusions.jsonl`（SHA-256 `b586cab2…257fe`）在 E/F 写为 `known_failed:run_policy_excluded`，并从训练、推理和 G 候选自然排除。实现/恢复/gate 加固分别提交为 `43084b7`、`a5b4234`、`7811533`、`59abdd4`、`28b0703`；本地全套为 194 tests。
-- [ ] (2026-07-13 15:54+08:00) 独立标准补足 job `316415` 使用 48 CPU、`n_jobs=12` 处理 `8glv/8j07/9dp7/9e5c/9fqr/9qwt`；当前 `9dp7/9qwt` 已完成，另外四个仍在标准 Chimera molmap。`316115` 由精确 `try_lock` 保持，已预载 run_cmd SHA-256 `dca71156…fe53e`，绑定 resume v2 SHA-256 `61036dcb…2968f`，尚未释放正式 E。
+- [x] (2026-07-13 20:09+08:00) 独立标准补足 job `316415` 使用 48 CPU、`n_jobs=12` 处理 `8glv/8j07/9dp7/9e5c/9fqr/9qwt`。绝对截止 `2026-07-13T19:54:19+08:00` 时，`8j07/9dp7/9qwt` 已有完整三件套，`8glv/9e5c/9fqr` 只有部分产物；后者按用户授权追加本次 run 专属 exclusion，前者继续复用。作业经精确 kill-lock 和孤儿进程复核后于 20:09:28 以 `FAILED 9:0` 结束，elapsed `06:04:02`；该失败是截止协议的预期运行证据，不是 DAG 依赖失败，也未伪造 6/6 success。
 - [x] (2026-07-13 15:54+08:00) 用户为 Stage E 长尾冻结绝对截止 `2026-07-13T19:54:19+08:00`：届时仅对仍无完整合格 artifact 的子集追加本次 run 专属的人工授权 timeout/exclusion；已完成样本继续复用。回退必须保留样本宇宙、逐样本运行/超时/无产物证据和 before/after manifest，不能伪造 success、删除 `pair_list` 或把本次特例改写成通用科学契约；完成受检回退后继续 E→F→G。
+- [x] (2026-07-13 21:04+08:00) cutoff 工具和 resume v3 已在本地、远端各通过 207 tests；before/after manifest、pre/post 终止证据与 release marker 全部闭合。`VALIDATE_ONLY=1` 返回 `decision=run` 后，原子发布 run_cmd SHA-256 `6e8c88a18472c07c76d6c9caf64472548d39db65ea3aef26d6540024e8e3d828`，并在 21:04:43 以正式 run id、无 filter、无 `--overwrite`、E24 启动全量 Stage E。`316115` 的 `after_lock` 保留，`try/kill_lock` 均不存在；`316116/316117` 继续依赖等待。
 - [ ] 持续监控、自动诊断/修复/重提，只在科学契约变化或外部不可恢复阻塞时请求用户。
 - [ ] 完成全量验收、计划漂移收口、mapping/契约 README/项目记忆更新和最终报告。
 
@@ -180,6 +181,15 @@
 
 - Observation: 2zhc/EMD-1470 的实验图并非重采样错误，而是沉积 map/model 世界坐标 frame 不相交。native header 为 shape 40×40×42、nstart/origin=0、cell 160.44×160.44×168.462 Å；canonical upper XYZ 约 159.44/159.44/167.46 Å，而 receptor bbox 的 Z 为 329.12–393.99 Å。mmCIF 的 ORIGX、assembly operation 和 atom_sites transform 都是 identity。
   Evidence: canonical 实验图非零，Chimera `onGrid` 模拟图同 shape/origin 但全零；自动平移只能靠猜测。用户于 2026-07-13 选择稳定 frame-mismatch known failure，明确不使用猜测平移或 fitmap。
+
+- Observation: Stage E 工程恢复最初临时采用 `n_jobs=2`，但该并发没有继承此前对正式阶段做过的实测资源结论，长时间没有新增完成样本，实际成为 A–G 主线瓶颈。
+  Evidence: 用户指出漂移后，独立补足 job `316415` 改为授权范围内的 48 CPU、`n_jobs=12`，仍只运行标准 Chimera；本条只说明本次低并发漂移与纠正，不能据此推导所有 map 尺寸下的通用最优并发。
+
+- Observation: kill-lock 停止 `316415` 的主进程组后，三个标准 Chimera 子进程仍成为孤儿进程，不能仅以 Slurm 主脚本退出判断外部工具已经停止。
+  Evidence: PID `160147/160179/160191` 分别绑定 `9e5c/9fqr/8glv` 的用户、完整命令行和 scratch 路径；逐 PID 复核后发送 TERM/KILL，并以独立进程审计确认三者均已消失，之后才删除该 job 的精确 after-lock。截止时只有 exp 而没有 sim/ligand-area 的 partial 三件套不算完成。
+
+- Observation: resume v3 第一次 `VALIDATE_ONLY` 被 release marker 中 7 位小数的 ISO 时间戳阻断；该时间戳由 Windows `Get-Date -Format o` 生成，而服务器 Python 的 `datetime.fromisoformat` 只接受到 6 位小数。
+  Evidence: 预检失败期间 `try_lock_316115` 保持、正式 E 零启动；仅把 marker 的 `released_at` 规范化为 6 位小数并重新发布后，预检才返回 `decision=run`。这证明 release 预检在进入正式计算前实际生效。
 
 ## Decision Log
 
@@ -335,9 +345,13 @@
   Rationale: 少量极端资源长尾不应无限阻塞 22,386-PDB 的 E→F→G 主线，但静默删除、伪造成功或改变坐标同样不可接受。run-scoped manifest、正式四终态和 release gate 同时保留全集审计与下游安全；该决策是本轮资源/运行策略，不扩大通用科学 known-failure 集合，也不成为未来自动排除许可。
   Date/Author: 2026-07-13 / User + Codex
 
+- Decision: 本次 cutoff 只把 `exp.npz`、`sim.npz`、`ligand_area.npz` 三者都存在且通过既有 artifact 校验的样本认作完成；仅有其中一项或两项属于 partial，继续按截止时的未完成事实审计。before/after manifest 和逐样本迁移记录只服务于正式 run `adaligand_ag_20260711T154658`，不改变 Stage E 的通用成功定义或科学契约。
+  Rationale: 把 partial 当作完成会让下游消费缺失或未验证的模拟图/体素标签；把这次名单写成通用规则又会把一次性资源决定误扩散到未来 run。独立 cutoff CLI 同时验证截止时间、补足 job 身份、前后终止证据、manifest 哈希和幂等重放，随后才允许 resume v3 放行正式 E。
+  Date/Author: 2026-07-13 / User + Codex
+
 ## Outcomes & Retrospective
 
-尚未完成。Stage C v4、ABC gate、MRC 放行与 Stage D 全量状态已完成；Stage E 已处理 22,386/22,386 并写出完整状态，但 DE gate 因首轮 19 个 unknown 正确保留原 allocation。其中 18 个工程失败正在独立恢复；2zhc 的科学决定已获得，本地 E/F 统一 `model_map_frame_mismatch` 实现和 178 项测试已通过，仍待安全同步、远端验收与正式无过滤 E/D-E gate。Stage G 单一 map-level schema v2 已在本地实现并纳入 182 项全套测试，但未同步、未执行 filter。316116/316117 继续依赖等待，随后自动进入 F12、G analyze 和最终全量 QC。
+尚未完成。Stage C v4、ABC gate、MRC 放行与 Stage D 全量状态已完成。Stage E 首轮 19 个 unknown 的工程/科学分解、`model_map_frame_mismatch`、`8ckb` run-only exclusion 和长尾截止均已有可复现证据；`316415` 在截止时保留 `8j07/9dp7/9qwt` 的完整结果，并把仍为 partial 的 `8glv/9e5c/9fqr` 追加到同一正式 run exclusion manifest。cutoff/resume v3 已通过本地与远端 207 tests，正式 E 已于 2026-07-13 21:04:43 以 E24、无过滤、无 overwrite 重新启动，当前仍由 `316115` 原 allocation 执行。Stage G 单一 map-level schema v2 已实现，但正式 DAG 仍只安排 analyze。未完成范围是本轮 E 正式状态与 DE gate、随后 F12→G analyze、全量 QC 和最终文档/记忆收口；`316116/316117` 继续依赖等待。
 
 ## Context and Orientation
 
@@ -456,6 +470,10 @@ Stage B 逐文件恢复，不覆盖已验证下载；但当前 316114 repair 明
 
 2026-07-13 首轮 DE gate 证据：Stage D status SHA-256 `263fa2af…d5e9f`，Stage E status SHA-256 `b03b7c72…a6c7b0`。E 四终态为 success=22,295、known_failed=72、unknown_failed=19；known failure 分解为 no_occurrences=44、no_present_ligand_atoms=18、missing_map=5、missing_resolution=5。18 个工程失败冻结清单 SHA-256 `6f9bea3a…b280be`；2zhc 单独保留为待决科学数据契约，不进入该清单。
 
+2026-07-13 Stage E 长尾截止证据：绝对截止为 `2026-07-13T19:54:19+08:00`。补足 job `316415` 最终状态为 `FAILED 9:0`，elapsed `06:04:02`，EndTime `2026-07-13T20:09:28+08:00`；这是精确 cutoff 后让独立补足 allocation 退出的预期证据。截止前完成并保留 `8j07/9dp7/9qwt`，新增 run-only exclusion `8glv/9e5c/9fqr`，与既有 `8ckb` 组成最终 manifest。predecision、posttermination、before manifest、after manifest、summary SHA-256 依次为 `40e7c949df528b81e1c4a8ee8bbd60daec5ec4d06089037e64958f08fd5458a8`、`0f20f20cae3b9958cfe3fd3085233782b2e2e5533144cec704fa22dec2d97397`、`b586cab20644c3cc8fb1f4e0eaa7eead4cff0d496a862c2313b5e0c1847257fe`、`380844d0b908b08707fada689f64b2fa4cc519f4771df92dec8b5bf0b2cd325f`、`f4a26a9359519e4b94b9f28ecdb21645929c018a014729feadb44b29eadf4761`。终止主进程组后另核对并清理 PID `160147/160179/160191`；三者分别对应 `9e5c/9fqr/8glv`，独立进程审计为零后才完成锁收尾。
+
+2026-07-13 cutoff/v3 放行证据：`code/long_tail_cutoff.py` 与 `scripts/stage_e_long_tail_cutoff.py` SHA-256 为 `509672275f61e84a22b5e56c4842a3904769736dddeafe98802f9d19f7197b54` / `bb600c7bf5632af2fc575cd6f1f992a38210aaecbdc55ca568dd1895d26c490e`；本地和远端全套均为 207 tests passed。resume v3 SHA-256 为 `eabfad6bd33b7ae3bfca619000cf120f9585796a8dc7fc497e8f2328f7009626`，cutoff release marker SHA-256 为 `cd06ec335ab109f25a9da9660a0ce943888c72546a11dbb3852d4ff897764cfa`。`VALIDATE_ONLY=1` 最终输出 `decision=run`；正式 run_cmd SHA-256 `6e8c88a18472c07c76d6c9caf64472548d39db65ea3aef26d6540024e8e3d828` 于 21:04:43 启动 E24、无 filter、无 `--overwrite` 的正式全量 E。启动后 `after_lock_316115` 存在、`try/kill_lock_316115` 不存在，`316116/316117` 仍按原 afterok 链等待。
+
 ## Interfaces and Dependencies
 
 公共 CLI 必须保留 `--root`、`--part_id`、`--total_parts`、`--n_jobs` 与显式 overwrite/repair 语义。stage 函数返回结构化状态，不用跨模块散落自由文本错误。稳定失败枚举、artifact validators、Chimera runner、MRC geometry 和 quality schema 必须各有单一实现位置。
@@ -483,6 +501,7 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 
 - A–C 从“阶段文件存在即跳过”改为组件级 schema-aware 增量迁移；目标样本宇宙和旧基础数组语义不变。
 - 运行资源和分片数由真实基准与服务限流决定，不固化旧 4/6 分片模板。
+- Stage E 长尾在本次 run 的明确截止点转为 run-scoped exclusion；完整样本继续复用，partial 样本保留失败与迁移证据。这只改变一次性运行策略，不改变通用 Stage E 成功条件、样本宇宙或科学阈值。
 
 ### Harmful drift
 
@@ -492,7 +511,7 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 
 ### Unfinished scope
 
-- C source repair、全量 C、ABC gate 和 Stage D 已完成；D–G 代码已实现。MRC 放行证据均已验收；Stage E 首轮全量状态已完成，18 个工程失败正在恢复，2zhc frame mismatch 契约已授权且本地实现通过。未完成范围是安全同步/远端验收、E 正式复核、DE→F→G release gate 与最终独立 QC。
+- C source repair、全量 C、ABC gate 和 Stage D 已完成；D–G 代码已实现。MRC、frame-mismatch 和 Stage E 长尾 cutoff/v3 放行证据均已验收，正式无过滤 E24 正在原 `316115` allocation 运行。未完成范围是 E 正式状态与 DE gate、DE→F→G release gate、G 分布和最终独立 QC。
 - G 的 map-level 算法、比较边界、空口袋分母和整 map 保留规则已冻结；最终分辨率、选定 CC、配体 Q、口袋 Q 与比例数值仍须先看正式分布后以 schema v2 配置显式给出。当前示例不写入默认值，正式 filter/`keep_list` 尚未执行。
 
 Revision note 2026-07-10 14:38+08:00: 创建本 ExecPlan，记录已确认边界、旧产物证据、科学语义、资源/许可纪律和从实现到服务器全量验收的恢复路径。
@@ -522,3 +541,5 @@ Revision note 2026-07-13 07:10+08:00: 记录首轮 DE gate 的 D 完整闭合、
 Revision note 2026-07-13 10:02+08:00: 记录用户授权 `model_map_frame_mismatch`，把通用契约同步到 clean spec/README/mapping 并新建 durable decision memory；实现 E/F 共用确定性包围盒 preflight、自包含失败 detail 和禁止猜变换边界。专项 22 tests 与全套 178 tests 通过，远端同步/复核仍待当前 18-ID repair 进入安全停点。
 
 Revision note 2026-07-13 11:42+08:00: 用户明确取消 Stage G v1 兼容，冻结唯一 map-level schema v2。实现严格 occurrence Q pair、空口袋分母、map 级 CC/resolution/fraction 门、通过 map 全 occurrence 保留与 run-scoped map diagnostics；本地 182 tests 通过。保持 316117 analyze-only，具体示例阈值未成为生产配置或服务器命令。
+
+Revision note 2026-07-13 21:04+08:00: 回填 Stage E 长尾绝对截止的实际执行结果、316415 预期失败终态、三个孤儿 Chimera 进程和 partial 三件套边界；冻结 before/after/summary 证据及最终四项 run-only exclusion。记录 cutoff/resume v3 本地与远端 207 tests、release marker、`VALIDATE_ONLY decision=run` 和正式 E24 无过滤启动。该回填只更新执行日志、契约 README、服务器操作说明和 mapping，不把具体样本或截止名单写入 `数据处理_v2.md` 的通用科学契约。

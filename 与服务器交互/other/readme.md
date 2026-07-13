@@ -103,3 +103,15 @@ Pocket Plus MRC 祖传迁移发生在 Stage E 前，D 本身不消费 MRC，但 
 放行前必须依次完成：本地六函数零差异/薄适配/172 tests → 无删除安全同步 → 远端代码与 manifest 哈希复核 → 远端 Python 3.10 全套 172 tests → 真实 Chimera `molmap onGrid` smoke。上述条件已全部满足：正式 header audit run `adaligand_mrc_contract_audit_20260712T192000_v2` 只有 EMD-11978/12465 两张 mixed；真实 run `adaligand_mrc_geometry_smoke_20260712T200227` 使用对应 PDB 7b14/7nll，验证 actual voxel 非精确 1 Å、origin 非零、canonical/sim 同 shape/voxel/origin、标准轴和 `nstart=0`。其 ID/summary/report SHA-256 分别为 `41c7a456…cd56` / `0e40d866…96957` / `451a6dce…de5`。
 
 全部代码/祖先/副本、正式 audit、测试和真实 smoke 哈希已写入 release 文件；`/home/penghongen/mrc_contract_release_316115` 于 `2026-07-12T20:21:28+08:00` 从同目录普通临时文件原子发布，权限 0600、SHA-256 `2ca92614cb53a9f08058a5186afe677264928b6a64ba2a4b60a044d8cea6b6b2`。既有 run_cmd 随后自行删除 `pre_lock_316115` 并打印 `[MRCContractRelease]`，没有人工删除。当前 D/E 日志已分别确认 `n_jobs=64` 与 `n_jobs=24`；`after_lock_316115` 在 DE release gate 完成前继续保留。
+
+## 316115 Stage E 长尾截止与 resume v3
+
+本节只记录正式 run `adaligand_ag_20260711T154658` 的一次性运行恢复，不建立未来自动排除规则。首个 18-ID repair 临时只使用 `n_jobs=2`，没有继承此前对各阶段冻结的实测资源结论，后来成为主线瓶颈；独立补足 job `316415` 因而在用户追加授权的 48 CPU 上以 `n_jobs=12` 运行标准 Chimera。`48 CPU/n_jobs=12` 是这批长尾的本轮执行参数，不是所有 repair 或所有 map 尺寸的通用最优值；以后必须先查当前 ExecPlan/项目记忆中的冻结基准，不能重新拍脑袋设并发。
+
+用户冻结的绝对截止为 `2026-07-13T19:54:19+08:00`。截止时 `8j07/9dp7/9qwt` 已有并通过完整 `exp.npz + sim.npz + ligand_area.npz` 三件套，继续复用；`8glv/9e5c/9fqr` 只有 partial artifact，因此与既有 `8ckb` 一起进入当前 run 的 `exclusions.jsonl`。partial 的含义是三件套任一缺失或未通过既有 validator，不能因已经存在 E1 或 scratch 文件就算完成。排除项仍留在样本宇宙和状态分母，由 E/F 写 `known_failed:run_policy_excluded`，不得删除 `pair_list` 或伪造 success。
+
+截止操作先冻结 predecision，再只对精确 job `316415` 创建 kill-lock。主进程组退出后仍发现三个孤儿 Chimera：PID `160147/160179/160191`，分别由完整用户/命令行/scratch 路径绑定到 `9e5c/9fqr/8glv`；逐 PID TERM/KILL 并复核不存在后才删除精确 `after_lock_316415`。该 job 最终为 `FAILED 9:0`，elapsed `06:04:02`，EndTime `2026-07-13T20:09:28+08:00`；这是授权截止的预期证据，且它不是正式 DAG 的依赖节点。predecision/posttermination/before/after/summary SHA-256 分别为 `40e7c949…458a8`、`0f20f20c…97397`、`b586cab2…257fe`、`380844d0…325f`、`f4a26a93…f4761`。
+
+cutoff 实现 `code/long_tail_cutoff.py`、CLI `scripts/stage_e_long_tail_cutoff.py` 和 `sbatch/resume_de_316115_e_repair_v3.sh` 的 SHA-256 分别为 `50967227…97b54`、`bb600c7b…c490e`、`eabfad6b…09626`；本地与远端全套均为 207 tests passed。`/home/penghongen/e_long_tail_cutoff_release_316115` SHA-256 为 `cd06ec33…64cfa`。第一次只验证运行因 Windows 生成的 7 位小数 ISO 时间戳被服务器 Python 拒绝，期间精确 try-lock 保持且 E 未启动；仅规范化 marker 的 `released_at` 为 6 位小数后，`VALIDATE_ONLY=1` 才返回 `decision=run`。
+
+最终 `/home/penghongen/run_cmd_316115.sh` SHA-256 为 `6e8c88a18472c07c76d6c9caf64472548d39db65ea3aef26d6540024e8e3d828`。它绑定上述证据和 resume v3，按阶段状态决定运行或复用；2026-07-13 21:04:43 已以正式 run id、无 filter、无 `--overwrite`、E24 启动全量 Stage E。当前 `after_lock_316115` 必须继续保留，`try/kill_lock_316115` 均不存在，`316116/316117` 继续按原 afterok 链等待。若正式 E 再失败，只能在进程退出且精确 try-lock 出现后取证、修复和受检更新 run_cmd；不得手工删除 after-lock、取消重提原 DAG 或 clean sync。

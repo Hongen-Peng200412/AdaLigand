@@ -467,6 +467,10 @@ CC、分辨率和比例边界均含等号。一旦 map 通过，`keep_list.jsonl
 
 `model_map_frame_mismatch` 是窄化的输入不适用失败：只接受“合法 map 网格 + 合法 Stage C 受体坐标 + XYZ 包围盒完全分离”，detail 保存 map/model 上下界、XYZ/ZYX 轴序、`1e-5 Å` 容差和 `no_transform_or_fitmap` 策略。密度全零、shape/origin/voxel 不同、无效坐标或任意外部工具失败均不得借此降级。
 
+`reports/runs/{run_id}/exclusions.jsonl` 是单次正式 run 的显式排除清单，不是科学黑名单。每行必须完整给出 `schema_version/pdb_id/run_id/stages/reason/detail/authorization/decision_scope/downstream_policy/evidence`；`decision_scope` 固定为 `current_run_only`，`downstream_policy` 固定为 `exclude_from_training_and_inference`，`stages` 只能覆盖 E/F。命中项在 E/F 写 `known_failed:run_policy_excluded` 和完整 manifest/provenance，仍保留在 A 样本宇宙、状态分母与审计中；不删除 `pair_list`，不伪造 success，G 也不会把它写入候选。清单缺字段、跨 run、重复 PDB、非法 stage 或哈希漂移都必须 fail-fast。
+
+Stage E 的完整 artifact 是同一 PDB 的 `exp.npz`、`sim.npz`、`ligand_area.npz` 三者都存在且分别通过既有校验；只有一项或两项的 partial 三件套不算完成。`scripts/stage_e_long_tail_cutoff.py` 只在用户已经为当前 run 给出明确截止授权后使用：它同时冻结 predecision/posttermination、before/after manifest 和 summary，验证补足 job 身份、时间先后、完整三件套边界与终止证据，再原子更新清单；重复运行必须字节级幂等。当前正式 run 的 cutoff code/CLI 已通过本地与远端 207 tests，最终 exclusion manifest SHA-256 为 `380844d0…325f`；这份 before/after 审计不改变通用 E 成功定义或未来 run 的科学契约。
+
 ---
 
 ## 10. 编码解码速查表
@@ -522,5 +526,6 @@ for o in occ:
 - 代码与契约覆盖 **Stage A–G**；服务器正式全量产物以本轮 run-scoped release 报告为准，不以代码存在或历史文件计数代替完成。
 - `raw/emdb_maps/` 是否生成取决于 `b_download.py --resources` 是否含 `map`（默认含）。Stage C 不消费 map。
 - 解析失败的 occurrence 记 `resolve_failed` 入 `reports`，**不**进主产物；严格依赖 `_atom_site.label_atom_id` 与 CCD 原子名精确对齐（无图同构兜底）。
+- 当前正式 run `adaligand_ag_20260711T154658` 已完成 Stage E 长尾 cutoff/v3 放行；2026-07-13 21:04:43 起由原 `316115` allocation 以 E24、无 filter、无 `--overwrite` 刷新正式全量状态。此运行事实不替代最终 DE release gate；F/G 仍只由原 afterok 链释放。
 - G 的唯一 map-level schema v2 算法已经锁定；最终分辨率、selected CC、配体 Q、口袋 Q 和合格比例数值仍按“先看正式分布再显式配置”。当前 DAG 只运行 analyze，不自动消费示例配置，也不冒充最终科学筛选或写 `keep_list`。
 - 历史 A–C 见 `文档/exec_plan/数据下载与解析.md`；当前长任务日志见 `文档/exec_plan/A-G数据流水线实现与全量运行.md`；规格见 `文档/规划文档/数据处理_v2.md`。
