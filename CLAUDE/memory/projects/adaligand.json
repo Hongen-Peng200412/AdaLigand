@@ -28,16 +28,18 @@
     "2026-07-12：独立MRC release audit无阻断；marker于20:21原子发布（SHA 2ca92614...b6b2），既有run_cmd自行删除pre_lock并启动D64/E24，日志确认Parallel(n_jobs=64/24)。原Job ID、96核allocation和316116/316117依赖链均保留。",
     "2026-07-13：Stage D完整闭合，Stage E首轮状态为22,295 success、72 known、19 unknown；18个工程失败以独立run id、2并发、21600秒超时恢复，8ro0/9qqp真实smoke 2/2通过。316115保留原allocation/after_lock，F/G未释放。",
     "2026-07-13：用户授权`known_failed:model_map_frame_mismatch`。E/F共用同一确定性XYZ包围盒preflight，禁止PDB allowlist、猜平移或fitmap；非法输入、all-zero、后置几何/工具错误仍为unknown。本地专项22项和全套178项测试通过，待当前repair进入安全停点后同步与正式复核。",
-    "2026-07-13：Stage G冻结为唯一map-level schema v2，不兼容未正式运行的occurrence v1。G直接消费F扁平字段；Q严格大于、空口袋失败且计分母，CC/resolution/fraction含等号，通过map保留全部occurrence。本地全套182项测试通过；316117仍analyze-only，示例阈值未成为生产配置。"
+    "2026-07-13：Stage G冻结为唯一map-level schema v2，不兼容未正式运行的occurrence v1。G直接消费F扁平字段；Q严格大于、空口袋失败且计分母，CC/resolution/fraction含等号，通过map保留全部occurrence。本地全套182项测试通过；316117仍analyze-only，示例阈值未成为生产配置。",
+    "2026-07-13：Stage E长尾补足316415在用户授权截止点完成受检收口：8j07/9dp7/9qwt形成完整三件套，8glv/9e5c/9fqr与既有8ckb写入正式run-only exclusions；精确终止3个孤儿Chimera后，before/after/summary、release marker、resume v3与run_cmd形成SHA证据链。本地/远端全套207项测试及VALIDATE_ONLY预检通过，316115于21:04:43在原96核allocation启动正式无过滤E24，316116/316117继续依赖等待。"
   ],
   "blockers": [
-    "当前无科学契约决策阻塞；316115正在原96核allocation内恢复18个Stage E工程失败，model-map frame与Stage G schema v2已在本地通过，仍需安全同步、远端验收、正式E/DE gate、F12、G analyze与最终QC。正式G数值配置/filter须在分布后另行显式执行。"
+    "当前无科学契约决策阻塞；316115正在原96核allocation内执行正式无过滤Stage E（E24），需等待E完成并通过DE gate和独立产物审计，再由既有依赖链进入F12与G analyze。正式G数值配置/filter仍须在质量分布后另行显式执行。"
   ],
   "failures": [
     "2026-07-12 Stage C gate 事件：366/22,386 为 unknown_failed，涉及 43,175 occurrences、506 object_keys；这是系统性工程/契约问题，不能按小比例忽略。",
     "2026-07-12 source audit 安全阻断：5 条缺 CCD cache，9 条 N/UNK coverage（其中 7 条可 exact、2 条改名在 6MZ），14 条为 5GP ligand-side source revision；没有任何 receptor 写入。",
     "2026-07-12 csrc_v2 full-rebuild audit 安全阻断：当前source新增的5GP occurrence首次需要此前未物化的CCD:5GP descriptor；14条均失败且migration为空，未进入pre-apply gate。",
     "2026-07-12 csrc_v3联合gate安全阻断：41条均只有atom_name差异，旧receptor缺bond_index/bond_type/feat被实现误当derived差异；未写canonical C、未解锁，v3证据保留。",
-    "2026-07-13 Stage E首轮DE gate阻断：19个unknown分解为15个Chimera 3600秒超时、3个`monitor changes`/`KeyError '?'`假fatal-log、1个2zhc/EMD-1470 model-map世界坐标包围盒完全分离。前18个按工程恢复；2zhc由用户授权转为通用、受检的`model_map_frame_mismatch` known failure，不猜测坐标变换。"
+    "2026-07-13 Stage E首轮DE gate阻断：19个unknown分解为15个Chimera 3600秒超时、3个`monitor changes`/`KeyError '?'`假fatal-log、1个2zhc/EMD-1470 model-map世界坐标包围盒完全分离。前18个按工程恢复；2zhc由用户授权转为通用、受检的`model_map_frame_mismatch` known failure，不猜测坐标变换。",
+    "2026-07-13 Stage E长尾截止：补足作业316415到绝对截止点仍有8glv/9e5c/9fqr缺少完整公共三件套；按用户授权仅对正式run标记`run_policy_excluded`。316415以预期的FAILED 9:0收口，不是DAG依赖；三个外部Chimera孤儿进程逐一核验归属并终止，未伪造补足success或改变通用科学契约。"
   ]
 }
