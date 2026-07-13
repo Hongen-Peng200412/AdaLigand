@@ -106,3 +106,33 @@ def test_de_e_repair_is_filtered_then_refreshes_formal_status_without_d() -> Non
     assert "--pdb_ids_file" not in formal_command
     assert "--overwrite" not in formal_command
     assert '--run_id "${FORMAL}"' in formal_command
+
+
+def test_de_e_resume_v2_waits_for_supplement_and_uses_run_exclusion() -> None:
+    """316115 v2 只接受 316415 的受检补足结果，再无过滤刷新正式 E。"""
+    script = (SBATCH_ROOT / "resume_de_316115_e_repair_v2.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "scripts/d_atom_labels.py" not in script
+    assert 'SUPPLEMENT="adaligand_ag_20260711T154658_eeng_supp48_v2"' in script
+    assert "e_repair_supp48_v2_release_316115" in script
+    assert "formal_job=316115" in script
+    assert "supplement_job=316415" in script
+    assert "21c14b03565807d5d52f59561ee771c84dd0c0042f56794f801c1ae7bd838366" in script
+    assert "b586cab20644c3cc8fb1f4e0eaa7eead4cff0d496a862c2313b5e0c1847257fe" in script
+    assert "load_run_exclusions" in script
+    assert 'set(records) == {"8ckb"}' in script
+    assert '[[ ! -e "${DATA_ROOT}/density/8ckb/sim.npz" ]]' in script
+
+    assert script.count('"${PYTHON}" scripts/e_density.py') == 1
+    formal_start = script.index('"${PYTHON}" scripts/e_density.py')
+    formal_end = script.index('"${PYTHON}" scripts/stage_release_gate.py', formal_start)
+    formal_command = script[formal_start:formal_end]
+    assert "--n_jobs 24" in formal_command
+    assert "--timeout_seconds 21600" in formal_command
+    assert "--pdb_ids_file" not in formal_command
+    assert "--overwrite" not in formal_command
+    assert '--run_id "${FORMAL}"' in formal_command
+    assert "--stages stage_d,stage_e" in script
+    assert "--gate_name de_release" in script
