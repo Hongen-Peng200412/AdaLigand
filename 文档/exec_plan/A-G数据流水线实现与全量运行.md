@@ -65,6 +65,9 @@
 - [x] (2026-07-13 07:30+08:00) 无删除安全同步和远端 175 tests 通过后，独立 smoke run `adaligand_ag_20260711T154658_eeng_smoke_v1` 使 8ro0/9qqp 2/2 success；release gate、实验/模拟图网格配对、严格 HETATM 删除和 E3 后验全部通过。8ro0 仅保留被精确豁免的 monitor warning，其他 fatal 检查未放宽。已原子发布 316115 run_cmd（SHA-256 `d4c0ff53…a1c1`）并在全部校验后精确删除 `try_lock_316115`；18-ID repair run `adaligand_ag_20260711T154658_eeng_v1` 正在原 allocation 以 E2/21600 秒运行，`after_lock_316115` 与 F/G 依赖仍保留。
 - [x] (2026-07-13 10:02+08:00) 用户显式接受将合法但完全不相交的 model/map 归类为 `known_failed:model_map_frame_mismatch`，要求 E/F 统一确定性包围盒检查并记入全套日志。本地已实现单一纯 QC + 单一失败策略包装器，E/F 均在外部工具和 artifact reuse 前调用；禁止 PDB allowlist、猜平移/fitmap，非法输入和后置密度/工具失败仍为 unknown。专项 22 tests 和本地全套 178 tests、compileall、diff check 通过；待独立审查、Git checkpoint、安全同步、远端 smoke/全套和正式 E 复核。
 - [x] (2026-07-13 11:42+08:00) 用户冻结 Stage G 为唯一 `schema_version=2` map-level 过滤契约，并明确无需兼容从未正式运行的 occurrence 级 v1。实现直接消费 analyze 的扁平 F 字段，按 PDB 验证唯一 CC/resolution、严格 Q pair、空口袋计分母、含等号比例门和“通过 map 保留全部 occurrence”；新增 map diagnostics，专项 9 tests 与本地全套 182 tests、compileall、diff check 通过。316117 仍保持 analyze-only，本次未同步服务器或执行正式 filter。
+- [x] (2026-07-13 15:45+08:00) 取证确认一次性 Chimera 分块/变形路线只服务于超大资源异常 `8ckb`；用户授权撤销该私有算法。专用脚本与隔离 scratch 已删除，`8ckb` 仍保留在 22,386 样本宇宙和审计中，但由正式 run 的 `exclusions.jsonl`（SHA-256 `b586cab2…257fe`）在 E/F 写为 `known_failed:run_policy_excluded`，并从训练、推理和 G 候选自然排除。实现/恢复/gate 加固分别提交为 `43084b7`、`a5b4234`、`7811533`、`59abdd4`、`28b0703`；本地全套为 194 tests。
+- [ ] (2026-07-13 15:54+08:00) 独立标准补足 job `316415` 使用 48 CPU、`n_jobs=12` 处理 `8glv/8j07/9dp7/9e5c/9fqr/9qwt`；当前 `9dp7/9qwt` 已完成，另外四个仍在标准 Chimera molmap。`316115` 由精确 `try_lock` 保持，已预载 run_cmd SHA-256 `dca71156…fe53e`，绑定 resume v2 SHA-256 `61036dcb…2968f`，尚未释放正式 E。
+- [x] (2026-07-13 15:54+08:00) 用户为 Stage E 长尾冻结绝对截止 `2026-07-13T19:54:19+08:00`：届时仅对仍无完整合格 artifact 的子集追加本次 run 专属的人工授权 timeout/exclusion；已完成样本继续复用。回退必须保留样本宇宙、逐样本运行/超时/无产物证据和 before/after manifest，不能伪造 success、删除 `pair_list` 或把本次特例改写成通用科学契约；完成受检回退后继续 E→F→G。
 - [ ] 持续监控、自动诊断/修复/重提，只在科学契约变化或外部不可恢复阻塞时请求用户。
 - [ ] 完成全量验收、计划漂移收口、mapping/契约 README/项目记忆更新和最终报告。
 
@@ -326,6 +329,10 @@
 
 - Decision: 合法 E1 canonical map 与合法 Stage C polymer receptor token 坐标（`receptor_tokens.coords`）的 XYZ 包围盒完全分离时，E/F 统一记 `known_failed:model_map_frame_mismatch`。该 token 是两阶段共用 frame anchor，不等同于 E2 严格 ATOM-only 模型或 F 完整 ATOM+HETATM 模型。两阶段共用单一函数和 `1e-5 Å` 容差，并在任何 artifact reuse/Chimera/MapQ 前短路；禁止 PDB allowlist、猜测平移、fitmap 或改写坐标。
   Rationale: 权威 source 可能没有可证实的共同 frame；生成全零 sim 或猜变换都会伪造数据。该 known failure 只接受完全分离的合法包围盒；空/NaN/错 schema、后置 all-zero/几何不一致和外部工具错误仍为 unknown。
+  Date/Author: 2026-07-13 / User + Codex
+
+- Decision: `8ckb` 以及 `2026-07-13T19:54:19+08:00` 截止时仍未完成的 Stage E 标准 Chimera 长尾，不再为单样本维护专用几何/变形算法；只在正式 run 的显式 exclusion manifest 中记录为 `known_failed:run_policy_excluded`，并从训练和推理排除。截止前已完成且通过既有 E artifact/QC 的样本继续复用，未完成子集必须逐项绑定用户授权、deadline、Job ID、运行时长和缺少完整 artifact 的证据。
+  Rationale: 少量极端资源长尾不应无限阻塞 22,386-PDB 的 E→F→G 主线，但静默删除、伪造成功或改变坐标同样不可接受。run-scoped manifest、正式四终态和 release gate 同时保留全集审计与下游安全；该决策是本轮资源/运行策略，不扩大通用科学 known-failure 集合，也不成为未来自动排除许可。
   Date/Author: 2026-07-13 / User + Codex
 
 ## Outcomes & Retrospective
