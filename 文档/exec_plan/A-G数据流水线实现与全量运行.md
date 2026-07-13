@@ -32,7 +32,7 @@
 - [x] (2026-07-11 15:04+08:00) 按用户新增需求实现 occurrence 级 6 Å 受体口袋 Q：复用同一次全模型 MapQ，保存有序 pocket atom_site.id/逐原子 Q 与 mean/median/min/count/radius；固定包络并集、零口袋失败和合成端到端已进入 90 项全套回归。
 - [x] (2026-07-11 11:17+08:00) 通过无删除安全同步上传代码；在用户目录安装并验证 Chimera 1.19 OSMesa、MapQ 2.9.7 固定包与 mrcfile 1.5.4，工具清单落在 `/home/penghongen/.local/opt/adaligand_tools_manifest.json`。
 - [x] (2026-07-11 15:45+08:00) 真实 smoke `adaligand_smoke_20260711T113733` / job `316073` 最终 `COMPLETED 0:0`：三 PDB 的 C/D/E/F 严格门禁通过，99 occurrence 中 97 个正常口袋、2 个显式空口袋；job `316109` 的 12 Å 错位 CC 负对照也 `COMPLETED 0:0`。
-- [ ] (2026-07-11 15:47+08:00) 全量 run `adaligand_ag_20260711T154658` 已提交：ABC `316114` → DE `316115` → F `316116` → G analyze `316117`；ABC 已完成，DE 在同一 96 核 allocation 内完成 MRC 放行前 hold，F/G 继续依赖等待，整条 DAG 尚未完成。
+- [ ] (2026-07-11 15:47+08:00) 全量 run `adaligand_ag_20260711T154658` 已提交：ABC `316114` → DE `316115` → F `316116` → G analyze `316117`；ABC 与 DE 已完成，F12 正在原 DAG 运行，G analyze 继续依赖等待，整条 DAG 尚未完成。
 - [x] (2026-07-12 00:24+08:00) 长周期监控改为阶段感知策略：Codex heartbeat 从每 30 分钟降为每 2 小时；正常运行只静默记录，阶段切换、失败或契约异常才通知，并在 release gate、异常诊断和最终 QC 时临时启用多智能体独立审计。
 - [x] (2026-07-12 02:58+08:00) 用户确认保留原 Job ID 的原地调度方案：pending core 支持预置普通文件 run_cmd，并在首次及每次 retry 前拒绝 symlink、检查非空/`0700`/`bash -n`、记录 SHA-256；本地全套增至 97 tests passed，shell/sbatch 语法与 `git diff --check` 通过。
 - [x] (2026-07-12 02:58+08:00) 不取消或重提既有 DAG；原子预置 `316115` 的 D64/E24 run_cmd（SHA-256 `54658b7a4c2819793a22282ac21a005bfdc6fe1f6c48d4a006c760be2cd380b0`）和 `316116` 的 F12 run_cmd（SHA-256 `8399d571bab44881facbeaa9dd1e738594255a4b4212605cfe418878744f7d13`），将 `316115/316116/316117` 原地改为 `TimeLimit=UNLIMITED` 后 release `316115`；提交时间、CPU 数与 afterok 链均保持不变。
@@ -69,6 +69,8 @@
 - [x] (2026-07-13 20:09+08:00) 独立标准补足 job `316415` 使用 48 CPU、`n_jobs=12` 处理 `8glv/8j07/9dp7/9e5c/9fqr/9qwt`。绝对截止 `2026-07-13T19:54:19+08:00` 时，`8j07/9dp7/9qwt` 已有完整三件套，`8glv/9e5c/9fqr` 只有部分产物；后者按用户授权追加本次 run 专属 exclusion，前者继续复用。作业经精确 kill-lock 和孤儿进程复核后于 20:09:28 以 `FAILED 9:0` 结束，elapsed `06:04:02`；该失败是截止协议的预期运行证据，不是 DAG 依赖失败，也未伪造 6/6 success。
 - [x] (2026-07-13 15:54+08:00) 用户为 Stage E 长尾冻结绝对截止 `2026-07-13T19:54:19+08:00`：届时仅对仍无完整合格 artifact 的子集追加本次 run 专属的人工授权 timeout/exclusion；已完成样本继续复用。回退必须保留样本宇宙、逐样本运行/超时/无产物证据和 before/after manifest，不能伪造 success、删除 `pair_list` 或把本次特例改写成通用科学契约；完成受检回退后继续 E→F→G。
 - [x] (2026-07-13 21:04+08:00) cutoff 工具和 resume v3 已在本地、远端各通过 207 tests；before/after manifest、pre/post 终止证据与 release marker 全部闭合。`VALIDATE_ONLY=1` 返回 `decision=run` 后，原子发布 run_cmd SHA-256 `6e8c88a18472c07c76d6c9caf64472548d39db65ea3aef26d6540024e8e3d828`，并在 21:04:43 以正式 run id、无 filter、无 `--overwrite`、E24 启动全量 Stage E。`316115` 的 `after_lock` 保留，`try/kill_lock` 均不存在；`316116/316117` 继续依赖等待。
+- [x] (2026-07-14 01:26+08:00) `316115` 以 `COMPLETED 0:0` 闭合 DE：D 为 22,339 success、3 skipped、44 known；E 为 22,309 skipped-valid、77 known，unknown/duplicate/silent missing 均为 0。E status SHA-256 `3a0d4148…c54c`、`de_release` success SHA-256 `ab49f43c…da6`；完整 status/gate、风险分层 E artifact、四条 run-only exclusion 与 2zhc frame mismatch 三路独立审计均通过。
+- [ ] (2026-07-14 04:05+08:00) `316116` 已由原 afterok 链同刻启动，日志确认复用预置 run_cmd SHA-256 `8399d571…d13`、`F_N_JOBS=12`；当前完成 944 个外层任务，874 份早期完整质量三件套抽查通过 F 契约。`after_lock_316116` 存在、`try/kill` 不存在；待完成全量 F 四终态、四条 exclusion 传播与完整质量审计后，才接受 `316117` 的 analyze 结果。
 - [ ] 持续监控、自动诊断/修复/重提，只在科学契约变化或外部不可恢复阻塞时请求用户。
 - [ ] 完成全量验收、计划漂移收口、mapping/契约 README/项目记忆更新和最终报告。
 
@@ -190,6 +192,9 @@
 
 - Observation: resume v3 第一次 `VALIDATE_ONLY` 被 release marker 中 7 位小数的 ISO 时间戳阻断；该时间戳由 Windows `Get-Date -Format o` 生成，而服务器 Python 的 `datetime.fromisoformat` 只接受到 6 位小数。
   Evidence: 预检失败期间 `try_lock_316115` 保持、正式 E 零启动；仅把 marker 的 `released_at` 规范化为 6 位小数并重新发布后，预检才返回 `decision=run`。这证明 release 预检在进入正式计算前实际生效。
+
+- Observation: 正式 E24 的无覆盖全量刷新最终没有重新计算已合格 artifact，而是把 22,309 个样本记为 skipped-valid，并把其余 77 个全部收敛为显式 known failure；因此正式状态重建与昂贵 artifact 重算可以安全解耦。
+  Evidence: E status 恰为 22,386 行，unknown、duplicate、silent missing 均为 0，SHA-256 `3a0d4148…c54c`；风险分层 E1/E2/E3 artifact 审计和 `de_release` marker `ab49f43c…da6` 同时通过。
 
 ## Decision Log
 
@@ -349,9 +354,13 @@
   Rationale: 把 partial 当作完成会让下游消费缺失或未验证的模拟图/体素标签；把这次名单写成通用规则又会把一次性资源决定误扩散到未来 run。独立 cutoff CLI 同时验证截止时间、补足 job 身份、前后终止证据、manifest 哈希和幂等重放，随后才允许 resume v3 放行正式 E。
   Date/Author: 2026-07-13 / User + Codex
 
+- Decision: DE→F 的完成判据不能只看 `316115 COMPLETED 0:0`；必须同时通过 status/release gate、风险分层 E artifact，以及 exclusion/frame-mismatch provenance 三路独立审计，才把自动 afterok 启动的 F 视为合法阶段切换。
+  Rationale: Slurm 退出码只能证明调度脚本正常退出，不能独自排除 silent missing、旧 schema 复用、run-only exclusion 丢失或 2zhc 被错误降级。三路证据互相独立，既保留自动流水线，也避免把调度成功误当科学数据通过。
+  Date/Author: 2026-07-14 / Codex（遵循用户既定 release-gate 与独立审计授权）
+
 ## Outcomes & Retrospective
 
-尚未完成。Stage C v4、ABC gate、MRC 放行与 Stage D 全量状态已完成。Stage E 首轮 19 个 unknown 的工程/科学分解、`model_map_frame_mismatch`、`8ckb` run-only exclusion 和长尾截止均已有可复现证据；`316415` 在截止时保留 `8j07/9dp7/9qwt` 的完整结果，并把仍为 partial 的 `8glv/9e5c/9fqr` 追加到同一正式 run exclusion manifest。cutoff/resume v3 已通过本地与远端 207 tests，正式 E 已于 2026-07-13 21:04:43 以 E24、无过滤、无 overwrite 重新启动，当前仍由 `316115` 原 allocation 执行。Stage G 单一 map-level schema v2 已实现，但正式 DAG 仍只安排 analyze。未完成范围是本轮 E 正式状态与 DE gate、随后 F12→G analyze、全量 QC 和最终文档/记忆收口；`316116/316117` 继续依赖等待。
+尚未完成。Stage C v4、ABC gate、MRC 放行及正式 D/E 已闭合；`316115` 于 2026-07-14 01:26:42 `COMPLETED 0:0`，D/E 四终态、风险分层 artifact、四条 run-only exclusion 与 2zhc frame mismatch 均已通过独立审计。`316116` 已按原 afterok 链复用预置命令并以 F12 运行，04:05 已完成 944 个外层任务，874 份早期完整质量三件套抽查通过，但全量 F 状态、四条 exclusion 终态与总体质量分布仍待完成。Stage G 单一 map-level schema v2 已实现，`316117` 仍只安排 analyze。未完成范围是 F 全量及独立 QC、G analyze/分布、最终文档与记忆收口；显式阈值配置和 `keep_list` 仍不属于本轮无人值守终点。
 
 ## Context and Orientation
 
@@ -474,6 +483,8 @@ Stage B 逐文件恢复，不覆盖已验证下载；但当前 316114 repair 明
 
 2026-07-13 cutoff/v3 放行证据：`code/long_tail_cutoff.py` 与 `scripts/stage_e_long_tail_cutoff.py` SHA-256 为 `509672275f61e84a22b5e56c4842a3904769736dddeafe98802f9d19f7197b54` / `bb600c7bf5632af2fc575cd6f1f992a38210aaecbdc55ca568dd1895d26c490e`；本地和远端全套均为 207 tests passed。resume v3 SHA-256 为 `eabfad6bd33b7ae3bfca619000cf120f9585796a8dc7fc497e8f2328f7009626`，cutoff release marker SHA-256 为 `cd06ec335ab109f25a9da9660a0ce943888c72546a11dbb3852d4ff897764cfa`。`VALIDATE_ONLY=1` 最终输出 `decision=run`；正式 run_cmd SHA-256 `6e8c88a18472c07c76d6c9caf64472548d39db65ea3aef26d6540024e8e3d828` 于 21:04:43 启动 E24、无 filter、无 `--overwrite` 的正式全量 E。启动后 `after_lock_316115` 存在、`try/kill_lock_316115` 不存在，`316116/316117` 仍按原 afterok 链等待。
 
+2026-07-14 DE→F 转换证据：`316115` EndTime 为 `2026-07-14T01:26:42+08:00`、终态 `COMPLETED 0:0`；D 为 22,339 success + 3 skipped + 44 known，E 为 22,309 skipped-valid + 77 known，且 unknown/duplicate/silent missing 全为 0。E status SHA-256 `3a0d4148…c54c`，`de_release` success SHA-256 `ab49f43c…da6`。风险分层 E artifact 审计、四条 exclusion/2zhc provenance 审计均通过。`316116` 同刻启动并记录 `reusing preloaded file`，run_cmd SHA-256 `8399d571…d13`、`F_N_JOBS=12`；04:05 快照为 944 tasks、874 份完整质量三件套抽查通过，`after_lock_316116` 存在、`try/kill` 不存在，`316117` 继续依赖等待。
+
 ## Interfaces and Dependencies
 
 公共 CLI 必须保留 `--root`、`--part_id`、`--total_parts`、`--n_jobs` 与显式 overwrite/repair 语义。stage 函数返回结构化状态，不用跨模块散落自由文本错误。稳定失败枚举、artifact validators、Chimera runner、MRC geometry 和 quality schema 必须各有单一实现位置。
@@ -511,7 +522,7 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 
 ### Unfinished scope
 
-- C source repair、全量 C、ABC gate 和 Stage D 已完成；D–G 代码已实现。MRC、frame-mismatch 和 Stage E 长尾 cutoff/v3 放行证据均已验收，正式无过滤 E24 正在原 `316115` allocation 运行。未完成范围是 E 正式状态与 DE gate、DE→F→G release gate、G 分布和最终独立 QC。
+- C source repair、全量 C、ABC gate 与正式 D/E 已完成；D–G 代码已实现。DE→F 的 status/gate、E artifact 风险分层和 exclusion/frame-mismatch 三路审计均通过，`316116` 正以 F12 运行。未完成范围是 F 全量四终态及质量审计、四条 exclusion 的 F 传播复核、F→G release gate、G analyze 分布和最终独立 QC。
 - G 的 map-level 算法、比较边界、空口袋分母和整 map 保留规则已冻结；最终分辨率、选定 CC、配体 Q、口袋 Q 与比例数值仍须先看正式分布后以 schema v2 配置显式给出。当前示例不写入默认值，正式 filter/`keep_list` 尚未执行。
 
 Revision note 2026-07-10 14:38+08:00: 创建本 ExecPlan，记录已确认边界、旧产物证据、科学语义、资源/许可纪律和从实现到服务器全量验收的恢复路径。
@@ -543,3 +554,5 @@ Revision note 2026-07-13 10:02+08:00: 记录用户授权 `model_map_frame_mismat
 Revision note 2026-07-13 11:42+08:00: 用户明确取消 Stage G v1 兼容，冻结唯一 map-level schema v2。实现严格 occurrence Q pair、空口袋分母、map 级 CC/resolution/fraction 门、通过 map 全 occurrence 保留与 run-scoped map diagnostics；本地 182 tests 通过。保持 316117 analyze-only，具体示例阈值未成为生产配置或服务器命令。
 
 Revision note 2026-07-13 21:04+08:00: 回填 Stage E 长尾绝对截止的实际执行结果、316415 预期失败终态、三个孤儿 Chimera 进程和 partial 三件套边界；冻结 before/after/summary 证据及最终四项 run-only exclusion。记录 cutoff/resume v3 本地与远端 207 tests、release marker、`VALIDATE_ONLY decision=run` 和正式 E24 无过滤启动。该回填只更新执行日志、契约 README、服务器操作说明和 mapping，不把具体样本或截止名单写入 `数据处理_v2.md` 的通用科学契约。
+
+Revision note 2026-07-14 04:05+08:00: 回填 `316115 COMPLETED 0:0`、D/E 最终四终态、E status 与 `de_release` 哈希，以及 status/gate、风险分层 artifact、exclusion/frame-mismatch 三路独立审计。记录 `316116` 复用预置 F12 命令、早期 944 tasks/874 份完整质量三件套抽查和当前锁；仅更新执行日志、契约/服务器 README 与 mapping，未改 clean spec，且不把 F 早期抽查冒充全量验收。

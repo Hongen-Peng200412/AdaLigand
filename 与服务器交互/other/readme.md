@@ -102,7 +102,7 @@ Pocket Plus MRC 祖传迁移发生在 Stage E 前，D 本身不消费 MRC，但 
 
 放行前必须依次完成：本地六函数零差异/薄适配/172 tests → 无删除安全同步 → 远端代码与 manifest 哈希复核 → 远端 Python 3.10 全套 172 tests → 真实 Chimera `molmap onGrid` smoke。上述条件已全部满足：正式 header audit run `adaligand_mrc_contract_audit_20260712T192000_v2` 只有 EMD-11978/12465 两张 mixed；真实 run `adaligand_mrc_geometry_smoke_20260712T200227` 使用对应 PDB 7b14/7nll，验证 actual voxel 非精确 1 Å、origin 非零、canonical/sim 同 shape/voxel/origin、标准轴和 `nstart=0`。其 ID/summary/report SHA-256 分别为 `41c7a456…cd56` / `0e40d866…96957` / `451a6dce…de5`。
 
-全部代码/祖先/副本、正式 audit、测试和真实 smoke 哈希已写入 release 文件；`/home/penghongen/mrc_contract_release_316115` 于 `2026-07-12T20:21:28+08:00` 从同目录普通临时文件原子发布，权限 0600、SHA-256 `2ca92614cb53a9f08058a5186afe677264928b6a64ba2a4b60a044d8cea6b6b2`。既有 run_cmd 随后自行删除 `pre_lock_316115` 并打印 `[MRCContractRelease]`，没有人工删除。当前 D/E 日志已分别确认 `n_jobs=64` 与 `n_jobs=24`；`after_lock_316115` 在 DE release gate 完成前继续保留。
+全部代码/祖先/副本、正式 audit、测试和真实 smoke 哈希已写入 release 文件；`/home/penghongen/mrc_contract_release_316115` 于 `2026-07-12T20:21:28+08:00` 从同目录普通临时文件原子发布，权限 0600、SHA-256 `2ca92614cb53a9f08058a5186afe677264928b6a64ba2a4b60a044d8cea6b6b2`。既有 run_cmd 随后自行删除 `pre_lock_316115` 并打印 `[MRCContractRelease]`，没有人工删除。D/E 日志分别确认 `n_jobs=64` 与 `n_jobs=24`；`after_lock_316115` 在 DE release gate 闭合前始终保留。
 
 ## 316115 Stage E 长尾截止与 resume v3
 
@@ -114,4 +114,10 @@ Pocket Plus MRC 祖传迁移发生在 Stage E 前，D 本身不消费 MRC，但 
 
 cutoff 实现 `code/long_tail_cutoff.py`、CLI `scripts/stage_e_long_tail_cutoff.py` 和 `sbatch/resume_de_316115_e_repair_v3.sh` 的 SHA-256 分别为 `50967227…97b54`、`bb600c7b…c490e`、`eabfad6b…09626`；本地与远端全套均为 207 tests passed。`/home/penghongen/e_long_tail_cutoff_release_316115` SHA-256 为 `cd06ec33…64cfa`。第一次只验证运行因 Windows 生成的 7 位小数 ISO 时间戳被服务器 Python 拒绝，期间精确 try-lock 保持且 E 未启动；仅规范化 marker 的 `released_at` 为 6 位小数后，`VALIDATE_ONLY=1` 才返回 `decision=run`。
 
-最终 `/home/penghongen/run_cmd_316115.sh` SHA-256 为 `6e8c88a18472c07c76d6c9caf64472548d39db65ea3aef26d6540024e8e3d828`。它绑定上述证据和 resume v3，按阶段状态决定运行或复用；2026-07-13 21:04:43 已以正式 run id、无 filter、无 `--overwrite`、E24 启动全量 Stage E。当前 `after_lock_316115` 必须继续保留，`try/kill_lock_316115` 均不存在，`316116/316117` 继续按原 afterok 链等待。若正式 E 再失败，只能在进程退出且精确 try-lock 出现后取证、修复和受检更新 run_cmd；不得手工删除 after-lock、取消重提原 DAG 或 clean sync。
+最终 `/home/penghongen/run_cmd_316115.sh` SHA-256 为 `6e8c88a18472c07c76d6c9caf64472548d39db65ea3aef26d6540024e8e3d828`。它绑定上述证据和 resume v3，按阶段状态决定运行或复用；2026-07-13 21:04:43 以正式 run id、无 filter、无 `--overwrite`、E24 启动全量 Stage E。正式 E 未再进入 try-lock；core 在 DE gate 成功后按既有 afterok 链正常结束，不曾取消或重提原 DAG，也未运行 clean sync。
+
+## 316115 DE 闭合与 316116 F 启动
+
+`316115` 于 `2026-07-14T01:26:42+08:00` 以 `COMPLETED 0:0` 结束。D 四终态为 22,339 success、3 skipped、44 known；E 四终态为 22,309 skipped-valid、77 known，unknown、duplicate、silent missing 均为 0。E status SHA-256 为 `3a0d4148…c54c`，`de_release` success marker SHA-256 为 `ab49f43c…da6`。不能只凭 Slurm 退出码宣称闭合：本次转换分别复核了完整 status/release gate、风险分层 E1/E2/E3 artifact、以及四条 run-only exclusion 与 2zhc `model_map_frame_mismatch` 的终态/provenance，三路独立审计均为 PASS。
+
+`316116` 于同一时刻由 `afterok:316115` 自动启动；core 日志确认 `reusing preloaded file`、预置 run_cmd SHA-256 `8399d571…d13` 与 `F_N_JOBS=12`。2026-07-14 04:05 的只读快照为 944 个外层任务完成，874 份早期完整质量三件套（`quality/{pdb_id}.jsonl`、`quality_atoms/{pdb_id}.npz`、`quality/{pdb_id}.provenance.json`）抽查通过四 CC、配体/6 Å 口袋 Q、schema v3 空口袋、MapQ `sigma=0.4,np=8` 和 provenance 契约。`after_lock_316116` 存在，`try/kill_lock_316116` 不存在；四条 exclusion 的最终 F 终态要等全量状态写出后复核。`316117` 保持依赖等待且只运行 analyze，不执行示例阈值或写 `keep_list`。

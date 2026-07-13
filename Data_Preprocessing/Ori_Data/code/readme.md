@@ -526,6 +526,7 @@ for o in occ:
 - 代码与契约覆盖 **Stage A–G**；服务器正式全量产物以本轮 run-scoped release 报告为准，不以代码存在或历史文件计数代替完成。
 - `raw/emdb_maps/` 是否生成取决于 `b_download.py --resources` 是否含 `map`（默认含）。Stage C 不消费 map。
 - 解析失败的 occurrence 记 `resolve_failed` 入 `reports`，**不**进主产物；严格依赖 `_atom_site.label_atom_id` 与 CCD 原子名精确对齐（无图同构兜底）。
-- 当前正式 run `adaligand_ag_20260711T154658` 已完成 Stage E 长尾 cutoff/v3 放行；2026-07-13 21:04:43 起由原 `316115` allocation 以 E24、无 filter、无 `--overwrite` 刷新正式全量状态。此运行事实不替代最终 DE release gate；F/G 仍只由原 afterok 链释放。
+- 当前正式 run `adaligand_ag_20260711T154658` 的 `316115` 已于 2026-07-14 01:26:42 以 `COMPLETED 0:0` 闭合 D/E：D 为 22,339 success、3 skipped、44 known；E 为 22,309 skipped-valid、77 known，unknown、duplicate、silent missing 均为 0。E status SHA-256 为 `3a0d4148…c54c`，`de_release` success marker SHA-256 为 `ab49f43c…da6`；四条 run-only exclusion 与 2zhc frame mismatch 均按既定终态和 provenance 保留，风险分层 artifact 审计通过。
+- `316116` 已在同一时刻由原 afterok 链启动，确认复用预置 run_cmd SHA-256 `8399d571…d13` 并以 `F_N_JOBS=12` 运行。2026-07-14 04:05 已完成 944 个外层任务，874 份早期完整 `quality/{pdb_id}.jsonl + quality_atoms/{pdb_id}.npz + quality/{pdb_id}.provenance.json` 三件套的契约抽查通过；四条 exclusion 的最终 F 终态仍须在全量 F 完成后复核。`316117` 继续依赖等待且只运行 analyze，不自动执行示例阈值或写 `keep_list`。
 - G 的唯一 map-level schema v2 算法已经锁定；最终分辨率、selected CC、配体 Q、口袋 Q 和合格比例数值仍按“先看正式分布再显式配置”。当前 DAG 只运行 analyze，不自动消费示例配置，也不冒充最终科学筛选或写 `keep_list`。
 - 历史 A–C 见 `文档/exec_plan/数据下载与解析.md`；当前长任务日志见 `文档/exec_plan/A-G数据流水线实现与全量运行.md`；规格见 `文档/规划文档/数据处理_v2.md`。
