@@ -14,6 +14,7 @@ if str(CODE_DIR) not in sys.path:
     sys.path.insert(0, str(CODE_DIR))
 
 from filtering import apply_map_filter_config, load_filter_config, load_stage_statuses, run_stage_g
+from exclusions import exclusion_status_fields, load_run_exclusions
 from io_utils import write_jsonl
 from reports import stage_report_path, stage_result, write_stage_results
 
@@ -256,12 +257,47 @@ def _write_g_fixture(root: Path, run_id: str) -> None:
             {"pdb_id": "2bbb", "emdb_id": "EMD-2"},
         ],
     )
-    for stage in ("stage_d", "stage_e", "stage_f"):
+    write_jsonl(
+        root / "reports" / "runs" / run_id / "exclusions.jsonl",
+        [
+            {
+                "schema_version": 1,
+                "pdb_id": "2bbb",
+                "run_id": run_id,
+                "stages": ["stage_e", "stage_f"],
+                "reason": "user_authorized_resource_outlier",
+                "detail": "explicitly excluded from this run",
+                "authorization": "test_authorization",
+                "decision_scope": "current_run_only",
+                "downstream_policy": "exclude_from_training_and_inference",
+                "evidence": {"sim_mrc_created": False},
+            }
+        ],
+    )
+    exclusions_by_stage = {
+        stage: load_run_exclusions(root, run_id, stage)
+        for stage in ("stage_e", "stage_f")
+    }
+    write_stage_results(
+        stage_report_path(root, run_id, "stage_d", 0, 1),
+        [
+            stage_result("1aaa", "stage_d", "success"),
+            stage_result("2bbb", "stage_d", "success"),
+        ],
+    )
+    for stage in ("stage_e", "stage_f"):
+        exclusions, digest = exclusions_by_stage[stage]
+        assert digest is not None
         write_stage_results(
             stage_report_path(root, run_id, stage, 0, 1),
             [
                 stage_result("1aaa", stage, "success"),
-                stage_result("2bbb", stage, "known_failed", reason="no_occurrences"),
+                stage_result(
+                    "2bbb",
+                    stage,
+                    "known_failed",
+                    **exclusion_status_fields(exclusions["2bbb"], manifest_sha256=digest),
+                ),
             ],
         )
     write_jsonl(

@@ -14,6 +14,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "code"))
 
 from filtering import load_stage_statuses
+from exclusions import ALLOWED_EXCLUSION_STAGES, load_run_exclusions
+from failures import KnownFailureCode
 from io_utils import read_jsonl
 from parallel import read_pdb_id_filter
 from reports import StageStatus, resolve_run_id, write_report
@@ -48,12 +50,41 @@ def main() -> None:
         raise RuntimeError(f"PDB filter mismatch: missing={sorted(requested.difference(expected))}")
     status_counts: dict[str, dict[str, int]] = {}
     known_reason_counts: Counter[str] = Counter()
+    exclusion_manifest_sha256: dict[str, str] = {}
     for stage in stages:
         statuses, _ = load_stage_statuses(args.root, run_id, stage, expected)
         status_counts[stage] = dict(sorted(Counter(item["status"] for item in statuses.values()).items()))
         for record in statuses.values():
             if record["status"] == StageStatus.KNOWN_FAILED.value:
                 known_reason_counts[f"{stage}:{record.get('reason', 'known_failed')}"] += 1
+        if stage in ALLOWED_EXCLUSION_STAGES:
+            exclusions, manifest_sha256 = load_run_exclusions(args.root, run_id, stage)
+            expected_exclusion_ids = set(exclusions).intersection(expected)
+            actual_exclusion_ids = {
+                pdb_id
+                for pdb_id, record in statuses.items()
+                if record.get("reason") == KnownFailureCode.RUN_POLICY_EXCLUDED.value
+            }
+            if actual_exclusion_ids != expected_exclusion_ids:
+                raise RuntimeError(
+                    f"{stage} run exclusion status mismatch: "
+                    f"missing={sorted(expected_exclusion_ids.difference(actual_exclusion_ids))}, "
+                    f"unexpected={sorted(actual_exclusion_ids.difference(expected_exclusion_ids))}"
+                )
+            if manifest_sha256 is not None:
+                exclusion_manifest_sha256[stage] = manifest_sha256
+            for pdb_id in sorted(expected_exclusion_ids):
+                record = statuses[pdb_id]
+                exclusion = exclusions[pdb_id]
+                if (
+                    record.get("status") != StageStatus.KNOWN_FAILED.value
+                    or record.get("exclusion_manifest_sha256") != manifest_sha256
+                    or record.get("exclusion_run_id") != run_id
+                    or record.get("exclusion_reason") != exclusion["reason"]
+                    or record.get("exclusion_authorization") != exclusion["authorization"]
+                    or record.get("exclusion_evidence") != exclusion["evidence"]
+                ):
+                    raise RuntimeError(f"{stage} exclusion provenance mismatch for {pdb_id}")
     if args.require_success and known_reason_counts:
         raise RuntimeError(
             "strict smoke gate rejects known failures: "
@@ -69,6 +100,7 @@ def main() -> None:
             "n_expected_pdb": len(expected),
             "status_counts": status_counts,
             "known_failure_reasons": dict(sorted(known_reason_counts.items())),
+            "exclusion_manifest_sha256": exclusion_manifest_sha256,
             "policy": (
                 "success/skipped only; known/unknown/duplicate/silent missing blocks"
                 if args.require_success

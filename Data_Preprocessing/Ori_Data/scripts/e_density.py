@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "code"))
 
 from chimera import ChimeraRunner
 from density import build_experimental_density, build_ligand_area, build_simulated_density
+from exclusions import exclusion_status_fields, load_run_exclusions
 from io_utils import read_jsonl
 from parallel import filter_pair_records, read_pdb_id_filter, shard_items
 from reports import (
@@ -57,11 +58,29 @@ def main() -> None:
     probe_runner = ChimeraRunner([str(args.chimera)], timeout_seconds=args.timeout_seconds)
     chimera_version = probe_runner.probe(scratch_root / run_id / "stage_e" / "_probe")
     records = read_jsonl(args.root / "raw" / "pair_list.jsonl")
+    exclusions, exclusions_sha256 = load_run_exclusions(args.root, run_id, STAGE_NAME)
+    universe_ids = {str(record["pdb_id"]).lower() for record in records}
+    unknown_exclusions = sorted(set(exclusions).difference(universe_ids))
+    if unknown_exclusions:
+        raise ValueError(f"run exclusions reference PDB IDs outside pair_list: {unknown_exclusions}")
     records = filter_pair_records(records, read_pdb_id_filter(args.pdb_ids_file))
     records = shard_items(records, args.part_id, args.total_parts)
 
     def _process(record: dict) -> dict:
         pdb_id = str(record["pdb_id"]).lower()
+        exclusion = exclusions.get(pdb_id)
+        if exclusion is not None:
+            if exclusions_sha256 is None:
+                raise RuntimeError("run exclusion manifest identity is missing")
+            return stage_result(
+                pdb_id,
+                STAGE_NAME,
+                "known_failed",
+                **exclusion_status_fields(
+                    exclusion,
+                    manifest_sha256=exclusions_sha256,
+                ),
+            )
         try:
             runner = ChimeraRunner([str(args.chimera)], timeout_seconds=args.timeout_seconds)
             e1 = build_experimental_density(args.root, record, overwrite=args.overwrite)

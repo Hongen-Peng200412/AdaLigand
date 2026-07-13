@@ -24,6 +24,7 @@ class KnownFailureCode(str, Enum):
     MISSING_META = "missing_meta"
     MISSING_RESOLUTION = "missing_resolution"
     MODEL_MAP_FRAME_MISMATCH = "model_map_frame_mismatch"
+    RUN_POLICY_EXCLUDED = "run_policy_excluded"
 
 
 class KnownSampleFailure(RuntimeError):
