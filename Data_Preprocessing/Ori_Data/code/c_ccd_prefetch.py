@@ -1,3 +1,7 @@
+# 学习导航：功能分区=数据契约与质量验证；生命周期=一次性恢复/补足工具。
+# 主要输入：冻结的 CCD ID 清单、现有 cache 与 source rebuild 证据目录。
+# 主要输出：可复核的 CCD cache 命中/缺失审计，不直接生成 Stage C 主产物。
+# 关键边界：只补足明确列出的依赖，不能把网络下载结果默认为科学成功。
 """Stage C source 迁移前的显式 CCD cache 补足与只读复核。"""
 
 from __future__ import annotations
@@ -50,4 +54,3 @@ def prefetch_and_audit_ccd(root: Path, ccd_id: str) -> dict[str, Any]:
         "n_unique_atom_names": len(name_to_element),
         "schema_version": CCD_PREFETCH_SCHEMA_VERSION,
     }
-

@@ -1,3 +1,7 @@
+# 学习导航：功能分区=外部工具与格式适配；生命周期=正式主路径 Stage E/F 基础设施。
+# 主要输入：MRC/map header、ZYX 数组、XYZ origin/voxel 与 Pocket Plus 原语参数。
+# 主要输出：MapGrid、重采样网格、MRC 文件和可回归的坐标元数据。
+# 关键边界：祖传六函数保持冻结；本层只做薄适配，数组轴 ZYX、世界坐标 XYZ Å 必须显式记录。
 """Pocket Plus 祖传 MRC 原语的 AdaLigand 薄适配层。
 
 ``mrc_pocket_legacy.py`` 原样保存六个 Pocket Plus 函数；本模块保持普通样本的祖传

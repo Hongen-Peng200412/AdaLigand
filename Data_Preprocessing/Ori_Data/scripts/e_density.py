@@ -1,3 +1,7 @@
+# 学习导航：功能分区=入口/导航层；生命周期=正式主路径 Stage E。
+# 实际逻辑：调用 code/density.py、mrc.py、chimera.py、model_cif.py 与 qc.py。
+# 输入/输出：实验 MRC + C/D 结构标签 → E1/E2/E3 网格、ligand-area 与状态。
+# 关键边界：E2 ATOM-only、E3 标签网格和 frame guard 由实际模块负责；入口只编排顺序与退出码。
 """Stage E CLI：顺序执行 E1/E2/E3，并写 run-scoped 单样本终态。"""
 
 from __future__ import annotations

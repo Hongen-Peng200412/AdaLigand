@@ -1,3 +1,7 @@
+# 学习导航：功能分区=入口/导航层；生命周期=一次性恢复/补足入口。
+# 实际逻辑：调用 code/c_ccd_prefetch.py 执行显式 cache 检查与报告写入。
+# 输入/输出：冻结 CCD 清单 → cache 命中/缺失审计；不直接替代 c_parse。
+# 关键边界：入口负责参数和退出码，依赖是否足够由后续 gate 判定。
 """按冻结 CCD ID 清单执行显式 cache prefetch，并写 run-scoped 审计证据。"""
 
 from __future__ import annotations
@@ -90,4 +94,3 @@ def _prefetch_one(root: Path, ccd_id: str) -> dict:
 
 if __name__ == "__main__":
     main()
-

@@ -1,3 +1,7 @@
+# 学习导航：功能分区=数据契约与质量验证；生命周期=一次性审计/运维入口。
+# 实际逻辑：扫描原始 mmCIF mtime/哈希并生成 source-dirty 快照。
+# 输入/输出：明确时间窗口与原始数据根 → 可复核 PDB 清单及 SHA 摘要。
+# 关键边界：快照是审计证据，不是自动授权；不能凭快照直接刷新正式 Stage C。
 """按明确 mtime 窗口冻结本轮被 Stage B 刷新的 mmCIF PDB 清单。"""
 
 from __future__ import annotations

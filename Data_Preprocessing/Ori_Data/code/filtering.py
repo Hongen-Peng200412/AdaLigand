@@ -1,3 +1,7 @@
+# 学习导航：功能分区=核心科学逻辑；生命周期=正式主路径 Stage G analyze/filter。
+# 主要输入：F 质量记录、分辨率字段、显式过滤配置与 run-scoped 状态。
+# 主要输出：QC 分布、分析摘要和按当前配置生成的 keep_list。
+# 关键边界：当前配置实际支持 q_score_min 与 resolution；CC/配体Q/口袋Q先分析后由用户定阈值。
 """Stage G：run-scoped release gate、质量分布分析和显式配置过滤。"""
 
 from __future__ import annotations

@@ -1,3 +1,7 @@
+# 学习导航：功能分区=外部工具与格式适配；生命周期=正式主路径 E/F 工具输入。
+# 主要输入：Stage C receptor/ligand token、真实 XYZ Å 坐标和 ATOM/HETATM 选择。
+# 主要输出：标准化 mmCIF、atom_site.id↔内部身份映射和 provenance。
+# 关键边界：E2 的 ATOM-only 与 F 的 ATOM+HETATM 是不同模型；模板坐标不能替代沉积坐标。
 """为 Chimera/MapQ 生成身份可追溯的标准化 mmCIF 模型。"""
 
 from __future__ import annotations

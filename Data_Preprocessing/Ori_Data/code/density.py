@@ -1,3 +1,7 @@
+# 学习导航：功能分区=核心科学逻辑；生命周期=正式主路径 Stage E。
+# 主要输入：实验 MRC、受体/配体世界坐标（XYZ Å）、contour 与 canonical grid 参数。
+# 主要输出：E1/E2/E3 密度网格、稀疏 ligand-area 标签和可验证的网格元数据。
+# 关键边界：数组为 ZYX，物理坐标为 XYZ；E2 严格 ATOM-only，F 再使用 ATOM+HETATM 模型。
 """Stage E 的实验图、recommended contour 与稀疏 ligand-area 纯逻辑。"""
 
 from __future__ import annotations

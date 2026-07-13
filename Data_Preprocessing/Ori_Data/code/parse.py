@@ -1,3 +1,7 @@
+# 学习导航：功能分区=核心科学逻辑；生命周期=正式主路径 Stage C。
+# 主要输入：RCSB mmCIF、CCD 化学定义和当前 source snapshot。
+# 主要输出：occurrence、receptor_tokens.coords(N,3)、feat(N,49)、键表及 ligand 坐标(M,3)。
+# 关键边界：坐标是真实沉积 XYZ Å；数组行身份与 candidate_id/occurrence 映射需保留，不能只按模板推断。
 """Stage C 核心：把一个 PDB 的 mmCIF 解析成 occurrence / 受体 token / 真实坐标。
 
 parse_one_pdb 的主流程：gemmi 读 mmCIF → 选原子(首 model + altloc) → 分 HET/受体 →

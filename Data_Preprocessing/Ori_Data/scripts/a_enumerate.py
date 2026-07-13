@@ -1,3 +1,7 @@
+# 学习导航：功能分区=入口/导航层；生命周期=正式主路径 Stage A。
+# 实际逻辑：调用 code/rcsb.py 访问 RCSB/EMDB，并用 code/reports.py 落盘摘要。
+# 输入/输出：查询配置 → raw/pair_list.jsonl、reports/resolution_summary.json。
+# 关键边界：A 是全局一次性枚举；它导航核心逻辑，不是第四类科学实现。
 """Stage A 入口：枚举样本宇宙，写 pair_list + 分辨率统计。
 
 查 RCSB 列出"EM + 有 EMDB + 含配体"的全部 PDB，对每条定主 EMDB 与分辨率，

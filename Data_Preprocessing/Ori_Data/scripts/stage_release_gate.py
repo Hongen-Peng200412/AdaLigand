@@ -1,3 +1,7 @@
+# 学习导航：功能分区=数据契约与质量验证；生命周期=正式主路径跨阶段 gate 入口。
+# 实际逻辑：调用 code/contracts.py、failures.py、reports.py 汇总阶段终态。
+# 输入/输出：run-scoped 状态、产物索引与期约 → gate summary、release marker、退出码。
+# 关键边界：known 可按契约排除；unknown、重复、静默缺失和 schema 漂移不得放行下游。
 """通用 run-scoped stage gate：允许 known failure，阻塞 unknown/重复/静默缺失。"""
 
 from __future__ import annotations

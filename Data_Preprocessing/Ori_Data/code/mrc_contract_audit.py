@@ -1,3 +1,7 @@
+# 学习导航：功能分区=数据契约与质量验证；生命周期=一次性审计工具。
+# 主要输入：真实 EMDB MRC header、Pocket Plus/AdaLigand 读取结果和轴序元数据。
+# 主要输出：origin、nstart、voxel、shape 与坐标闭合性审计报告。
+# 关键边界：只读验证，不生成正式 Stage E/F 产物，也不改变冻结祖传实现。
 """Pocket Plus 祖传 MRC 重采样契约的只读 header 审计。
 
 本模块只读取 MRC header，不读取或改写密度体素。计算规则逐项复现

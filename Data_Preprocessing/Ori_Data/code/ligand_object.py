@@ -1,3 +1,7 @@
+# 学习导航：功能分区=核心科学逻辑；生命周期=正式主路径 Stage C 化学对象。
+# 主要输入：CCD 残基定义、mmCIF occurrence 原子和键类型。
+# 主要输出：可序列化 LigandObject、原子名/元素/键/坐标等配体化学字段。
+# 关键边界：模板化学对象与真实 occurrence 坐标分离；candidate_id 不是永久身份。
 """配体化学对象 LigandObject 的生成（沿用 Emap2lig 血统）。
 
 把一个 CCD 或一条 BRANCHED 糖链变成可复用的参考化学对象：

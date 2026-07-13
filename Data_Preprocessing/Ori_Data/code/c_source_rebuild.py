@@ -1,3 +1,7 @@
+# 学习导航：功能分区=数据契约与质量验证；生命周期=一次性恢复/迁移工具。
+# 主要输入：当前 source-dirty 样本、既有 Stage C 产物、CCD/descriptor 依赖与授权集合。
+# 主要输出：before/after 主键迁移清单、重建结果与可恢复提交证据。
+# 关键边界：迁移是审计化事务，不能默默改变正式科学契约或覆盖未授权样本。
 """经单次授权的 Stage C ligand-side source rebuild 审计与可恢复提交。"""
 
 from __future__ import annotations

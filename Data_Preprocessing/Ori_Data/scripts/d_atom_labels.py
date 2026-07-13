@@ -1,3 +1,7 @@
+# 学习导航：功能分区=入口/导航层；生命周期=正式主路径 Stage D。
+# 实际逻辑：调用 code/atom_labels.py、parallel.py、reports.py。
+# 输入/输出：C receptor/ligand 坐标 → 标签数组、样本终态和 Stage D 汇总。
+# 关键边界：入口不定义 4 Å 科学规则，只传递分片、并发和 run-scoped 路径。
 """Stage D CLI：分片并行生成原子级标签与 run-scoped 终态清单。"""
 
 from __future__ import annotations

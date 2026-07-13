@@ -1,3 +1,7 @@
+# 学习导航：功能分区=外部工具与格式适配；生命周期=正式主路径 Stage B。
+# 主要输入：Stage A pair_list、RCSB/EMDB URL、下载分片与重试配置。
+# 主要输出：原始 mmCIF/map 文件、下载状态和显式 download_failed 记录。
+# 关键边界：网络成功不等于结构科学有效；失败必须进入可审计状态，不能静默缺失。
 """Stage B 下载实现。
 
 download_one_pair：按 --resources 下载一个样本的 mmCIF(RCSB)、EMDB map(EBI FTP)、EMDB meta(EMDB API)，

@@ -1,3 +1,7 @@
+# 学习导航：功能分区=核心科学逻辑；生命周期=正式主路径 Stage D。
+# 主要输入：Stage C 的 receptor_tokens 与 occurrence ligand 坐标（XYZ Å）。
+# 主要输出：受体原子标签及分片级 Stage D 终态/报告。
+# 关键边界：以 4 Å 最近配体重原子距离定义标签，数组通常按受体原子排列。
 """Stage D：从受体和 occurrence 真值坐标生成原子级结合标签。"""
 
 from __future__ import annotations

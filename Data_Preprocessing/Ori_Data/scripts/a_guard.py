@@ -1,3 +1,7 @@
+# 学习导航：功能分区=入口/导航层；生命周期=正式主路径的 data guard。
+# 实际逻辑：读取冻结 pair_list 并调用 contracts/qc 的完整性检查。
+# 输入/输出：既有 raw/pair_list.jsonl → guard 报告/退出码，不重新枚举样本。
+# 关键边界：这是数据守护，不是独立科学阶段；失败时阻止后续阶段复用错误宇宙。
 """Stage A 冻结样本宇宙 guard：验证并复用既有 pair_list，不访问网络。"""
 
 from __future__ import annotations

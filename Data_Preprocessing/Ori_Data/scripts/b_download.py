@@ -1,3 +1,7 @@
+# 学习导航：功能分区=入口/导航层；生命周期=正式主路径 Stage B。
+# 实际逻辑：调用 code/parallel.py、code/download.py、code/reports.py。
+# 输入/输出：A pair_list + 分片参数 → mmCIF/map 原始文件、下载状态与失败记录。
+# 关键边界：并发由 sbatch/array 环境决定；入口只传播范围、配置和退出码。
 """Stage B 入口：分片 + joblib 并行下载原始件。
 
 读 pair_list，按 --part_id/--total_parts 取本分片，再用 joblib-loky(--n_jobs) 并行下载

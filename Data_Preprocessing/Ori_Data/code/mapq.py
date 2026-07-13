@@ -1,3 +1,7 @@
+# 学习导航：功能分区=外部工具与格式适配；生命周期=正式主路径 Stage F 工具适配。
+# 主要输入：标准化 mmCIF、实验/模拟 MRC、sigma=0.4、np=8 与 atom_site 映射。
+# 主要输出：MapQ 原子 Q-score、工具日志和严格 atom_site.id 对齐后的 occurrence 数组。
+# 关键边界：MapQ 计算数值；AdaLigand 负责命令、身份 join、缺失/重复 ID 与 provenance 校验。
 """MapQ 2.9.7 的固定参数命令适配器与严格 atom_site.id 输出校验。"""
 
 from __future__ import annotations

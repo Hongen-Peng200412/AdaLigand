@@ -1,3 +1,7 @@
+# 学习导航：功能分区=调度、资源与恢复控制；生命周期=正式主路径共享基础设施。
+# 主要输入：样本总数、part_id/n_parts 或 SLURM array 环境变量。
+# 主要输出：确定性样本索引区间与并行任务元数据。
+# 关键边界：分片只决定处理范围，不改变样本科学契约；B 的单节点单 task 由 sbatch 约束。
 """任务分片工具（配合 SLURM array）。
 
 shard_items：按 `part_id / total_parts`（= SLURM array 口径）把任务列表切成互不重叠的分片，

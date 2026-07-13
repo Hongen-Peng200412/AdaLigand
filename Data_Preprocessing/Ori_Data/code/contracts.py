@@ -1,3 +1,7 @@
+# 学习导航：功能分区=数据契约与质量验证；生命周期=正式主路径 gate 基础设施。
+# 主要输入：各阶段 JSON/JSONL 记录、schema 版本和样本状态。
+# 主要输出：字段/shape/状态合法性判定以及 release gate 所需摘要。
+# 关键边界：unknown、known、success、skipped 与静默缺失必须分开，不能仅看文件存在。
 """A–G 产物契约与 schema-aware 完成判据。
 
 当前先实现 Stage C 的 `COMPLETE / UPGRADE / REBUILD` 状态机。它把“文件路径存在”与

@@ -1,3 +1,7 @@
+# 学习导航：功能分区=核心科学逻辑；生命周期=正式主路径 Stage F。
+# 主要输入：实验图、模拟图、ATOM-only/ATOM+HETATM 模型、配体与受体坐标。
+# 主要输出：四种 CC、配体逐原子 Q、6 Å occurrence 口袋逐原子 Q、provenance 与终态。
+# 关键边界：CC 由 Chimera、Q 由 MapQ 计算；AdaLigand 负责身份对齐、shape/坐标 QC 和空口袋 null/status。
 """Stage F：全模型四种 CC、MapQ 原子严格投影与 occurrence 质量聚合。"""
 
 from __future__ import annotations

@@ -1,3 +1,7 @@
+# 学习导航：功能分区=入口/导航层；生命周期=正式主路径 Stage C。
+# 实际逻辑：调用 code/parse.py、receptor.py、ligand_object.py、reports.py。
+# 输入/输出：B 的 mmCIF + CCD/descriptor → occurrence、receptor token、LigandObject 与状态。
+# 关键边界：入口设置分片/并发；真实 XYZ Å、(N,3)/(M,3) 数组和身份映射由 code 模块定义。
 """Stage C 入口：分片 + joblib 并行解析每个 PDB。
 
 读 pair_list，按 --part_id/--total_parts 取本分片，用 joblib-loky(--n_jobs) 并行调用 parse_one_pdb，

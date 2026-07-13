@@ -1,3 +1,7 @@
+# 学习导航：功能分区=数据契约与质量验证；生命周期=一次性 MRC audit。
+# 实际逻辑：调用 code/mrc_contract_audit.py 与 code/mrc.py 读取 header 并比较几何字段。
+# 输入/输出：EMDB MRC 集合 → 只读 audit 报告；不写正式 Stage E/F 产物。
+# 关键边界：验证 origin/nstart/voxel/axis/shape 闭合，不修改冻结的 mrc_pocket_legacy.py。
 """只读并行审计全量 EMDB header 的 Pocket Plus 祖传重采样契约。"""
 
 from __future__ import annotations

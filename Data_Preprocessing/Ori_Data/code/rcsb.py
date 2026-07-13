@@ -1,3 +1,7 @@
+# 学习导航：功能分区=外部工具与格式适配；生命周期=正式主路径 Stage A 元数据适配。
+# 主要输入：PDB/EMDB 查询条件、RCSB/EMDB HTTP 响应和重试配置。
+# 主要输出：pair_list 所需 PDB↔EMDB、分辨率、URL 与 provenance 字段。
+# 关键边界：网络元数据只建立候选宇宙；A guard 冻结后，后续阶段不得隐式改写样本集合。
 """Stage A 的 RCSB / EMDB 元数据访问与分辨率 provenance。
 
 - search_em_ligand_entries：一次 RCSB Search 查询，列出"EM + 有 EMDB + 含配体"的全部 PDB（全局，不分片）。

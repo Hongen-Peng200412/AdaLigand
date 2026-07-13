@@ -1,3 +1,7 @@
+# 学习导航：功能分区=入口/导航层；生命周期=一次性 source repair 入口。
+# 实际逻辑：调用 code/c_source_repair.py，先只读分类，再按授权执行受检迁移。
+# 输入/输出：source-dirty 快照 + 既有 C 产物 → exact/atom-name-only/blocked/failed 证据。
+# 关键边界：audit 与 apply 分离；没有授权或 gate 时只读，不得默默刷新 C。
 """Stage C source-dirty 集合的两阶段 audit/apply CLI。"""
 
 from __future__ import annotations

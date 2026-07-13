@@ -1,3 +1,7 @@
+# 学习导航：功能分区=外部工具与格式适配；生命周期=正式主路径工具适配。
+# 主要输入：标准化 mmCIF、MRC/map 文件、Chimera 命令参数与工作目录。
+# 主要输出：Chimera 生成的模拟图、模型/地图几何信息、CC 数值与 stdout/stderr 证据。
+# 关键边界：AdaLigand 负责命令、路径、退出码和输出验证；科学数值由 Chimera 计算。
 """Classic UCSF Chimera 的窄接口与可审计外部进程执行器。"""
 
 from __future__ import annotations

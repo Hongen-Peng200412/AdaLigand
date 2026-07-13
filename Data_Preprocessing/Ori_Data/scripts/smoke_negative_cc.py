@@ -1,3 +1,7 @@
+# 学习导航：功能分区=数据契约与质量验证；生命周期=审计/测试辅助入口。
+# 实际逻辑：调用 code/chimera.py 与 quality.py 比较真实配对和错位 map 的 CC。
+# 输入/输出：小规模实验/模拟图与模型 → CC 对照和 smoke 报告。
+# 关键边界：只验证负对照敏感性，不改变正式阈值，也不产生 keep_list。
 """用真实 Chimera 验证正确配对 CC 显著优于 12 Å 错位模拟图。"""
 
 from __future__ import annotations

@@ -1,3 +1,7 @@
+# 学习导航：功能分区=数据契约与质量验证；生命周期=正式主路径 ABC gate。
+# 实际逻辑：汇总 A/B/C run-scoped 状态，调用 contracts/reports/failures 判定释放。
+# 输入/输出：A–C 状态与产物 → gate summary、退出码和 release marker。
+# 关键边界：显式 download_failed 可 known；unknown、静默缺失、C 漂移必须阻塞 D–G。
 """A–C 硬 release gate：允许显式 B known failure，阻塞未知/静默缺失/C 漂移。"""
 
 from __future__ import annotations

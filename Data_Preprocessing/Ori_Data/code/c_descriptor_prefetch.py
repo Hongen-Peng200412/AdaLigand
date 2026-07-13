@@ -1,3 +1,7 @@
+# 学习导航：功能分区=数据契约与质量验证；生命周期=一次性恢复/补足工具。
+# 主要输入：冻结 object-key、CCD/descriptor cache 与待重建样本集合。
+# 主要输出：descriptor 依赖审计与补足证据，供后续 source rebuild 使用。
+# 关键边界：只处理显式依赖，不改变 occurrence、candidate_id 或坐标契约。
 """Stage C source rebuild 前的显式 ligand descriptor 依赖补足。"""
 
 from __future__ import annotations

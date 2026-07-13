@@ -1,3 +1,7 @@
+# 学习导航：功能分区=数据契约与质量验证；生命周期=一次性恢复/审计工具。
+# 主要输入：source-dirty mmCIF、旧 Stage C token/occurrence 产物和迁移规则。
+# 主要输出：exact/atom-name-only/blocked/failed 分类与受检 receptor-only 迁移证据。
+# 关键边界：默认保留既有 ligand 坐标与 occurrence；任何 ligand-side rebuild 必须显式授权。
 """Stage C 当前 mmCIF 与既有核心产物的只读审计和 receptor-only 受检迁移。"""
 
 from __future__ import annotations

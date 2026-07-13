@@ -6,11 +6,11 @@
 2. 正式 A–G 流水线从哪个入口进入、依次调用什么；
 3. 哪些代码决定科学数据，哪些代码只是工具连接、检查、事故恢复或服务器运维。
 
-本文只描述代码结构和当前契约，不修改代码，也不授权重新运行服务器任务。仓库根目录是当前文件所在的项目根；文中路径均使用仓库相对路径。
+本文只描述代码结构、当前契约和代码阅读边界；本轮对 Python 文件所做的改动仅限顶部 `#` 学习注释，不改变任何运行逻辑。本文不授权连接服务器、重新运行任务或修改数据产物。仓库根目录是当前文件所在的项目根；文中路径均使用仓库相对路径。
 
 ## 1. 最重要的分类方法
 
-代码主体只分成三类。入口代码不是第四类，而是一层“导航层”：它像指针一样，把命令行参数、资源参数和 `run_id` 交给下面三类真正的逻辑。
+代码使用五个阅读分区。前两类和科学计算/外部系统有关，第三类保护数据契约，第四类保护执行生命周期，第五类只是导航。入口代码不是新的科学逻辑；历史恢复也不是新的科学定义，而是每个文件的生命周期标签。
 
 ### 1.1 核心科学逻辑
 
@@ -20,23 +20,32 @@
 
 这类代码把 AdaLigand 的数据转换成 Chimera、MapQ、MRC、RCSB/EMDB 等外部系统能接受的输入，再把外部结果严格转换回来。它通常不重新发明 CC、Q-score 或 Pocket Plus 的数值算法。
 
-### 1.3 防御性、事故修复和一次性运维
+### 1.3 数据契约与质量验证
 
-这类代码负责验证、失败分类、原子写入、release gate、锁、审计、回归 smoke、source repair 和一次性恢复。它们保护核心逻辑不被错误产物污染，但通常不是训练数据的科学定义本身。
+这类代码控制“产物是否可信”：验证 schema、shape、dtype、主键、坐标、单位、数值范围、三维内容、状态唯一性和 provenance，并决定 unknown failure 是否阻断 release。它们不负责 Slurm 进程生命周期。
 
-### 1.4 入口/指针层（不作为第四类）
+主要文件是 `contracts.py`、`qc.py`、`failures.py`、`reports.py`、`io_utils.py`、`abc_release_gate.py` 和 `stage_release_gate.py`。release gate 虽然会影响下游作业是否启动，但其核心判断对象仍然是数据状态。
 
-入口文件通常只做参数解析、环境准备、并发编排、调用模块和退出码传播。看到入口后，沿着它的 `import` 和函数调用继续跳到三类实际逻辑。
+### 1.4 调度、资源与恢复控制
+
+这类代码控制“程序怎样运行、暂停、重试和退出”：afterok DAG、CPU/并发参数、run command、进程组、heartbeat、`pre_lock`/`try_lock`/`kill_lock`/`after_lock`，以及本轮事故的 source repair/rebuild、依赖 prefetch 和阶段恢复脚本。
+
+主要文件是 `sbatch/_adaligand_job_core.sh`、`sbatch/*.sbatch`、`submit_full_pipeline.sh`、`resume_*.sh`，以及 `c_source_repair.py`、`c_source_rebuild.py`、CCD/descriptor prefetch。它们可以修复或保护产物，但不定义 CC、Q-score、口袋或标签的科学语义。
+
+### 1.5 入口/指针层（不作为新的实际逻辑）
+
+入口文件通常只做参数解析、环境准备、并发编排、调用模块和退出码传播。看到入口后，沿着它的 `import` 和函数调用继续跳到四类实际逻辑（核心科学、工具适配、数据契约、执行控制）。
 
 判断一个文件是不是入口的最直接方法：如果它主要包含 `argparse`、`main()`、`sbatch`、环境变量、`joblib.Parallel`、阶段调用和 gate 调用，而不是实现数学函数，那么它就是入口/编排层。
 
-入口层与三类逻辑的关系如下：
+入口层与四类实际逻辑的关系如下：
 
 ```text
 入口/指针
   └─ 调用核心科学逻辑
   └─ 调用工具适配层
-  └─ 调用防御性 gate / 报告 / 锁逻辑
+  └─ 调用数据契约 gate / 报告逻辑
+  └─ 由 sbatch/守护层控制资源、锁和退出码
 ```
 
 因此，`scripts/f_quality.py` 是 F 阶段入口；真正的质量计算在 `code/quality.py`，Chimera/MapQ 连接在 `code/chimera.py` 和 `code/mapq.py`，质量验证在 `code/qc.py`。
@@ -234,15 +243,13 @@ $$
 - 输出 `quality_distribution.json` 和 `candidates.pending.jsonl`；
 - 不写 `keep_list.jsonl`。
 
-`filter` 模式只有在显式 `schema_version=2` 配置存在时才运行；没有 v1 兼容分支。它直接使用 analyze 已扁平化的 occurrence 字段，不回到密度图、`quality_atoms` 或 MapQ 重算。
+`filter` 模式只有在显式 JSON 配置存在时才运行。当前代码的 `FILTER_CONFIG_SCHEMA_VERSION` 是 `1`，配置必须显式给出 `q_score_min`、`resolution_max`（可以为 `null`）、`resolution_policy`（`exclude` 或 `flag_only`）和 `comparison="inclusive"`。它直接使用 analyze 已扁平化的 occurrence 字段，不回到密度图、`quality_atoms` 或 MapQ 重算。
 
-G 的过滤单位是 PDB/map，不是 occurrence。每个 occurrence 先按严格阈值计算：
+当前实现的 `apply_filter_config()` 实际只执行两类规则：配体聚合 Q-score 下限和分辨率上限；CC、口袋 Q 等字段会进入分布和 pending candidates，但尚未在这个函数中成为过滤阈值。计划书中“未来由用户同时指定分辨率、CC、配体 Q 和口袋 Q”的范围不能误读为当前代码已经实现。
 
-```text
-pair_pass = (q_score > ligand_q_min) AND (pocket_q_score > pocket_q_min)
-```
+G 的当前过滤单位是 occurrence 主键 `(pdb_id, candidate_id)`：它先把上游无 known failure 的 PDB 的全部 quality JSONL 读入，逐 occurrence 校验字段、口袋空值语义和四种 CC，再按显式 `q_score_min`/resolution 规则生成 `excluded.jsonl`、`flagged.jsonl`、summary 和最终 `keep_list.jsonl`。已知失败 PDB 不进入候选清单，但会在 G 状态和分布中留下原因计数。
 
-空口袋的 `pocket_q_score=null` 固定失败，并计入分母。map 只有在 selected CC 含等号达标、resolution 含等号不高于上限、合格 occurrence 比例含等号达标时才通过。通过后把该 map 的全部 occurrence 写入 `keep_list`，包括 `pair_pass=false` 的行；pair 规则评价 map 整体质量，不是 map 内二次删样本。每个 PDB 的 CC/resolution 必须先验证为唯一一致值，配置和输入 manifest 均保存 hash。
+历史计划或旧文档中出现的 `pair_pass`、map 级比例门、`schema_version=2` 配置等口径，不是当前 `code/filtering.py` 的正式实现；阅读时应以当前代码为准，并把这些旧口径标为历史差异，而不是默默混入当前算法。
 
 ## 4. 工具调用和适配层：`code/`
 
@@ -298,9 +305,9 @@ AdaLigand 还会在每个 PDB scratch 目录生成一次性兼容副本，补上
 - `code/rcsb.py`：RCSB/EMDB API 请求、EMDB-PDB 关系和 resolution 提取。
 - `code/download.py`：下载 mmCIF、metadata、EMDB map，处理临时文件和资源级失败。
 
-## 5. 防御、修复和一次性运维代码
+## 5. 数据契约与质量验证代码
 
-### 5.1 长期防御性模块
+### 5.1 长期数据防御模块
 
 - `code/contracts.py`：schema-aware 完成判据；不是“路径存在就算完成”。
 - `code/qc.py`：数组、shape、dtype、有限性、三维性、origin、voxel 和 CC 检查。
@@ -309,9 +316,25 @@ AdaLigand 还会在每个 PDB scratch 目录生成一次性兼容副本，补上
 - `code/io_utils.py`：原子写入、文件锁、JSONL、SHA-256。
 - `code/parallel.py`：稳定分片、显式 PDB 子集和并发输入。
 
-这些模块不改变科学目标，但决定错误能否被发现、旧失败能否污染新 run，以及半写文件能否被误认为完成。
+这些模块不改变科学目标，但决定错误能否被发现、旧失败能否污染新 run，以及半写文件能否被误认为完成。它们属于数据平面守护：关注文件内容和状态，不关注 Slurm 进程。
 
-### 5.2 一次性 source 修复和依赖补足
+### 5.2 数据 gate 的边界
+
+- `scripts/abc_release_gate.py` 读取 A/B/C 的 run-scoped 状态并逐 PDB 调用 `inspect_stage_c()`；它允许显式 B `known_failed`，但要求 C 完整且无 unknown/silent missing。
+- `scripts/stage_release_gate.py` 复用 `filtering.load_stage_statuses()`，检查目标 PDB 集合是否恰好覆盖、是否有重复/额外/unknown 状态，并按 gate 名称写 summary。
+- `scripts/g_filter.py` 不依赖外部调度器；它在 G 自己的分析/过滤逻辑中重新读取 D/E/F 状态，因此 G 仍有一层独立的完整性检查。
+- `model_map_frame_mismatch` 是正式 E/F 数据契约：只有合法 map 和 Stage C polymer receptor token 坐标的 XYZ 包围盒完全分离时才分类为 known；NaN、坏 schema、全零和工具错误仍是 unknown。
+
+## 6. 调度、资源与恢复控制代码
+
+### 6.1 正式运行控制
+
+- `sbatch/_adaligand_job_core.sh`：验证 run_cmd 是普通非 symlink 文件，记录 SHA，创建 `after_lock`，可等待 `pre_lock`，运行独立进程组，监控 `kill_lock`，每 300 秒写 heartbeat；失败时创建 `try_lock`，成功时清理本作业锁和命令文件。
+- `sbatch/submit_full_pipeline.sh`：提交 ABC→DE→F→G 的 `afterok` DAG；它只连接作业，不实现阶段科学逻辑。
+- `abc_full.sbatch`、`de_full.sbatch`、`f_full.sbatch`、`g_analyze.sbatch`：分别定义资源、日志、环境和 run command 生成钩子，并 source 运行控制核心。
+- `after_lock` 是 allocation 的完成/占用标记，不等于数据 gate；只有 run command 和嵌入 gate 成功，核心才会自动清理它。
+
+### 6.2 一次性 source 修复和依赖补足
 
 - `code/c_upgrade.py`：旧 C 产物的兼容升级；当前正式路径只在旧 schema 被识别时条件性调用。
 - `code/c_ccd_prefetch.py` 与 `scripts/c_ccd_prefetch.py`：一次性补足指定 CCD cache。
@@ -320,24 +343,23 @@ AdaLigand 还会在每个 PDB scratch 目录生成一次性兼容副本，补上
 - `code/c_source_rebuild.py` 与对应 script：本轮授权的 14-PDB 5GP 完整 C 重建、before/after manifest 和事务 receipt。
 - `scripts/snapshot_source_dirty.py`：按显式 mtime 窗口冻结 source-dirty ID 清单和 SHA。
 
-这些代码的记录和 manifest 是本轮事故/迁移的审计证据，不是未来自动接受任意 source 漂移的通用许可。
+这些代码的记录和 manifest 是本轮事故/迁移的审计证据，不是未来自动接受任意 source 漂移的通用许可。它们的功能分区是“恢复控制”，生命周期标签是“一次性/条件性”，不能误读为新一轮干净 A–G 必经步骤。
 
-### 5.3 MRC 审计和 smoke
+### 6.3 MRC 审计和 smoke
 
 - `code/mrc_contract_audit.py` 与 `scripts/audit_mrc_contract.py`：全量 header/实现/哈希审计。
 - `scripts/smoke_mrc_geometry.py`：真实 MRC 的 shape、actual voxel、origin、轴、nstart 和三维内容检查。
 - `code/smoke_checks.py` 与 `scripts/smoke_negative_cc.py`：错位 map/model 的 CC 负对照。
 - `scripts/stage_release_gate.py`、`scripts/abc_release_gate.py`：阻止未知失败和静默缺失向下游释放。
 
-### 5.4 服务器锁和调度运维
+### 6.4 旧模板与当前主路径的区别
 
-- `sbatch/_adaligand_job_core.sh`：`run_cmd` 校验、`pre_lock`、`try_lock`、`kill_lock`、`after_lock`、心跳、进程组清理和退出码传播。
 - `sbatch/resume_abc_316114_source_v2.sh`：本轮 316114 的阶段感知恢复入口；不是普通 C 解析入口。
-- `sbatch/submit_full_pipeline.sh`：提交 A–G `afterok` DAG。
+- `sbatch/resume_de_316115_e_repair_v1.sh`：本轮 Stage E 工程失败恢复入口；不是普通 E 入口，且其历史注释可能落后于已批准的 frame-mismatch 契约。
 - `sbatch/real_smoke.sbatch`、`sbatch/negative_cc_smoke.sbatch`、`sbatch/submit_real_smoke.sh`：真实 smoke 和负对照提交工具。
 - `sbatch/a.sbatch`、`b.sbatch`、`c.sbatch`：旧的单阶段/array 模板，主要作为历史参考；不能覆盖当前正式 DAG 的资源和 B 单节点单 task 契约。
 
-## 6. 入口/指针层索引
+## 7. 入口/指针层索引
 
 入口代码不需要先读内部实现。先用下面的表找到目标模块，再回到第三、四、五节。
 
@@ -362,7 +384,7 @@ AdaLigand 还会在每个 PDB scratch 目录生成一次性兼容副本，补上
 - `g_analyze.sbatch`：只执行 G analyze；
 - `_adaligand_job_core.sh`：被这些 sbatch 包装器 source 的运维核心。
 
-## 7. 新手推荐阅读顺序
+## 8. 新手推荐阅读顺序
 
 ### 第一遍：只看数据流
 
@@ -397,34 +419,36 @@ AdaLigand 还会在每个 PDB scratch 目录生成一次性兼容副本，补上
 
 最后再读 source repair、MRC audit、smoke 和一次性恢复脚本。
 
-## 8. 最容易混淆的几个概念
+## 9. 最容易混淆的几个概念
 
-### 8.1 模板坐标和真实沉积坐标
+### 9.1 模板坐标和真实沉积坐标
 
 `LigandObject.atoms["ref_pos"]` 是参考构象；`ligand_coords.npz` 的 `coords_{cid}` 才是真实结构坐标。D/E/F 不应使用参考构象代替真实 pose。
 
-### 8.2 数组轴和空间坐标顺序
+### 9.2 数组轴和空间坐标顺序
 
 密度数组是 `(1,Z,Y,X)`；世界坐标和 `voxel_size` 是 `(X,Y,Z)`。不能把数组下标顺序直接当成 XYZ 坐标。
 
-### 8.3 E2 和 F 的原子集合不同
+### 9.3 E2 和 F 的原子集合不同
 
 - E2 receptor-only map：严格只保留 `group_PDB==ATOM`，删除全部 HETATM；
 - F 的完整模型 Q-score：保留首 model/规范 altloc 的 `ATOM+HETATM`。
 
-### 8.4 口袋 Q 不是配体 Q
+### 9.4 口袋 Q 不是配体 Q
 
 配体 Q 是配体自身原子的 Q；口袋 Q 是 6 Å 包络内受体原子的 Q。二者都保留 occurrence 级原始数组和聚合值，不预先过滤。
 
-### 8.5 known failure 和 unknown failure
+### 9.5 known failure 和 unknown failure
 
 `known_failed` 是明确、可解释且允许 gate 继续的样本级不适用情形；普通异常、schema 漂移、工具输出错误和静默缺失必须是 `unknown_failed`，会阻断 release gate。
 
-### 8.6 pair 通过和 map 通过
+### 9.6 pair 通过和 map 通过
 
 `pair_pass` 只参与计算一张 map 的合格 occurrence 比例。它不是最终 occurrence 保留标记。只要 map 达到 CC、分辨率和合格比例三道门，该 map 内所有 occurrence 都进入 `keep_list`；空口袋或 Q 偏低的 occurrence 也随通过 map 保留。
 
-## 9. 如何判断一个函数值不值得深入读
+这段规则属于旧版/计划中的历史口径，不是当前 `filtering.py` 的执行规则。保留它是为了让读者能识别旧产物或旧报告：旧逻辑会先以 `pair_pass = (q_score > ligand_q_min) AND (pocket_q_score > pocket_q_min)` 判断 occurrence，再在 map 级汇总合格比例；当前代码则按 occurrence 读取质量字段，并只应用现行 schema v1 中的 Q-score 下限和 resolution 规则。
+
+## 10. 如何判断一个函数值不值得深入读
 
 优先深入：
 
@@ -440,7 +464,7 @@ AdaLigand 还会在每个 PDB scratch 目录生成一次性兼容副本，补上
 
 但防御代码不能完全跳过：至少要知道它在阻止哪一种错误，以及失败时是继续、跳过还是阻断下游。
 
-## 10. 当前明确不属于本轮的内容
+## 11. 当前明确不属于本轮的内容
 
 - Stage 1 重训；
 - BOX 第 2/3 层；
@@ -459,3 +483,134 @@ AdaLigand 还会在每个 PDB scratch 目录生成一次性兼容副本，补上
 ```
 
 只要这五个问题能回答，新手或没有上下文的 AI agent 就能判断该函数是否需要深入，以及应该沿着哪一个入口指针继续阅读。
+
+## 12. 逐文件阅读索引
+
+下面的索引是“从文件跳到实际职责”的导航，不替代各模块的函数级阅读。每个项目自有 Python 文件顶部也有同样性质的 `#` 模块卡片；这些卡片只做导航，不改变程序行为。
+
+### 12.1 `code/` 正式主路径模块
+
+| 文件 | 主分区 | 生命周期 | 先看什么 |
+|---|---|---|---|
+| `constants.py` | 核心科学逻辑 | 正式主路径 | 元素、残基、键类型、半径和 schema 常量；它是多个模块共享的语义词典 |
+| `parse.py` | 核心科学逻辑 | 正式主路径 | `build_stage_c_source_view()`、`parse_one_pdb()`、component/occurrence 分组和真实坐标对齐 |
+| `ligand_object.py` | 核心科学逻辑 | 正式主路径 | CCD/BRANCHED 模板、原子/键行序、`ref_pos` 与占位坐标 |
+| `ligand_descriptors.py` | 核心科学逻辑 | 正式主路径 | 从化学图生成去重 descriptor，输入是 LigandObject，不是沉积 pose |
+| `receptor.py` | 核心科学逻辑 | 正式主路径 | 受体基础七数组、`bond_index/bond_type` 和 `(N,49)` 特征 |
+| `atom_labels.py` | 核心科学逻辑 | 正式主路径 | 最近配体重原子距离、4 Å binding 标签、instance tie-break |
+| `density.py` | 核心科学 + 工具编排 | 正式主路径 | E1/E2/E3 三个 builder；它连接 `mrc.py`、`model_cif.py` 和 `ChimeraRunner` |
+| `quality.py` | 核心科学 + 工具编排 | 正式主路径 | 四 CC、MapQ 身份 join、配体 Q 和 6 Å occurrence pocket Q |
+| `filtering.py` | 核心科学 + 数据守护 | 正式主路径 | G 状态读取、分布、pending candidates 和当前实际 filter config |
+
+### 12.2 `code/` 工具适配模块
+
+| 文件 | 作用 | 外部边界 |
+|---|---|---|
+| `rcsb.py` | 搜索 PDB、选择 EMDB、提取 resolution 和构造 URL | RCSB Search/Entry 与 EMDB metadata API |
+| `download.py` | 临时下载、gzip/非空检查、原子提升和资源级失败 | RCSB mmCIF、EMDB metadata/map |
+| `model_cif.py` | 首 model/规范 altloc/重原子筛选和标准化 mmCIF | Chimera/MapQ 的结构输入 |
+| `chimera.py` | 启动 classic Chimera、molmap onGrid、correlation、日志/超时 | Chimera 可执行文件与 scratch |
+| `mapq.py` | 生成兼容 MapQ CLI、运行 MapQ、解析 Q-score CIF | MapQ 固定包、native MRC、完整模型 |
+| `mrc.py` | 统一 `MapGrid`、调用 Pocket Plus 原语、写标准 MRC、几何闭合 | MRC/CCP4 输入输出 |
+| `mrc_pocket_legacy.py` | Pocket Plus 六函数可信快照 | 冻结祖传数值代码；禁止本轮头部注释修改 |
+
+### 12.3 `code/` 数据守护与基础设施
+
+| 文件 | 作用 | 是否定义科学量 |
+|---|---|---|
+| `contracts.py` | C/E/F artifact schema 和完成判定 | 不定义科学指标，只检查是否满足契约 |
+| `qc.py` | shape、dtype、有限性、几何、CC 和 frame 检查 | 不计算最终科学分数，负责拒绝非法结果 |
+| `failures.py` | stable known/tool failure 枚举和异常类型 | 定义失败分类语义，不生成训练特征 |
+| `reports.py` | run-scoped status、JSONL 报告和终态写入 | 不改变核心数组 |
+| `io_utils.py` | SHA、manifest、原子 NPZ/JSONL、文件锁 | 保证写入和证据可追溯 |
+| `parallel.py` | PDB 过滤、稳定分片和显式子集 | 不改变单样本数学逻辑 |
+
+### 12.4 条件、历史和审计模块
+
+| 文件 | 功能分区 | 生命周期 | 正式新运行是否必经 |
+|---|---|---|---|
+| `c_upgrade.py` | 条件性 C 兼容迁移 | 旧 schema 条件分支 | 只有发现旧 C artifact 时调用 |
+| `c_ccd_prefetch.py` | CCD cache 补足 | 本轮一次性恢复 | 否 |
+| `c_descriptor_prefetch.py` | descriptor 非覆盖补足 | 本轮一次性恢复 | 否 |
+| `c_source_repair.py` | source-dirty receptor-only audit/apply | 本轮一次性恢复 | 否 |
+| `c_source_rebuild.py` | 14-PDB 特定 C 重建和迁移审计 | 本轮一次性恢复 | 否 |
+| `mrc_contract_audit.py` | MRC header/实现/哈希审计 | 一次性审计 | 否 |
+| `smoke_checks.py` | 负对照和工具输出辅助检查 | 测试/审计 | 否 |
+
+### 12.5 `scripts/` 入口与 gate
+
+| 入口 | 调用的实际模块 | 生命周期 |
+|---|---|---|
+| `a_enumerate.py` | `rcsb.py`、`io_utils.py` | bootstrap；生成 pair_list，不是当前冻结清单的正式起点 |
+| `a_guard.py` | `reports.py`、`io_utils.py` | 正式 A guard；无网络复用冻结 pair_list |
+| `b_download.py` | `download.py`、`rcsb.py`、`parallel.py` | 正式 B |
+| `c_parse.py` | `parse.py`、`contracts.py`、`parallel.py` | 正式 C；filtered 子集必须使用隔离 run |
+| `d_atom_labels.py` | `atom_labels.py` | 正式 D |
+| `e_density.py` | `density.py`、`chimera.py`、`mrc.py` | 正式 E |
+| `f_quality.py` | `quality.py`、`chimera.py`、`mapq.py` | 正式 F |
+| `g_filter.py` | `filtering.py` | 正式 G analyze/filter |
+| `abc_release_gate.py` | `contracts.py`、`filtering.py`、`reports.py` | A–C 数据 gate |
+| `stage_release_gate.py` | `filtering.py`、`reports.py` | D/E/F 通用数据 gate |
+
+其余 `scripts/c_*`、`audit_mrc_contract.py`、`smoke_*`、`snapshot_source_dirty.py` 是恢复、审计或测试入口。它们可以调用正式模块，但不能反过来证明自己就是正式科学主路径。
+
+## 13. Guard、gate 与主流程的关系
+
+### 13.1 Guard 不是第五种科学逻辑
+
+Guard 的共同目的都是阻止“看起来有文件、实际上不满足契约”的状态继续传播。应按控制对象区分：
+
+```text
+数据契约与质量验证：控制数据状态
+调度、资源与恢复控制：控制执行状态
+```
+
+例如：
+
+- `inspect_stage_c()` 控制 C artifact 是否完整；
+- `density_artifact_errors()` 控制 E1/E2/E3 内容是否可消费；
+- `load_stage_statuses()` 控制每个 PDB 是否恰好一个终态；
+- `stage_release_gate.py` 把数据判定转换成作业退出码；
+- `_adaligand_job_core.sh` 根据退出码决定成功退出、创建 `try_lock` 或等待人工/agent 重试。
+
+因此 gate 在数据层有主要归属，在调度层有次级效果；学习文档不把同一个文件复制到两个列表，而是在文件卡片中写“主分区/次级影响”。
+
+### 13.2 删除 guard 后能否复现
+
+需要区分三个目标：
+
+1. **调用数学函数**：有可信输入时，部分核心函数仍可被直接调用。
+2. **生成一批文件**：可以手动串联脚本，但必须自己承担顺序、完整性、失败隔离和原子写入责任。
+3. **复现可信训练数据集**：不能省略 guard、release gate、provenance、原子写入和固定 source snapshot，否则无法证明没有 silent missing、stale artifact 或 unknown failure 混入。
+
+从冻结 raw snapshot 开始，当前核心路径可以重现；从公开网络“从零”开始时，`a_enumerate.py`、下载、CCD cache 和外部工具版本都可能改变结果，不能承诺得到同一 pair_list 或同一 candidate_id。
+
+## 14. 当前代码现实与旧文档口径的差异
+
+这些差异在本轮学习文档中明确标注，不回写 `readme.md` 或计划书：
+
+1. 当前 `filtering.py` 的 filter 配置版本是 `1`，实际阈值只有 `q_score_min` 和 resolution；CC/口袋 Q 已进入分布，但尚未成为 filter 参数。
+2. 旧文档中出现的 PDB/map 级 `pair_pass` 和 occurrence 比例门，不是当前实现；它们只能作为历史计划口径阅读。
+3. `a_enumerate.py` 是 bootstrap；正式冻结样本从 `a_guard.py` 开始。
+4. `resume_de_316115_e_repair_v1.sh` 是本轮恢复入口，不应当被当成普通 E 入口；其历史注释可能落后于当前已批准的 frame-mismatch 契约。
+5. `mrc_pocket_legacy.py` 的源码与哈希证据是冻结边界；本轮仅在 `learn.md` 和其他项目自有模块顶部添加学习注释。
+
+## 15. 推荐的无上下文 AI 阅读顺序
+
+1. 先读本文第 2 节，建立 A→G 方向和正式入口。
+2. 读本文第 3 节和第 12 节，建立 C/D/E/F/G 的字段、shape、单位和模块映射。
+3. 按 `parse.py → ligand_object.py → receptor.py` 理解 C 的身份、行序和三套坐标。
+4. 读 `atom_labels.py`，确认距离阈值和 tie-break。
+5. 读 `density.py → mrc.py → mrc_pocket_legacy.py`，重点区分 ZYX 数组与 XYZ 世界坐标。
+6. 读 `model_cif.py → chimera.py`，理解 E2 的 ATOM-only 输入和 F 的完整模型输入。
+7. 读 `mapq.py → quality.py`，理解 atom_site.id join、配体 Q 和口袋 Q。
+8. 读 `filtering.py`，以当前代码为准理解 G analyze 和实际 filter，而不是沿用旧 pair_pass 描述。
+9. 最后读 `contracts.py`、`qc.py`、release gate、`_adaligand_job_core.sh`，理解为什么错误会被阻断或暂停。
+10. 最后才读 source repair、MRC audit、smoke 和 resume 脚本，避免把一次性事故路径误认为主算法。
+
+## 16. 仍需后续指定或保持开放的问题
+
+- G 最终是否增加 CC、配体 Q、口袋 Q 的正式过滤字段，以及这些字段的比较符号和空口袋策略，仍需显式配置，不应在当前数值代码中猜测。
+- Stage 1 重训、BOX 第 2/3 层和 Stage 2/3 不属于本轮代码阅读主路径。
+- `candidate_id` 只在同一冻结 mmCIF source snapshot 内稳定；任何 source revision 都必须重新审计 occurrence 和 candidate-indexed 文件。
+- before/after migration manifest 是一次性、run-scoped 审计证据，不是跨 source 永久主键映射。

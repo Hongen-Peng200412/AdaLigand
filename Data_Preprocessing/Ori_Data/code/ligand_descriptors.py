@@ -1,3 +1,7 @@
+# 学习导航：功能分区=核心科学逻辑；生命周期=正式主路径 Stage C 依赖。
+# 主要输入：LigandObject、CCD/descriptor cache 与 occurrence ligand 化学信息。
+# 主要输出：去重 descriptor 记录及其身份映射。
+# 关键边界：descriptor 是化学依赖，不应重写真实沉积坐标或 occurrence 主键。
 """从已落盘 LigandObject 生成去重配体描述子。
 
 描述子只依赖 `LigandObject.atoms/bonds/ref_pos`，因此旧服务器上的 3,833 个去重对象

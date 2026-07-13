@@ -1,3 +1,7 @@
+# 学习导航：功能分区=数据契约与质量验证；生命周期=正式主路径报告/状态基础设施。
+# 主要输入：样本结果、known/unknown 失败、阶段摘要和 provenance。
+# 主要输出：样本 JSON、stage status、gate summary 与可审计报告。
+# 关键边界：状态必须可重建且 run-scoped；成功文件存在不等于终态成功。
 """失败记录、run-scoped stage 状态与样本报告。
 
 - sharded_report_path：分片运行时把报告写成 `reports/{name}.part_0000_of_0006.jsonl`，避免多 array 任务互相覆盖。
