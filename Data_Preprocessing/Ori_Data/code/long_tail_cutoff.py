@@ -22,6 +22,9 @@ CUTOFF_SCHEMA_VERSION = 1
 CUTOFF_EVIDENCE_DIRNAME = "stage_e_long_tail_cutoff_20260713T195419"
 CUTOFF_REASON = "user_authorized_stage_e_long_tail_cutoff"
 CUTOFF_STAGES = ["stage_e", "stage_f"]
+CUTOFF_SUPPLEMENT_RUN_ID = "adaligand_ag_20260711T154658_eeng_supp48_v2"
+CUTOFF_EXECUTION_METHOD = "standard_chimera_molmap_on_canonical_grid"
+CUTOFF_TIMEOUT_SECONDS = 21600
 
 
 def apply_stage_e_long_tail_cutoff(
@@ -59,19 +62,27 @@ def apply_stage_e_long_tail_cutoff(
     after_path = evidence_dir / "exclusions.after.jsonl"
     summary_path = evidence_dir / "summary.json"
 
+    if evidence_dir.name != CUTOFF_EVIDENCE_DIRNAME or not evidence_dir.is_dir() or evidence_dir.is_symlink():
+        raise RuntimeError("unexpected cutoff evidence directory")
     _require_sha256(predecision_path, expected_predecision_sha256)
     _require_sha256(posttermination_path, expected_posttermination_sha256)
     _require_regular_file(live_manifest)
     predecision = _read_object(predecision_path)
     posttermination = _read_object(posttermination_path)
-    _validate_cutoff_evidence(
+    evidence_context = _validate_cutoff_evidence(
         predecision,
         posttermination,
         run_id=run_id,
         expected_predecision_sha256=expected_predecision_sha256,
+        expected_before_manifest_sha256=expected_before_manifest_sha256,
+        live_manifest=live_manifest,
+        before_snapshot=before_path,
         expected_job_id=expected_supplement_job_id,
         expected_authorization=expected_authorization,
     )
+    deadline_excluded_ids = set(predecision["deadline_excluded_ids"])
+    if expected_existing_ids & deadline_excluded_ids:
+        raise RuntimeError("existing and deadline-excluded IDs overlap")
 
     existing_by_id, live_sha256 = load_run_exclusions(root, run_id, "stage_e")
     if live_sha256 not in {expected_before_manifest_sha256, _existing_after_sha(after_path)}:
@@ -98,6 +109,7 @@ def apply_stage_e_long_tail_cutoff(
         predecision_sha256=expected_predecision_sha256,
         posttermination_path=posttermination_path,
         posttermination_sha256=expected_posttermination_sha256,
+        evidence_context=evidence_context,
     )
     final_by_id = {**base_records, **added_records}
     after_bytes = _encode_jsonl(final_by_id[pdb_id] for pdb_id in sorted(final_by_id))
@@ -123,6 +135,11 @@ def apply_stage_e_long_tail_cutoff(
         "authorization": expected_authorization,
         "decision_scope": "current_run_only",
         "supplement_job_id": expected_supplement_job_id,
+        "supplement_run_id": predecision["supplement_run_id"],
+        "execution_method": CUTOFF_EXECUTION_METHOD,
+        "configured_timeout_seconds": CUTOFF_TIMEOUT_SECONDS,
+        "supplement_elapsed_at_predecision": evidence_context["predecision_elapsed"],
+        "supplement_elapsed_at_posttermination": evidence_context["posttermination_elapsed"],
         "deadline": predecision["deadline"],
         "predecision_path": str(predecision_path),
         "predecision_sha256": expected_predecision_sha256,
@@ -151,9 +168,12 @@ def _validate_cutoff_evidence(
     *,
     run_id: str,
     expected_predecision_sha256: str,
+    expected_before_manifest_sha256: str,
+    live_manifest: Path,
+    before_snapshot: Path,
     expected_job_id: int,
     expected_authorization: str,
-) -> None:
+) -> dict[str, Any]:
     """验证截止前后证据的身份、时间、分区与进程终止闭环。"""
     if predecision.get("schema_version") != CUTOFF_SCHEMA_VERSION:
         raise RuntimeError("unsupported predecision schema")
@@ -172,8 +192,19 @@ def _validate_cutoff_evidence(
             raise RuntimeError("cutoff authorization mismatch")
         if record.get("decision_scope") != "current_run_only":
             raise RuntimeError("cutoff evidence is not run-scoped")
+    if predecision.get("supplement_run_id") != CUTOFF_SUPPLEMENT_RUN_ID:
+        raise RuntimeError("unexpected supplement run")
+    if predecision.get("configured_timeout_seconds") != CUTOFF_TIMEOUT_SECONDS:
+        raise RuntimeError("unexpected standard Chimera timeout")
+    if predecision.get("classification_rule") != (
+        "public exp.npz+sim.npz+ligand_area.npz must all exist; "
+        "formal Stage E revalidates completed candidates"
+    ):
+        raise RuntimeError("cutoff artifact classification rule drift")
     if posttermination.get("predecision_sha256") != expected_predecision_sha256:
         raise RuntimeError("posttermination does not bind the frozen predecision")
+    if posttermination.get("supplement_run_id") != predecision.get("supplement_run_id"):
+        raise RuntimeError("supplement run drift")
     if posttermination.get("deadline") != predecision.get("deadline"):
         raise RuntimeError("cutoff deadline drift")
     if posttermination.get("candidate_completed_ids") != predecision.get("candidate_completed_ids"):
@@ -188,14 +219,205 @@ def _validate_cutoff_evidence(
         raise RuntimeError("cutoff release requires at least one deadline exclusion")
     if completed_ids & excluded_ids or completed_ids | excluded_ids != frozen_ids:
         raise RuntimeError("cutoff completed/excluded partition is not exact")
+    _validate_artifact_partitions(predecision, posttermination, completed_ids, excluded_ids)
     observed_at = datetime.fromisoformat(str(predecision["observed_at"]))
     deadline = datetime.fromisoformat(str(predecision["deadline"]))
     if observed_at < deadline:
         raise RuntimeError("cutoff predecision predates the authorized deadline")
+    post_observed_at = datetime.fromisoformat(str(posttermination["observed_at"]))
+    if post_observed_at < observed_at or post_observed_at < deadline:
+        raise RuntimeError("posttermination predates the cutoff evidence")
     if not str(posttermination.get("process_audit", "")).startswith("zero_remaining"):
         raise RuntimeError("posttermination does not prove zero remaining processes")
     if "exact kill_lock_316415" not in str(posttermination.get("termination", "")):
         raise RuntimeError("posttermination does not record the exact lock transition")
+    terminated_ids = _validate_terminated_orphans(posttermination, excluded_ids)
+    if terminated_ids != excluded_ids:
+        raise RuntimeError("terminated orphan set does not match the cutoff exclusions")
+
+    small_evidence = _validate_small_evidence(
+        predecision,
+        live_manifest=live_manifest,
+        before_snapshot=before_snapshot,
+        expected_before_manifest_sha256=expected_before_manifest_sha256,
+        expected_job_id=expected_job_id,
+    )
+    predecision_elapsed = _extract_job_elapsed(predecision.get("slurm"), expected_job_id, "predecision")
+    posttermination_elapsed = _extract_job_elapsed(
+        posttermination.get("slurm_before_after_lock_release"),
+        expected_job_id,
+        "posttermination",
+    )
+    if _elapsed_seconds(posttermination_elapsed) < _elapsed_seconds(predecision_elapsed):
+        raise RuntimeError("supplement elapsed time moved backwards")
+    for field in ("supplement_stdout_sha256_after_termination", "supplement_stderr_sha256_after_termination"):
+        if not re.fullmatch(r"[0-9a-f]{64}", str(posttermination.get(field, ""))):
+            raise RuntimeError(f"invalid posttermination log SHA: {field}")
+    return {
+        "small_evidence": small_evidence,
+        "predecision_elapsed": predecision_elapsed,
+        "posttermination_elapsed": posttermination_elapsed,
+    }
+
+
+def _validate_artifact_partitions(
+    predecision: dict[str, Any],
+    posttermination: dict[str, Any],
+    completed_ids: set[str],
+    excluded_ids: set[str],
+) -> None:
+    """核对截止前后公共三件套，并拒绝把完整样本写成排除。"""
+    before_state = predecision.get("artifact_state")
+    after_state = posttermination.get("artifact_state_after_termination")
+    if not isinstance(before_state, dict) or not isinstance(after_state, dict):
+        raise RuntimeError("cutoff artifact state is missing")
+    expected_ids = completed_ids | excluded_ids
+    if set(before_state) != expected_ids or set(after_state) != expected_ids:
+        raise RuntimeError("cutoff artifact state ID coverage drift")
+    names = ("exp.npz", "sim.npz", "ligand_area.npz")
+    for pdb_id in sorted(expected_ids):
+        public_before = before_state[pdb_id].get("public")
+        public_after = after_state[pdb_id]
+        if not isinstance(public_before, dict) or not isinstance(public_after, dict):
+            raise RuntimeError(f"invalid cutoff artifact state: {pdb_id}")
+        before_exists = tuple(bool(public_before.get(name, {}).get("exists")) for name in names)
+        after_exists = tuple(bool(public_after.get(name, {}).get("exists")) for name in names)
+        if before_exists != after_exists:
+            raise RuntimeError(f"public artifact state changed during cutoff: {pdb_id}")
+        is_complete = all(before_exists)
+        if bool(before_state[pdb_id].get("candidate_complete_for_formal_revalidation")) != is_complete:
+            raise RuntimeError(f"candidate completion flag drift: {pdb_id}")
+        if before_state[pdb_id].get("large_npz_hash_policy") != (
+            "deferred_to_existing_formal_stage_e_validators"
+        ):
+            raise RuntimeError(f"large artifact validation policy drift: {pdb_id}")
+        if (pdb_id in completed_ids) != is_complete:
+            raise RuntimeError(f"cutoff partition disagrees with the artifact trio: {pdb_id}")
+
+
+def _validate_terminated_orphans(
+    posttermination: dict[str, Any],
+    excluded_ids: set[str],
+) -> set[str]:
+    """验证人工终止只覆盖截止时仍未完成的标准 Chimera 子进程。"""
+    records = posttermination.get("terminated_orphan_processes")
+    if not isinstance(records, list) or not records:
+        raise RuntimeError("terminated orphan evidence is missing")
+    seen_pids: set[int] = set()
+    seen_ids: set[str] = set()
+    for record in records:
+        if not isinstance(record, dict):
+            raise RuntimeError("invalid terminated orphan record")
+        pid = record.get("pid")
+        pdb_id = record.get("pdb_id")
+        if not isinstance(pid, int) or pid <= 0 or pid in seen_pids:
+            raise RuntimeError("invalid or duplicate terminated orphan PID")
+        if pdb_id not in excluded_ids or pdb_id in seen_ids:
+            raise RuntimeError("terminated orphan PDB is outside the cutoff partition")
+        seen_pids.add(pid)
+        seen_ids.add(pdb_id)
+    return seen_ids
+
+
+def _validate_small_evidence(
+    predecision: dict[str, Any],
+    *,
+    live_manifest: Path,
+    before_snapshot: Path,
+    expected_before_manifest_sha256: str,
+    expected_job_id: int,
+) -> dict[str, Any]:
+    """把原清单、命令、sbatch 与日志的冻结身份绑定到截止决策。"""
+    evidence = predecision.get("small_evidence")
+    required = {
+        "ids",
+        "supplement_run_cmd",
+        "supplement_sbatch",
+        "supplement_stdout",
+        "supplement_stderr",
+        "exclusions_before",
+    }
+    if not isinstance(evidence, dict) or not required.issubset(evidence):
+        raise RuntimeError("cutoff small evidence is incomplete")
+    for name in sorted(required):
+        record = evidence[name]
+        if not isinstance(record, dict):
+            raise RuntimeError(f"invalid small evidence record: {name}")
+        if not isinstance(record.get("path"), str) or not Path(record["path"]).is_absolute():
+            raise RuntimeError(f"small evidence path is not absolute: {name}")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(record.get("sha256", ""))):
+            raise RuntimeError(f"small evidence SHA is invalid: {name}")
+        if record.get("exists") is not True or not isinstance(record.get("size_bytes"), int):
+            raise RuntimeError(f"small evidence file stat is invalid: {name}")
+    frozen_before = evidence["exclusions_before"]
+    if Path(frozen_before["path"]) != live_manifest:
+        raise RuntimeError("predecision points to another exclusion manifest")
+    if frozen_before["sha256"] != expected_before_manifest_sha256:
+        raise RuntimeError("predecision before-manifest SHA drift")
+    frozen_source = before_snapshot if before_snapshot.exists() else live_manifest
+    _require_sha256(frozen_source, expected_before_manifest_sha256)
+    if frozen_before["size_bytes"] != frozen_source.stat().st_size:
+        raise RuntimeError("predecision before-manifest size drift")
+    if not str(evidence["supplement_run_cmd"]["path"]).endswith(f"run_cmd_{expected_job_id}.sh"):
+        raise RuntimeError("supplement run command identity drift")
+    sbatch_path = str(evidence["supplement_sbatch"]["path"])
+    slurm = predecision.get("slurm")
+    if not isinstance(slurm, dict):
+        raise RuntimeError("predecision Slurm evidence is missing")
+    if f"Command={sbatch_path}" not in str(slurm.get("scontrol", "")):
+        raise RuntimeError("Slurm command does not match the frozen supplement sbatch")
+    if f"{expected_job_id}|RUNNING|" not in str(slurm.get("squeue", "")):
+        raise RuntimeError("predecision does not show the supplement job running")
+    return evidence
+
+
+def _extract_job_elapsed(slurm_record: Any, job_id: int, label: str) -> str:
+    """从冻结 sacct 文本提取基础作业的实际 elapsed 字段。"""
+    if not isinstance(slurm_record, dict):
+        raise RuntimeError(f"{label} Slurm evidence is missing")
+    for raw_line in str(slurm_record.get("sacct", "")).splitlines():
+        fields = [field.strip() for field in raw_line.split("|")]
+        if fields and fields[0] == str(job_id):
+            if len(fields) < 3 or fields[1] != "RUNNING":
+                raise RuntimeError(f"{label} supplement job was not running")
+            _elapsed_seconds(fields[2])
+            return fields[2]
+    raise RuntimeError(f"{label} sacct evidence does not contain the supplement job")
+
+
+def _elapsed_seconds(value: str) -> int:
+    """解析 Slurm 的 ``[days-]HH:MM:SS``，仅用于审计时间单调性。"""
+    match = re.fullmatch(r"(?:(\d+)-)?(\d+):(\d{2}):(\d{2})", value)
+    if match is None:
+        raise RuntimeError(f"invalid Slurm elapsed value: {value}")
+    days, hours, minutes, seconds = (int(item or 0) for item in match.groups())
+    if minutes >= 60 or seconds >= 60:
+        raise RuntimeError(f"invalid Slurm elapsed value: {value}")
+    return days * 86400 + hours * 3600 + minutes * 60 + seconds
+
+
+def _molmap_scratch_evidence(predecision: dict[str, Any], pdb_id: str) -> list[dict[str, Any]]:
+    """提取能证明标准 molmap 路径已经启动的最小 scratch 文件集合。"""
+    scratch_files = predecision["artifact_state"][pdb_id].get("scratch_files")
+    if not isinstance(scratch_files, list):
+        raise RuntimeError(f"missing molmap scratch evidence: {pdb_id}")
+    required_names = {
+        "canonical_exp.mrc",
+        "molmap.py",
+        "molmap.stderr.log",
+        "molmap.stdout.log",
+        "receptor_atom_only.cif",
+    }
+    selected: dict[str, dict[str, Any]] = {}
+    for record in scratch_files:
+        if not isinstance(record, dict) or record.get("exists") is not True:
+            continue
+        name = Path(str(record.get("path", ""))).name
+        if name in required_names:
+            selected[name] = record
+    if set(selected) != required_names:
+        raise RuntimeError(f"incomplete standard molmap scratch evidence: {pdb_id}")
+    return [selected[name] for name in sorted(selected)]
 
 
 def _build_cutoff_records(
@@ -207,22 +429,43 @@ def _build_cutoff_records(
     predecision_sha256: str,
     posttermination_path: Path,
     posttermination_sha256: str,
+    evidence_context: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     """为实际未完成子集构造公共 exclusion schema v1 记录。"""
     records: dict[str, dict[str, Any]] = {}
     for pdb_id in sorted(predecision["deadline_excluded_ids"]):
         public_state = predecision["artifact_state"][pdb_id]["public"]
-        if public_state["sim.npz"]["exists"] or public_state["ligand_area.npz"]["exists"]:
+        complete_artifact_trio = all(
+            bool(public_state[name]["exists"])
+            for name in ("exp.npz", "sim.npz", "ligand_area.npz")
+        )
+        if complete_artifact_trio:
             raise RuntimeError(f"deadline-excluded sample already had a complete promoted artifact: {pdb_id}")
         evidence = {
             "deadline": predecision["deadline"],
             "observed_at": predecision["observed_at"],
             "supplement_job_id": predecision["supplement_job_id"],
             "supplement_run_id": predecision["supplement_run_id"],
-            "configured_timeout_seconds": predecision["configured_timeout_seconds"],
+            "execution_method": CUTOFF_EXECUTION_METHOD,
+            "standard_chimera_timeout_seconds": CUTOFF_TIMEOUT_SECONDS,
+            "supplement_elapsed_at_predecision": evidence_context["predecision_elapsed"],
+            "supplement_elapsed_at_posttermination": evidence_context["posttermination_elapsed"],
             "public_artifacts_at_cutoff": public_state,
+            "public_artifacts_after_termination": posttermination["artifact_state_after_termination"][pdb_id],
+            "scratch_molmap_evidence_at_cutoff": _molmap_scratch_evidence(predecision, pdb_id),
             "complete_artifact_trio": False,
             "termination": posttermination["termination"],
+            "process_audit": posttermination["process_audit"],
+            "supplement_run_cmd": evidence_context["small_evidence"]["supplement_run_cmd"],
+            "supplement_sbatch": evidence_context["small_evidence"]["supplement_sbatch"],
+            "supplement_stdout_at_cutoff": evidence_context["small_evidence"]["supplement_stdout"],
+            "supplement_stderr_at_cutoff": evidence_context["small_evidence"]["supplement_stderr"],
+            "supplement_stdout_sha256_after_termination": posttermination[
+                "supplement_stdout_sha256_after_termination"
+            ],
+            "supplement_stderr_sha256_after_termination": posttermination[
+                "supplement_stderr_sha256_after_termination"
+            ],
             "predecision_path": str(predecision_path),
             "predecision_sha256": predecision_sha256,
             "posttermination_path": str(posttermination_path),
