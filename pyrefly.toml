@@ -1,0 +1,14 @@
+# AdaLigand 的脚本采用“把 code/ 加入 sys.path 后裸导入”的既有运行契约。
+# 这里把同一导入根显式告诉 Pyrefly，使编辑器的跳转/补全与脚本运行时一致。
+project-includes = [
+    "Data_Preprocessing/Ori_Data/code/**/*.py",
+    "Data_Preprocessing/Ori_Data/scripts/**/*.py",
+]
+project-excludes = [
+    "Data_Preprocessing/Ori_Data/tests/**",
+    "**/__pycache__/**",
+]
+search-path = [
+    "Data_Preprocessing/Ori_Data/code",
+    "Data_Preprocessing/Ori_Data/scripts",
+]
