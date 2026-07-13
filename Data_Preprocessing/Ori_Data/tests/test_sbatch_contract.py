@@ -124,6 +124,10 @@ def test_de_e_resume_v2_waits_for_supplement_and_uses_run_exclusion() -> None:
     assert "load_run_exclusions" in script
     assert 'set(records) != {"8ckb"}' in script
     assert "load_stage_statuses" in script
+    assert "need_formal_e=1" in script
+    assert "need_formal_e=0" in script
+    assert 'if [[ "${need_formal_e}" -eq 1 ]]' in script
+    assert "rerunning gate only" in script
     assert 'record.get("status") not in {"success", "skipped"}' in script
     assert '"gate_name": "e_supp48_release"' in script
     assert "supplement gate field mismatch" in script

@@ -47,6 +47,7 @@ require_sha256 "${SUPPLEMENT_IDS}" "${EXPECTED_SUPPLEMENT_IDS_SHA}"
 [[ "$(wc -l <"${SUPPLEMENT_IDS}")" -eq 6 ]]
 
 # 首次执行必须从冻结状态起步；若 core 在正式 E 写完后重试，则只接受完整全量状态。
+need_formal_e=1
 if [[ "${formal_stage_e_sha}" != "${INITIAL_STAGE_E_SHA}" ]]; then
     PYTHONPATH="${CODE_ROOT}/code" "${PYTHON}" - "${DATA_ROOT}" "${FORMAL}" <<'PY'
 from pathlib import Path
@@ -62,6 +63,7 @@ statuses, _ = load_stage_statuses(root, run_id, "stage_e", expected)
 if set(statuses) != expected:
     raise RuntimeError("retry Stage E status does not cover the frozen sample universe")
 PY
+    need_formal_e=0
 fi
 
 # marker 只能由既有 job 316415 在 6/6 strict success gate 后原子发布。
@@ -140,13 +142,17 @@ PY
 
 # 公共 artifact 已由标准 Chimera 补齐后，只刷新一次正式 22,386 行 E 状态。
 # 不带过滤、不 overwrite：已有合格 artifact 只做验证和复用，排除项保留完整 provenance。
-"${PYTHON}" scripts/e_density.py \
-    --root "${DATA_ROOT}" \
-    --chimera "${CHIMERA}" \
-    --scratch_root "${SCRATCH_ROOT}" \
-    --n_jobs 24 \
-    --timeout_seconds 21600 \
-    --run_id "${FORMAL}"
+if [[ "${need_formal_e}" -eq 1 ]]; then
+    "${PYTHON}" scripts/e_density.py \
+        --root "${DATA_ROOT}" \
+        --chimera "${CHIMERA}" \
+        --scratch_root "${SCRATCH_ROOT}" \
+        --n_jobs 24 \
+        --timeout_seconds 21600 \
+        --run_id "${FORMAL}"
+else
+    echo "[Resume] formal Stage E is already complete without unknown failures; rerunning gate only"
+fi
 
 "${PYTHON}" scripts/stage_release_gate.py \
     --root "${DATA_ROOT}" \
