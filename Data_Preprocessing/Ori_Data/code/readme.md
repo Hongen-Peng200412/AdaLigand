@@ -77,7 +77,7 @@ ${ROOT}/
 
 ## 3. 全局约定
 
-- **世界坐标系**：所有坐标都是 mmCIF 沉积态的**世界坐标，单位 Å**；EMDB 密度图与之天然同框。
+- **世界坐标系**：所有坐标都是 mmCIF 沉积态的**世界坐标，单位 Å**。成功样本要求 EMDB map 与受体同框，但 source 声明不能代替实际几何检验；E/F 必须先执行确定性 model-map 包围盒检查。
 - **npz 一律不压缩**（`np.savez`）并原子替换。除 `ligand_objects` 的 object 字段外均用 `allow_pickle=False`；读取 LigandObject 时才用 `allow_pickle=True`。
 - **小整数编码**：`element`=原子序数；`res_type`/原子名等是编码值，解码表见 §10。
 - **两套链/残基编号**：mmCIF 有 `label_*`（规范内部体系）和 `auth_*`（作者/PDB 网页体系），可能不同，两套都保留（见 §4.3 occurrences）。
@@ -368,6 +368,8 @@ MRC 数值原语的可信祖先是 `Pocket_Plus/processedPDB_EMDB_binder/utils/m
 
 ### 6.2 `sim.npz`
 
+在复用旧 `sim.npz` 或启动 Chimera 之前，E2 以 E1 `origin_xyz`为 map 下界，以 `origin_xyz+(shape_zyx[::-1]-1)*voxel_size_xyz` 为上界，并与 Stage C `receptor_tokens.coords` 的 XYZ 最小/最大值比较。对合法、有限、非空输入，任一轴超过 `1e-5 Å` 容差后仍完全分离时，状态固定为 `known_failed:model_map_frame_mismatch`，不运行 `molmap`、不写伪 `sim.npz`、不猜平移或 fitmap。坐标/map 自身的 dtype、shape、空值或非有限错误仍是 unknown。
+
 专用于 receptor-only 模拟图：从首 model、与 C 同款 altloc 选择的重原子中**严格只留 `group_PDB==ATOM`**，所有 HETATM（含水、配体和共价修饰）均删除。标准模型写成只含 `_entry.id`（若源存在）与逐字段原样筛选 `_atom_site` 的最小独立 mmCIF；不复制会引用已删除 model/altloc/HETATM/H 原子的 `_atom_site_anisotrop`、`_struct_conn` 等类别。F 的完整模型沿用同一最小文档规则，但其 `_atom_site` 保留首 model 的 ATOM+HETATM 重原子。Chimera 在 E1 canonical MRC 上显式 `region all step 1 limitVoxelCount false`，再 `molmap ... onGrid`；不做第二次独立重采样。缺 resolution 时该样本记 `known_failed`，不猜默认值。
 
 正式字段仍为 `grid/voxel_size/origin`，并保存 `schema_version=2`、resolution、Chimera 版本、输入 hash、`strict_hetatm_removed=True` 和 `generated_mrc_origin_mode=header_origin_angstrom_nstart_zero`。验收要求：`sim.grid.shape == exp.grid.shape == (1,Z,Y,X)`；两图实际 voxel 与 origin 相同，并且 sim 精确绑定当前 E1 identity；数组有限、非零、有方差且 X/Y/Z 每轴至少两个切片有内容；受体包围盒与网格相交。只有单平面的“伪三维图”会失败。
@@ -385,6 +387,8 @@ MRC 数值原语的可信祖先是 `Pocket_Plus/processedPDB_EMDB_binder/utils/m
 球半径按原子元素：C/N/O/P/S 使用计划锁定的 1.70/1.55/1.52/1.80/1.80 Å；其他有效元素调用 RDKit `PeriodicTable.GetRvdw`，绝不使用统一默认半径。实现只枚举逐原子局部 bbox/stencil，不构造 `D*H*W` 世界坐标 KD-tree。
 
 ## 7. Stage F：四种 CC、配体 Q 与口袋 Q
+
+F 在读取当前 E1 和 Stage C polymer receptor token 坐标（`receptor_tokens.coords`）后，先复用 E2 的同一 model-map 包围盒检查，然后才允许读取/复用质量产物或启动 Chimera/MapQ。该 token 坐标是 E/F 共用 frame anchor，不等同于 E2 严格 ATOM-only 模型或 F 完整 ATOM+HETATM 模型。完全不相交时 F 同样记 `known_failed:model_map_frame_mismatch`；实现不包含 PDB allowlist、坐标修复或 fitmap。前置检查不替代后续 full-model sim 的 shape/voxel/origin/三维内容 QC，其他几何或工具异常仍阻断 gate。
 
 `quality/{pdb_id}.jsonl` 每个 occurrence 一行。配体本身保存 `q_score`（mean，兼容字段）、`q_score_median`、`q_score_min`、`n_valid`、`n_present`；对应受体口袋保存 `pocket_q_score`、`pocket_q_score_median`、`pocket_q_score_min`、`pocket_n_valid`、`pocket_n_atoms`、`pocket_radius_angstrom=6.0`。另外保存 `map_resolution`、`livq=null`，并重复以下四个 PDB 全局原始量：
 
@@ -414,6 +418,8 @@ Q-score 使用 native EMDB map、首 model/规范 altloc 的完整 `ATOM+HETATM`
 ## 9. run-scoped 终态与失败纪律
 
 每个 stage 分片原子写 `reports/runs/{run_id}/{stage}/status.part_XXXX_of_YYYY.jsonl`。每个 PDB 的 `status` 只允许 `success/skipped/known_failed/unknown_failed`。只有在 `failures.KnownFailureCode` 明确枚举的数据不适用情形才可继续；普通 Python 异常、schema 漂移、Chimera/MapQ 输出异常均为 unknown，最终 gate 必须阻塞。
+
+`model_map_frame_mismatch` 是窄化的输入不适用失败：只接受“合法 map 网格 + 合法 Stage C 受体坐标 + XYZ 包围盒完全分离”，detail 保存 map/model 上下界、XYZ/ZYX 轴序、`1e-5 Å` 容差和 `no_transform_or_fitmap` 策略。密度全零、shape/origin/voxel 不同、无效坐标或任意外部工具失败均不得借此降级。
 
 ---
 

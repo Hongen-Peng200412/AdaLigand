@@ -61,8 +61,9 @@
 - [x] (2026-07-12 20:02+08:00) 按“一个可验证任务一个精确提交”整理累计工作树：祖传快照、header 审计、contour 分布、Stage C 修复/事务、D、工具适配、E、F/G、release smoke、Slurm 与服务器工具均已有独立 Git checkpoint；暂存均使用精确路径，未使用 `git add -A`、未改写历史。
 - [x] (2026-07-12 20:21+08:00) 独立 MRC release audit 判定无阻断；把祖传/代码/run_cmd、持久 172-test、header audit、真实 smoke 与无 D/E 污染快照写入普通临时文件并原子发布 `/home/penghongen/mrc_contract_release_316115`，marker SHA-256 `2ca92614…b6b2`。既有 run_cmd 自行删除 pre_lock 并记录 `[MRCContractRelease]`；D64/E24 已实际启动，日志分别出现 `Parallel(n_jobs=64)` 与 `Parallel(n_jobs=24)`。
 - [x] (2026-07-13 06:27+08:00) Stage D/E 首轮全量运行完成写状态但被 gate 正确阻断：D 为 22,339 success、3 skipped、44 `no_occurrences`、0 unknown；E 为 22,295 success、72 known_failed、19 unknown。316115 保留原 96 核 allocation，精确 `try_lock_316115/after_lock_316115` 存在，F/G 未释放。
-- [ ] (2026-07-13 07:25+08:00) 19 个 E unknown 已取证分解为 15 个 Chimera 3600 秒超时、3 个已完整出图但被 `monitor changes` 警告误判、1 个 2zhc model/map frame 不相交。最小 atom_site-only CIF、精确日志豁免、filtered 状态保护、21600 秒/2 并发独立恢复脚本已实现；其中 2 并发是针对最大 13.5 GB map 的内存与临时 I/O 安全约束，正式无过滤复核仍保持 E24。本地全套 175 tests、compileall、bash -n 与 diff check 通过；剩余工作是安全同步、18-ID repair 和正式无过滤 E 复核。2zhc 禁止猜平移，等待显式科学数据契约决定。
+- [ ] (2026-07-13 07:25+08:00) 19 个 E unknown 已取证分解为 15 个 Chimera 3600 秒超时、3 个已完整出图但被 `monitor changes` 警告误判、1 个 2zhc model/map frame 不相交。最小 atom_site-only CIF、精确日志豁免、filtered 状态保护、21600 秒/2 并发独立恢复脚本已实现；其中 2 并发是针对最大 13.5 GB map 的内存与临时 I/O 安全约束，正式无过滤复核仍保持 E24。本地全套 175 tests、compileall、bash -n 与 diff check 通过；剩余工作是 18-ID repair 和正式无过滤 E 复核。2zhc 决定已在下一条获得，仍禁止猜平移。
 - [x] (2026-07-13 07:30+08:00) 无删除安全同步和远端 175 tests 通过后，独立 smoke run `adaligand_ag_20260711T154658_eeng_smoke_v1` 使 8ro0/9qqp 2/2 success；release gate、实验/模拟图网格配对、严格 HETATM 删除和 E3 后验全部通过。8ro0 仅保留被精确豁免的 monitor warning，其他 fatal 检查未放宽。已原子发布 316115 run_cmd（SHA-256 `d4c0ff53…a1c1`）并在全部校验后精确删除 `try_lock_316115`；18-ID repair run `adaligand_ag_20260711T154658_eeng_v1` 正在原 allocation 以 E2/21600 秒运行，`after_lock_316115` 与 F/G 依赖仍保留。
+- [x] (2026-07-13 10:02+08:00) 用户显式接受将合法但完全不相交的 model/map 归类为 `known_failed:model_map_frame_mismatch`，要求 E/F 统一确定性包围盒检查并记入全套日志。本地已实现单一纯 QC + 单一失败策略包装器，E/F 均在外部工具和 artifact reuse 前调用；禁止 PDB allowlist、猜平移/fitmap，非法输入和后置密度/工具失败仍为 unknown。专项 22 tests 和本地全套 178 tests、compileall、diff check 通过；待独立审查、Git checkpoint、安全同步、远端 smoke/全套和正式 E 复核。
 - [ ] 持续监控、自动诊断/修复/重提，只在科学契约变化或外部不可恢复阻塞时请求用户。
 - [ ] 完成全量验收、计划漂移收口、mapping/契约 README/项目记忆更新和最终报告。
 
@@ -174,7 +175,7 @@
   Evidence: 三份 stdout 均为空，stderr 的固定两行分别位于 131–132、149–150、53–54；sim 字节数分别为 788,550,496、96,737,664、562,433,024。修复只豁免精确两行，仍执行完整 MRC 与几何 QC。
 
 - Observation: 2zhc/EMD-1470 的实验图并非重采样错误，而是沉积 map/model 世界坐标 frame 不相交。native header 为 shape 40×40×42、nstart/origin=0、cell 160.44×160.44×168.462 Å；canonical upper XYZ 约 159.44/159.44/167.46 Å，而 receptor bbox 的 Z 为 329.12–393.99 Å。mmCIF 的 ORIGX、assembly operation 和 atom_sites transform 都是 identity。
-  Evidence: canonical 实验图非零，Chimera `onGrid` 模拟图同 shape/origin 但全零；自动平移只能靠猜测。采用权威外部变换或把它分类为稳定 frame-mismatch known failure都会改变 E/F 数据契约，必须等待用户明确选择。
+  Evidence: canonical 实验图非零，Chimera `onGrid` 模拟图同 shape/origin 但全零；自动平移只能靠猜测。用户于 2026-07-13 选择稳定 frame-mismatch known failure，明确不使用猜测平移或 fitmap。
 
 ## Decision Log
 
@@ -322,9 +323,13 @@
   Rationale: 悬挂 anisotrop/struct_conn 引用造成数百万 warning 与系统性超时，而外部工具的科学输入是受检原子身份和 Cartesian 坐标。最小文档不改变这些值；日志窄豁免后仍由输出存在、MRC/几何 QC 与正式 release gate 提供独立硬门。
   Date/Author: 2026-07-13 / Codex（工程恢复，不改变科学数值）
 
+- Decision: 合法 E1 canonical map 与合法 Stage C polymer receptor token 坐标（`receptor_tokens.coords`）的 XYZ 包围盒完全分离时，E/F 统一记 `known_failed:model_map_frame_mismatch`。该 token 是两阶段共用 frame anchor，不等同于 E2 严格 ATOM-only 模型或 F 完整 ATOM+HETATM 模型。两阶段共用单一函数和 `1e-5 Å` 容差，并在任何 artifact reuse/Chimera/MapQ 前短路；禁止 PDB allowlist、猜测平移、fitmap 或改写坐标。
+  Rationale: 权威 source 可能没有可证实的共同 frame；生成全零 sim 或猜变换都会伪造数据。该 known failure 只接受完全分离的合法包围盒；空/NaN/错 schema、后置 all-zero/几何不一致和外部工具错误仍为 unknown。
+  Date/Author: 2026-07-13 / User + Codex
+
 ## Outcomes & Retrospective
 
-尚未完成。Stage C v4、ABC gate、MRC 放行与 Stage D 全量状态已完成；Stage E 已处理 22,386/22,386 并写出完整状态，但 DE gate 因 19 个 unknown 正确进入 `try_lock_316115`。其中 18 个属于可独立恢复的工具工程问题，2zhc 是已证明的 map/model frame 不相交且不得猜测平移。316116/316117 继续依赖等待，下一主线是完成 18-ID repair、取得 2zhc 科学决定、正式无过滤 E 与 D/E gate，再自动进入 F12、G analyze 和最终全量 QC。
+尚未完成。Stage C v4、ABC gate、MRC 放行与 Stage D 全量状态已完成；Stage E 已处理 22,386/22,386 并写出完整状态，但 DE gate 因首轮 19 个 unknown 正确保留原 allocation。其中 18 个工程失败正在独立恢复；2zhc 的科学决定已获得，本地 E/F 统一 `model_map_frame_mismatch` 实现和 178 项测试已通过，仍待安全同步、远端验收与正式无过滤 E/D-E gate。316116/316117 继续依赖等待，随后自动进入 F12、G analyze 和最终全量 QC。
 
 ## Context and Orientation
 
@@ -398,7 +403,7 @@ A–C release gate 必须满足：A snapshot 指纹固定；每个 PDB 的 mmCIF
 
 source-dirty 验收必须满足：mtime 清单恰为预期数量且 SHA 固定；ID 与 audit records 均从同一份已哈希字节解析，records 数/ID 集一致、自身 SHA 被 summary 冻结，summary 的实现哈希在 apply 前不变。通用记录只能是 exact/atom_name_only；本轮 14 条可在同一 pre-apply gate 中以 `delegated_full_rebuild_ready` 表示，但必须逐条绑定冻结的 rebuild record、ID/SHA、输入/依赖/staging/manifest 哈希，联合 2,156 条的 blocked/failed 均为 0 后才允许任何 canonical 写入。专用 manifest 必须精确证明新增 20、删除 0、reassigned 1,995，所有匹配 occurrence 的身份及 coords/present/centroid 逐位不变；14 个 PDB 的所有 candidate-indexed C 文件来自同一 source snapshot，before backup、二次全局 CAS、durable transaction receipt 与中断 rollback/recovery 全部通过。旧完整 receptor 的 exact 还要求 `bond_index/bond_type/feat` 与当前 source 重建逐位一致；atom_name_only apply 后六个其余受体基础数组、occurrences、ligand_coords 和额外 provenance key 不变，严格 CCD 身份/name/元素覆盖只作用于实际改名 residue，bond_type 只允许 0–6。post-apply 2,156 audit 必须全部 exact；任何 blocked/failed 都继续阻断 316114 release。
 
-E 验收必须满足：`exp.grid.shape == sim.grid.shape == (1,Z,Y,X)`；`sim.mrc` 为严格三维，读取后的 `sim.shape == exp.shape[1:]`；E1 记录 target=1.0 与 Pocket 返回的实际 XYZ voxel，E2 与 E1 的实际 voxel/origin 逐轴一致；数组有限、非零、有方差，并在 X/Y/Z 多个切片上存在内容；受体坐标包围盒与网格世界范围相交。真实 Chimera smoke 还必须证明 generated MRC 的 `nstart=0`、header.origin 按 Å 保留，不能只用 unit-voxel/zero-origin fixture 放行。
+E 验收必须满足：成功样本的 `exp.grid.shape == sim.grid.shape == (1,Z,Y,X)`；`sim.mrc` 为严格三维，读取后的 `sim.shape == exp.shape[1:]`；E1 记录 target=1.0 与 Pocket 返回的实际 XYZ voxel，E2 与 E1 的实际 voxel/origin 逐轴一致；数组有限、非零、有方差，并在 X/Y/Z 多个切片上存在内容；受体坐标包围盒与网格世界范围相交。合法但完全分离的包围盒必须在 E/F 都精确产生 `known_failed:model_map_frame_mismatch`，且外部工具零调用；其他输入、数值和工具失败仍是 unknown。真实 Chimera smoke 还必须证明 generated MRC 的 `nstart=0`、header.origin 按 Å 保留，不能只用 unit-voxel/zero-origin fixture 放行。
 
 F 验收必须满足：四个 CC 非空值均有限且在 `[-1,1]`；contour 缺失时只允许两个 contour 值为 null；错配负对照不优于正确配对；`qscore_{cid}.shape == (M,)` 且与 LigandObject 行序严格一致；`present=False` 位置为 NaN；`n_valid` 与成功 join 数一致。每个 occurrence 还必须有数值升序的 `pocket_atom_site_id_{cid} (K,) int64` 与同序 `pocket_qscore_{cid} (K,) float32`；`K>0` 时全部原子精确满足 6 Å 包络，`K=0` 时两个数组均为空、聚合 null、状态显式且 occurrence 仍保留；不存在按输出/残基遍历顺序或坐标最近邻猜测映射。
 
@@ -463,6 +468,7 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 - 失败处理从历史 append 文件升级为 run-scoped 状态与 release gate，消除陈旧失败误报。
 - 受体键枚举向后兼容追加 `triple=6`；source-dirty C 增加全集 cache-only audit、完整输入/依赖哈希、CCD atom-name 覆盖和受检 receptor-only 迁移。
 - filtered Stage C 增加正式 run 证据覆盖防护，避免子集状态替换 22,386 行全量状态。
+- E/F 增加单一确定性 model-map 包围盒前置门与稳定 `model_map_frame_mismatch` known failure，不再用全零模拟图或猜测坐标变换表达 source frame 缺口。
 
 ### Neutral drift
 
@@ -473,10 +479,11 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 
 - clean spec 曾仍写“E2 保留共价 HETATM、缺分辨率猜默认、sim 二次重采样、legacy 失败不阻塞”，与已经确认并实现的契约相冲突；本次已在用户要求“更新全套日志、计划书、README”后回填为当前规格。
 - mmCIF 刷新数最初由不完整 B success 状态低估为 400；文件系统证据修正为 2,156。旧 `known_failed` 丢失逐资源 provenance 的实现缺口已修复，事故细节保留在本 ExecPlan，不把数量写成通用科学规格。
+- 契约 README 曾把“EMDB map 与 mmCIF 沉积坐标天然同框”写成无条件事实；2zhc 真实证据否定该假设。现已改为成功样本契约 + 对所有样本执行受检前置检查。
 
 ### Unfinished scope
 
-- C source repair、全量 C、ABC gate 和 Stage D 已完成；D–G 代码已实现。MRC 放行证据均已验收；Stage E 首轮全量状态已完成但 DE gate 因 18 个工程失败和 2zhc frame mismatch 保持 try-lock。未完成范围是 E 恢复/契约决定、DE→F→G release gate 与最终独立 QC。
+- C source repair、全量 C、ABC gate 和 Stage D 已完成；D–G 代码已实现。MRC 放行证据均已验收；Stage E 首轮全量状态已完成，18 个工程失败正在恢复，2zhc frame mismatch 契约已授权且本地实现通过。未完成范围是安全同步/远端验收、E 正式复核、DE→F→G release gate 与最终独立 QC。
 - G 的最终分辨率、选定 CC、配体 Q、口袋 Q 阈值及 contour-null 策略仍须先看正式分布再由用户确认；不得把猜测阈值写死在数值代码里。
 
 Revision note 2026-07-10 14:38+08:00: 创建本 ExecPlan，记录已确认边界、旧产物证据、科学语义、资源/许可纪律和从实现到服务器全量验收的恢复路径。
@@ -502,3 +509,5 @@ Revision note 2026-07-12 20:04+08:00: 收口 MRC release 前证据。完整差�
 Revision note 2026-07-12 20:21+08:00: 补齐持久远端 pytest 证据与独立只读 release audit；在同一原 Job 316115 内原子发布带完整哈希的 MRC marker，run_cmd 自行删除 pre_lock 并启动 D64/E24。更新 Outcomes、Artifacts、Plan Drift 与项目记忆到“DE 正式运行”状态。
 
 Revision note 2026-07-13 07:10+08:00: 记录首轮 DE gate 的 D 完整闭合、E 19 unknown 分解和精确 try-lock 安全停点；实现 8ro 固定非致命日志序列窄豁免、filtered E 正式证据保护、未来 E timeout 参数与 18-ID 阶段感知恢复脚本。2zhc 的 frame mismatch 明确保持未决，不把猜测平移或 known-failure 分类静默写入 clean spec。
+
+Revision note 2026-07-13 10:02+08:00: 记录用户授权 `model_map_frame_mismatch`，把通用契约同步到 clean spec/README/mapping 并新建 durable decision memory；实现 E/F 共用确定性包围盒 preflight、自包含失败 detail 和禁止猜变换边界。专项 22 tests 与全套 178 tests 通过，远端同步/复核仍待当前 18-ID repair 进入安全停点。
