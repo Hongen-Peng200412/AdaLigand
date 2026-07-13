@@ -10,7 +10,7 @@ from pathlib import Path
 CODE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CODE_ROOT / "code"))
 
-from io_utils import write_jsonl
+from io_utils import read_jsonl, write_jsonl
 from exclusions import exclusion_status_fields, load_run_exclusions
 from reports import stage_report_path, stage_result, write_stage_results
 
@@ -100,6 +100,22 @@ def test_gate_binds_run_exclusion_manifest_to_status_provenance(tmp_path: Path) 
     ]
     passed = subprocess.run(command, capture_output=True, text=True, check=False)
     assert passed.returncode == 0, passed.stderr
+
+    status_path = stage_report_path(tmp_path, "run1", "stage_e", 0, 1)
+    original_status = read_jsonl(status_path)[0]
+    for field in ("error", "exclusion_decision_scope", "exclusion_downstream_policy"):
+        tampered_status = dict(original_status)
+        tampered_status[field] = "tampered_status_provenance"
+        write_stage_results(status_path, [tampered_status])
+        blocked_status = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert blocked_status.returncode != 0
+        assert "exclusion provenance mismatch" in blocked_status.stderr
+    write_stage_results(status_path, [original_status])
 
     exclusion["authorization"] = "tampered_after_status"
     write_jsonl(manifest, [exclusion])

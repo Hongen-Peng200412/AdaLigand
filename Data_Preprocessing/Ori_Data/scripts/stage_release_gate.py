@@ -14,7 +14,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "code"))
 
 from filtering import load_stage_statuses
-from exclusions import ALLOWED_EXCLUSION_STAGES, load_run_exclusions
+from exclusions import (
+    ALLOWED_EXCLUSION_STAGES,
+    exclusion_status_fields,
+    load_run_exclusions,
+)
 from failures import KnownFailureCode
 from io_utils import read_jsonl
 from parallel import read_pdb_id_filter
@@ -76,13 +80,15 @@ def main() -> None:
             for pdb_id in sorted(expected_exclusion_ids):
                 record = statuses[pdb_id]
                 exclusion = exclusions[pdb_id]
-                if (
-                    record.get("status") != StageStatus.KNOWN_FAILED.value
-                    or record.get("exclusion_manifest_sha256") != manifest_sha256
-                    or record.get("exclusion_run_id") != run_id
-                    or record.get("exclusion_reason") != exclusion["reason"]
-                    or record.get("exclusion_authorization") != exclusion["authorization"]
-                    or record.get("exclusion_evidence") != exclusion["evidence"]
+                if manifest_sha256 is None:
+                    raise RuntimeError(f"{stage} exclusion manifest identity is missing")
+                expected_fields = exclusion_status_fields(
+                    exclusion,
+                    manifest_sha256=manifest_sha256,
+                )
+                if record.get("status") != StageStatus.KNOWN_FAILED.value or any(
+                    record.get(field) != value
+                    for field, value in expected_fields.items()
                 ):
                     raise RuntimeError(f"{stage} exclusion provenance mismatch for {pdb_id}")
     if args.require_success and known_reason_counts:
