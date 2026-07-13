@@ -15,7 +15,7 @@ from scipy.spatial import cKDTree
 
 from chimera import ChimeraRunner
 from contracts import CArtifactState, inspect_stage_c, load_npz_arrays
-from density import experimental_density_identity
+from density import ensure_model_map_frame_compatible, experimental_density_identity
 from failures import ExternalToolError, KnownFailureCode, KnownSampleFailure, ToolFailureCode
 from io_utils import (
     atomic_save_npz,
@@ -673,6 +673,7 @@ def build_quality(
         )
     coords_arrays = load_npz_arrays(coords_path, allow_pickle=False)
     receptor_coords = load_npz_arrays(receptor_path, allow_pickle=False)["coords"]
+    ensure_model_map_frame_compatible(pdb_id, exp, receptor_coords)
     selected_rows = selected_raw_atom_rows(
         category_rows(gemmi.cif.read(str(cif_path)).sole_block(), "_atom_site.")
     )

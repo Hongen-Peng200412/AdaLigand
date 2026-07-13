@@ -35,7 +35,12 @@ from mrc import (
     make_canonical_grid,
     write_canonical_mrc,
 )
-from qc import density_artifact_errors, density_pair_errors
+from qc import (
+    MODEL_MAP_FRAME_ATOL_ANGSTROM,
+    density_artifact_errors,
+    density_pair_errors,
+    model_map_frame_errors,
+)
 
 
 EXP_SCHEMA_VERSION = 2
@@ -53,6 +58,54 @@ VDW_RADIUS_OVERRIDES = {
 }
 VDW_RADIUS_SOURCE = "plan_locked_C_N_O_P_S;RDKit_PeriodicTable_GetRvdw_fallback"
 _PERIODIC_TABLE = Chem.GetPeriodicTable()
+
+
+def ensure_model_map_frame_compatible(
+    pdb_id: str,
+    map_arrays: dict[str, np.ndarray],
+    model_coords: np.ndarray,
+) -> None:
+    """
+    在外部工具运行前对 E/F 共享的 model-map 世界坐标契约分类。
+
+    输入参数:
+        - pdb_id: str, 小写 PDB id，用于稳定失败详情
+        - map_arrays: dict[str,np.ndarray], E1 canonical 密度图数组，``grid`` 为 ``(1,Z,Y,X)``
+        - model_coords: np.ndarray, ``(N,3) float32``，Stage C polymer receptor token 世界 XYZ 坐标
+
+    输出:
+        - None: 包围盒相交时正常返回
+
+    异常:
+        - KnownSampleFailure: 仅当合法输入的两个包围盒完全分离，失败码为 ``model_map_frame_mismatch``
+        - RuntimeError: 坐标或网格本身不满足契约，不得降级为 known failure
+    """
+    frame_errors = model_map_frame_errors(map_arrays, model_coords)
+    if not frame_errors:
+        return
+    if frame_errors != ["density_pair:receptor_outside_grid"]:
+        raise RuntimeError(f"model-map frame input contract failed for {pdb_id}: {frame_errors}")
+
+    grid = np.asarray(map_arrays["grid"])
+    voxel = np.asarray(map_arrays["voxel_size"], dtype=np.float64)
+    map_lower = np.asarray(map_arrays["origin"], dtype=np.float64)
+    map_upper = map_lower + (np.asarray(grid.shape[:0:-1], dtype=np.float64) - 1.0) * voxel
+    coords = np.asarray(model_coords, dtype=np.float64)
+    detail = {
+        "atol_angstrom": MODEL_MAP_FRAME_ATOL_ANGSTROM,
+        "grid_shape_order": "ZYX",
+        "map_lower_xyz": map_lower.tolist(),
+        "map_upper_xyz": map_upper.tolist(),
+        "model_lower_xyz": coords.min(axis=0).tolist(),
+        "model_upper_xyz": coords.max(axis=0).tolist(),
+        "pdb_id": pdb_id.lower(),
+        "policy": "no_transform_or_fitmap",
+        "world_axis_order": "XYZ",
+    }
+    raise KnownSampleFailure(
+        KnownFailureCode.MODEL_MAP_FRAME_MISMATCH,
+        json.dumps(detail, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+    )
 
 
 @dataclass(frozen=True)
@@ -584,6 +637,7 @@ def build_simulated_density(
         raise RuntimeError(f"Stage E1 is not valid for {pdb_id}: {exp_errors}")
     receptor_path = root / "parse" / pdb_id / "receptor_tokens.npz"
     receptor = load_npz_arrays(receptor_path, allow_pickle=False)["coords"]
+    ensure_model_map_frame_compatible(pdb_id, exp, receptor)
     exp_stat = exp_path.stat()
     cif_stat = cif_path.stat()
     output_path = root / "density" / pdb_id / "sim.npz"

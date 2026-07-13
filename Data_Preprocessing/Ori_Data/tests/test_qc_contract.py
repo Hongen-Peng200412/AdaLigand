@@ -12,7 +12,12 @@ CODE_DIR = Path(__file__).resolve().parents[1] / "code"
 if str(CODE_DIR) not in sys.path:
     sys.path.insert(0, str(CODE_DIR))
 
-from qc import cc_value_errors, density_artifact_errors, density_pair_errors
+from qc import (
+    cc_value_errors,
+    density_artifact_errors,
+    density_pair_errors,
+    model_map_frame_errors,
+)
 
 
 def _valid_density(shape: tuple[int, int, int] = (5, 6, 7)) -> dict[str, np.ndarray]:
@@ -76,6 +81,31 @@ def test_density_pair_checks_geometry_and_receptor_intersection() -> None:
     errors = density_pair_errors(exp, sim, outside)
     assert "density_pair:origin_mismatch" in errors
     assert "density_pair:receptor_outside_grid" in errors
+
+
+def test_model_map_frame_preflight_is_xyz_zyx_aware_and_fail_closed() -> None:
+    """前置包围盒只把合法且完全分离的输入标成 frame mismatch。"""
+    exp = _valid_density()
+    exp["origin"] = np.asarray([10.0, 20.0, 30.0], dtype=np.float32)
+    exp["voxel_size"] = np.asarray([2.0, 3.0, 4.0], dtype=np.float32)
+
+    # grid shape ZYX=(5,6,7) 对应世界 XYZ 上界 (22,35,46)。
+    touching = np.asarray([[22.000004, 35.0, 46.0]], dtype=np.float32)
+    assert model_map_frame_errors(exp, touching) == []
+    for outside in (
+        np.asarray([[22.1, 25.0, 35.0]], dtype=np.float32),
+        np.asarray([[15.0, 35.1, 35.0]], dtype=np.float32),
+        np.asarray([[15.0, 25.0, 46.1]], dtype=np.float32),
+    ):
+        assert model_map_frame_errors(exp, outside) == [
+            "density_pair:receptor_outside_grid"
+        ]
+
+    invalid = np.asarray([[np.nan, 25.0, 35.0]], dtype=np.float32)
+    assert model_map_frame_errors(exp, invalid) == [
+        "density_pair:receptor_empty_or_nonfinite"
+    ]
+    assert "density_pair:receptor_outside_grid" not in model_map_frame_errors(exp, invalid)
 
 
 def test_density_pair_rejects_shape_mismatch() -> None:

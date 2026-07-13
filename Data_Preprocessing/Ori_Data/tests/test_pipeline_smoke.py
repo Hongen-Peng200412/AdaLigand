@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 from rdkit import Chem
 
 
@@ -19,10 +20,11 @@ if str(CODE_DIR) not in sys.path:
 
 from atom_labels import build_atom_labels
 from chimera import ChimeraRunner
-from contracts import CArtifactState, inspect_stage_c
+from contracts import CArtifactState, inspect_stage_c, load_npz_arrays
 from density import build_experimental_density, build_ligand_area, build_simulated_density
 from filtering import run_stage_g
-from io_utils import read_jsonl, write_jsonl
+from failures import KnownFailureCode, KnownSampleFailure
+from io_utils import atomic_save_npz, read_jsonl, write_jsonl
 from mapq import MapQRunner
 from mrc import MapGrid, write_canonical_mrc
 from parse import parse_one_pdb
@@ -331,6 +333,52 @@ def test_synthetic_pipeline_smoke_reaches_g_analysis_and_explicit_filter(tmp_pat
     filtered = run_stage_g(root, "smoke", mode="filter", config_path=config_path)
     assert filtered["n_kept"] == 1
     assert read_jsonl(root / "keep_list.jsonl") == [{"candidate_id": 0, "pdb_id": "1abc"}]
+
+
+def test_model_map_frame_mismatch_is_known_in_e_and_f_before_external_tools(
+    tmp_path: Path,
+) -> None:
+    """E/F 对同一完全分离的世界坐标帧返回同一 known failure。"""
+    root = tmp_path / "data"
+    scratch = tmp_path / "scratch"
+    record = _write_inputs(root)
+    assert parse_one_pdb(root, "1abc", overwrite=True)["status"] == "ok"
+    assert build_experimental_density(root, record)["status"] == "success"
+
+    receptor_path = root / "parse" / "1abc" / "receptor_tokens.npz"
+    receptor = load_npz_arrays(receptor_path, allow_pickle=False)
+    receptor["coords"] = receptor["coords"] + np.asarray(
+        [1000.0, 1000.0, 1000.0],
+        dtype=np.float32,
+    )
+    atomic_save_npz(receptor_path, **receptor)
+    assert inspect_stage_c(root, "1abc").state is CArtifactState.COMPLETE
+
+    with pytest.raises(KnownSampleFailure) as e_error:
+        build_simulated_density(
+            root,
+            record,
+            runner=object(),
+            chimera_version="must-not-run",
+            run_id="frame_mismatch_e",
+            scratch_root=scratch,
+        )
+    with pytest.raises(KnownSampleFailure) as f_error:
+        build_quality(
+            root,
+            record,
+            chimera_runner=object(),
+            mapq_runner=object(),
+            chimera_version="must-not-run",
+            run_id="frame_mismatch_f",
+            scratch_root=scratch,
+        )
+    assert e_error.value.code is KnownFailureCode.MODEL_MAP_FRAME_MISMATCH
+    assert f_error.value.code is KnownFailureCode.MODEL_MAP_FRAME_MISMATCH
+    assert not (root / "density" / "1abc" / "sim.npz").exists()
+    assert not (root / "quality" / "1abc.jsonl").exists()
+    assert not (scratch / "frame_mismatch_e" / "stage_e" / "1abc").exists()
+    assert not (scratch / "frame_mismatch_f" / "stage_f" / "1abc").exists()
 
 
 def test_missing_contour_reaches_f_with_three_null_provenance_values(tmp_path: Path) -> None:

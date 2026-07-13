@@ -24,10 +24,12 @@ from density import (
     experimental_density_errors,
     experimental_density_identity,
     extract_recommended_contour,
+    ensure_model_map_frame_compatible,
     ligand_area_errors,
     simulated_density_errors,
     vdw_radius,
 )
+from failures import KnownFailureCode, KnownSampleFailure
 from mrc import (
     POCKET_MRC_ALGORITHM,
     POCKET_MRC_ANCESTOR_SHA256,
@@ -322,6 +324,34 @@ def test_simulated_density_validator_rejects_plane_and_geometry_mismatch() -> No
         source_cif_mtime_ns=40,
     )
     assert "sim_provenance:source_exp_identity_mismatch" in mismatched
+
+
+def test_model_map_frame_policy_records_bounds_and_rejects_invalid_input() -> None:
+    """frame mismatch 的 known 详情自包含，非法坐标仍为 unknown 路径。"""
+    exp = _valid_experimental_density()
+    outside = np.asarray([[1000.0, 1000.0, 1000.0]], dtype=np.float32)
+    with pytest.raises(KnownSampleFailure) as caught:
+        ensure_model_map_frame_compatible("2zhc", exp, outside)
+    assert caught.value.code is KnownFailureCode.MODEL_MAP_FRAME_MISMATCH
+    detail = caught.value.detail
+    assert '"pdb_id":"2zhc"' in detail
+    assert '"grid_shape_order":"ZYX"' in detail
+    assert '"world_axis_order":"XYZ"' in detail
+    assert '"policy":"no_transform_or_fitmap"' in detail
+    assert all(key in detail for key in ("map_lower_xyz", "map_upper_xyz", "model_lower_xyz", "model_upper_xyz"))
+
+    invalid = np.asarray([[np.nan, 0.0, 0.0]], dtype=np.float32)
+    with pytest.raises(RuntimeError, match="input contract failed"):
+        ensure_model_map_frame_compatible("bad", exp, invalid)
+
+    invalid_map = dict(exp)
+    invalid_map["origin"] = np.asarray([np.nan, 0.0, 0.0], dtype=np.float32)
+    with pytest.raises(RuntimeError, match="input contract failed"):
+        ensure_model_map_frame_compatible(
+            "bad_map",
+            invalid_map,
+            np.asarray([[1.0, 1.0, 1.0]], dtype=np.float32),
+        )
 
 
 def test_filtered_stage_e_cannot_overwrite_formal_or_existing_status(tmp_path: Path) -> None:

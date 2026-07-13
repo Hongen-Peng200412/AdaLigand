@@ -20,6 +20,7 @@ CC_KEYS = (
     "cc_all_about_mean",
 )
 _AXIS_NAMES = ("z", "y", "x")
+MODEL_MAP_FRAME_ATOL_ANGSTROM = 1e-5
 
 
 def density_artifact_errors(
@@ -93,6 +94,62 @@ def density_artifact_errors(
     return errors
 
 
+def model_map_frame_errors(
+    map_arrays: Mapping[str, np.ndarray],
+    model_coords: np.ndarray,
+) -> list[str]:
+    """
+    检查模型与密度图的世界 XYZ 包围盒是否相交。
+
+    输入参数:
+        - map_arrays: Mapping[str,np.ndarray], 密度图 ``grid/voxel_size/origin``，网格轴序为 ``(1,Z,Y,X)``
+        - model_coords: np.ndarray, ``(N,3) float32``，模型原子世界 XYZ 坐标，单位 Å
+
+    输出:
+        - errors: list[str], 空列表表示两个包围盒相交；只有输入完全合法且包围盒完全分离时返回 ``density_pair:receptor_outside_grid``
+
+    说明:
+        该函数只生成稳定诊断，不决定 known/unknown 策略，也不猜测平移或 fitmap。
+    """
+    missing = [key for key in DENSITY_KEYS if key not in map_arrays]
+    if missing:
+        return [f"density_pair:frame_missing:{key}" for key in missing]
+
+    grid = np.asarray(map_arrays["grid"])
+    voxel = np.asarray(map_arrays["voxel_size"])
+    origin = np.asarray(map_arrays["origin"])
+    if grid.ndim != 4 or grid.shape[0] != 1 or any(size <= 1 for size in grid.shape[1:]):
+        return ["density_pair:frame_grid_contract"]
+    if (
+        voxel.dtype != np.float32
+        or voxel.shape != (3,)
+        or not np.isfinite(voxel).all()
+        or np.any(voxel <= 0)
+    ):
+        return ["density_pair:frame_voxel_contract"]
+    if origin.dtype != np.float32 or origin.shape != (3,) or not np.isfinite(origin).all():
+        return ["density_pair:frame_origin_contract"]
+
+    coords = np.asarray(model_coords)
+    if coords.dtype != np.float32 or coords.ndim != 2 or coords.shape[1:] != (3,):
+        return ["density_pair:receptor_contract"]
+    if len(coords) == 0 or not np.isfinite(coords).all():
+        return ["density_pair:receptor_empty_or_nonfinite"]
+
+    # np.ndarray[float64], (3,), 两个包围盒的世界 XYZ 下界/上界
+    grid_lower = origin.astype(np.float64)
+    shape_xyz = np.asarray(grid.shape[:0:-1], dtype=np.float64)
+    grid_upper = grid_lower + (shape_xyz - 1.0) * voxel.astype(np.float64)
+    receptor_lower = coords.min(axis=0).astype(np.float64)
+    receptor_upper = coords.max(axis=0).astype(np.float64)
+    intersects = np.all(receptor_lower <= grid_upper + MODEL_MAP_FRAME_ATOL_ANGSTROM) and np.all(
+        receptor_upper >= grid_lower - MODEL_MAP_FRAME_ATOL_ANGSTROM
+    )
+    if not intersects:
+        return ["density_pair:receptor_outside_grid"]
+    return []
+
+
 def density_pair_errors(
     exp_arrays: Mapping[str, np.ndarray],
     sim_arrays: Mapping[str, np.ndarray],
@@ -136,29 +193,7 @@ def density_pair_errors(
     ):
         errors.append("density_pair:origin_mismatch")
 
-    coords = np.asarray(receptor_coords)
-    if coords.dtype != np.float32 or coords.ndim != 2 or coords.shape[1:] != (3,):
-        errors.append("density_pair:receptor_contract")
-        return errors
-    if len(coords) == 0 or not np.isfinite(coords).all():
-        errors.append("density_pair:receptor_empty_or_nonfinite")
-        return errors
-    if exp_grid.ndim != 4 or exp_grid.shape[0] != 1:
-        return errors
-
-    grid_lower = np.asarray(exp_arrays["origin"], dtype=np.float64)
-    shape_xyz = np.asarray(exp_grid.shape[:0:-1], dtype=np.float64)
-    grid_upper = grid_lower + (shape_xyz - 1.0) * np.asarray(
-        exp_arrays["voxel_size"],
-        dtype=np.float64,
-    )
-    receptor_lower = coords.min(axis=0).astype(np.float64)
-    receptor_upper = coords.max(axis=0).astype(np.float64)
-    intersects = np.all(receptor_lower <= grid_upper + 1e-5) and np.all(
-        receptor_upper >= grid_lower - 1e-5
-    )
-    if not intersects:
-        errors.append("density_pair:receptor_outside_grid")
+    errors.extend(model_map_frame_errors(exp_arrays, receptor_coords))
     return errors
 
 

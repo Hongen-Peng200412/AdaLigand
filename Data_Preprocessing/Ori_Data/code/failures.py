@@ -19,6 +19,7 @@ class KnownFailureCode(str, Enum):
     MISSING_MAP = "missing_map"
     MISSING_META = "missing_meta"
     MISSING_RESOLUTION = "missing_resolution"
+    MODEL_MAP_FRAME_MISMATCH = "model_map_frame_mismatch"
 
 
 class KnownSampleFailure(RuntimeError):
