@@ -234,7 +234,15 @@ $$
 - 输出 `quality_distribution.json` 和 `candidates.pending.jsonl`；
 - 不写 `keep_list.jsonl`。
 
-`filter` 模式只有在显式配置存在时才运行。配置必须明确分辨率策略、CC/Q 阈值、比较是否包含等号，并保存配置哈希和排除原因。
+`filter` 模式只有在显式 `schema_version=2` 配置存在时才运行；没有 v1 兼容分支。它直接使用 analyze 已扁平化的 occurrence 字段，不回到密度图、`quality_atoms` 或 MapQ 重算。
+
+G 的过滤单位是 PDB/map，不是 occurrence。每个 occurrence 先按严格阈值计算：
+
+```text
+pair_pass = (q_score > ligand_q_min) AND (pocket_q_score > pocket_q_min)
+```
+
+空口袋的 `pocket_q_score=null` 固定失败，并计入分母。map 只有在 selected CC 含等号达标、resolution 含等号不高于上限、合格 occurrence 比例含等号达标时才通过。通过后把该 map 的全部 occurrence 写入 `keep_list`，包括 `pair_pass=false` 的行；pair 规则评价 map 整体质量，不是 map 内二次删样本。每个 PDB 的 CC/resolution 必须先验证为唯一一致值，配置和输入 manifest 均保存 hash。
 
 ## 4. 工具调用和适配层：`code/`
 
@@ -412,6 +420,10 @@ AdaLigand 还会在每个 PDB scratch 目录生成一次性兼容副本，补上
 
 `known_failed` 是明确、可解释且允许 gate 继续的样本级不适用情形；普通异常、schema 漂移、工具输出错误和静默缺失必须是 `unknown_failed`，会阻断 release gate。
 
+### 8.6 pair 通过和 map 通过
+
+`pair_pass` 只参与计算一张 map 的合格 occurrence 比例。它不是最终 occurrence 保留标记。只要 map 达到 CC、分辨率和合格比例三道门，该 map 内所有 occurrence 都进入 `keep_list`；空口袋或 Q 偏低的 occurrence 也随通过 map 保留。
+
 ## 9. 如何判断一个函数值不值得深入读
 
 优先深入：
@@ -433,7 +445,7 @@ AdaLigand 还会在每个 PDB scratch 目录生成一次性兼容副本，补上
 - Stage 1 重训；
 - BOX 第 2/3 层；
 - Stage 2/3；
-- 未经用户确认的最终阈值和 `keep_list.jsonl`；
+- 未经正式 schema v2 数值配置执行的最终 `keep_list.jsonl`；
 - 任何将 before/after migration manifest 当作永久科学主键映射的做法。
 
 当你阅读某个函数时，最有效的提问格式是：

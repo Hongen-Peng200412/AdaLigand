@@ -2,13 +2,13 @@
 
 本 ExecPlan 是动态文档。执行期间必须持续维护 `Progress`、`Surprises & Discoveries`、`Decision Log` 与 `Outcomes & Retrospective`，使只持有当前工作树和本文件的新手工程师或无上下文 AI agent 能够继续完成任务。
 
-上游规格是 `文档/规划文档/数据处理_v2.md`；本计划与它的关系为 **implements and updates**。覆盖范围是现有 22,386-PDB 样本宇宙的 A–C 增量契约迁移、D–G 实现、Chimera/MapQ 集成、自动质量门、服务器全量运行和 G `analyze` 质量分布。最终 `keep_list.jsonl` 只有在正式分布产出、用户另行确认四类阈值后才进入后续授权，不属于本轮无人值守终点。旧执行日志 `文档/exec_plan/数据下载与解析.md` 只记录历史 A–C 实现，本文件从该基线继续推进。代码旁契约是 `Data_Preprocessing/Ori_Data/code/readme.md`，映射索引是 `文档/mapping/计划执行映射.md`。
+上游规格是 `文档/规划文档/数据处理_v2.md`；本计划与它的关系为 **implements and updates**。覆盖范围是现有 22,386-PDB 样本宇宙的 A–C 增量契约迁移、D–G 实现、Chimera/MapQ 集成、自动质量门、服务器全量运行和 G `analyze` 质量分布。最终 `keep_list.jsonl` 只有在正式分布产出、用户显式确认 schema v2 数值配置（含 `cc_field` 与全部阈值）后才进入后续授权，不属于本轮无人值守终点。旧执行日志 `文档/exec_plan/数据下载与解析.md` 只记录历史 A–C 实现，本文件从该基线继续推进。代码旁契约是 `Data_Preprocessing/Ori_Data/code/readme.md`，映射索引是 `文档/mapping/计划执行映射.md`。
 
 本轮不切 BOX，不实现 BOX 第 2/3 层，不修改或重训 Stage 1，也不处理 Stage 2/3。Stage 1 重训将在 A–G 与后续 BOX 接缝完成后另行授权。
 
 ## Purpose / Big Picture
 
-完成后，服务器数据根 `/storage/penghongen/AdaLigand/Ori_Data` 将在复用已有下载和旧 A–C 产物的前提下达到当前契约：C 产物包含配体质心、受体化学键、49 维受体特征和去重配体描述子；D 产出受体原子标签；E 通过 Pocket Plus 祖传原语产出 target=1 Å、保存实际 voxel 的实验图、严格去掉全部 `HETATM` 的 receptor-only 模拟图和逐 occurrence ligand-area；F 产出四种全局 map-model CC、配体逐原子 Q、6 Å 受体口袋逐原子 Q 及两类 occurrence 聚合；G 汇总质量和明确失败，先生成可追溯分布，并在用户确认四类阈值后生成 `keep_list.jsonl`。流水线由 Slurm 依赖自动推进，smoke gate 通过后无需人工复制日志或逐阶段确认。
+完成后，服务器数据根 `/storage/penghongen/AdaLigand/Ori_Data` 将在复用已有下载和旧 A–C 产物的前提下达到当前契约：C 产物包含配体质心、受体化学键、49 维受体特征和去重配体描述子；D 产出受体原子标签；E 通过 Pocket Plus 祖传原语产出 target=1 Å、保存实际 voxel 的实验图、严格去掉全部 `HETATM` 的 receptor-only 模拟图和逐 occurrence ligand-area；F 产出四种全局 map-model CC、配体逐原子 Q、6 Å 受体口袋逐原子 Q 及两类 occurrence 聚合；G 汇总质量和明确失败，先生成可追溯分布，并在用户显式确认 schema v2 数值配置（含 `cc_field` 与全部阈值）后生成 `keep_list.jsonl`。流水线由 Slurm 依赖自动推进，smoke gate 通过后无需人工复制日志或逐阶段确认。
 
 可观察结果包括：所有成功样本的数组 shape、dtype、坐标系和主键均通过机器检查；每个未成功样本都有 run-scoped `failed_reason`；重复无覆盖运行只补缺项；最终报告能说明每个阶段成功、跳过、已知失败和未知失败的数量。
 
@@ -64,6 +64,7 @@
 - [ ] (2026-07-13 07:25+08:00) 19 个 E unknown 已取证分解为 15 个 Chimera 3600 秒超时、3 个已完整出图但被 `monitor changes` 警告误判、1 个 2zhc model/map frame 不相交。最小 atom_site-only CIF、精确日志豁免、filtered 状态保护、21600 秒/2 并发独立恢复脚本已实现；其中 2 并发是针对最大 13.5 GB map 的内存与临时 I/O 安全约束，正式无过滤复核仍保持 E24。本地全套 175 tests、compileall、bash -n 与 diff check 通过；剩余工作是 18-ID repair 和正式无过滤 E 复核。2zhc 决定已在下一条获得，仍禁止猜平移。
 - [x] (2026-07-13 07:30+08:00) 无删除安全同步和远端 175 tests 通过后，独立 smoke run `adaligand_ag_20260711T154658_eeng_smoke_v1` 使 8ro0/9qqp 2/2 success；release gate、实验/模拟图网格配对、严格 HETATM 删除和 E3 后验全部通过。8ro0 仅保留被精确豁免的 monitor warning，其他 fatal 检查未放宽。已原子发布 316115 run_cmd（SHA-256 `d4c0ff53…a1c1`）并在全部校验后精确删除 `try_lock_316115`；18-ID repair run `adaligand_ag_20260711T154658_eeng_v1` 正在原 allocation 以 E2/21600 秒运行，`after_lock_316115` 与 F/G 依赖仍保留。
 - [x] (2026-07-13 10:02+08:00) 用户显式接受将合法但完全不相交的 model/map 归类为 `known_failed:model_map_frame_mismatch`，要求 E/F 统一确定性包围盒检查并记入全套日志。本地已实现单一纯 QC + 单一失败策略包装器，E/F 均在外部工具和 artifact reuse 前调用；禁止 PDB allowlist、猜平移/fitmap，非法输入和后置密度/工具失败仍为 unknown。专项 22 tests 和本地全套 178 tests、compileall、diff check 通过；待独立审查、Git checkpoint、安全同步、远端 smoke/全套和正式 E 复核。
+- [x] (2026-07-13 11:42+08:00) 用户冻结 Stage G 为唯一 `schema_version=2` map-level 过滤契约，并明确无需兼容从未正式运行的 occurrence 级 v1。实现直接消费 analyze 的扁平 F 字段，按 PDB 验证唯一 CC/resolution、严格 Q pair、空口袋计分母、含等号比例门和“通过 map 保留全部 occurrence”；新增 map diagnostics，专项 9 tests 与本地全套 182 tests、compileall、diff check 通过。316117 仍保持 analyze-only，本次未同步服务器或执行正式 filter。
 - [ ] 持续监控、自动诊断/修复/重提，只在科学契约变化或外部不可恢复阻塞时请求用户。
 - [ ] 完成全量验收、计划漂移收口、mapping/契约 README/项目记忆更新和最终报告。
 
@@ -315,9 +316,9 @@
   Rationale: 稀疏 schema 和坐标语义必须让 BOX 可直接消费；逐元素库值覆盖卤素/金属而不手造单一兜底常数。
   Date/Author: 2026-07-11 / Codex
 
-- Decision: G 在阈值未授权时只运行 `analyze` 并写 run-scoped 分布/pending candidates；只有带 hash 的显式 JSON 配置才允许写正式 `keep_list.jsonl`。
-  Rationale: 同时满足无人值守跑完可计算部分和“先看正式分布再定阈值”，避免把 artifact-valid 清单冒充科学过滤结果。
-  Date/Author: 2026-07-11 / Codex
+- Decision: G 的唯一正式过滤配置升级为 `schema_version=2` map-level 契约，不兼容从未正式执行的 occurrence 级 v1。每个 occurrence 以严格大于的 ligand/pocket Q 计算 pair pass，空口袋失败且计入分母；CC、resolution 和合格比例按含等号边界决定 map，通过 map 保留其全部 occurrence。正式 DAG 的 316117 仍只运行 analyze；示例数值不自动成为生产配置，只有显式 JSON 及 hash 才允许写 `keep_list.jsonl`。
+  Rationale: F 已保存全部原始量，G 可零重算完成 map 级选择；首次正式 filter 尚未发生，没有旧 keep list 或下游消费者需要兼容。单一 v2 避免同一仓库同时保留两套相反的 occurrence/map 过滤语义，并继续避免把 artifact-valid 清单冒充科学筛选结果。
+  Date/Author: 2026-07-13 / User + Codex
 
 - Decision: Stage E/F 标准模型只保留 `_entry.id`（若存在）与逐字段原样筛选的 `_atom_site`；Stage E 的 Chimera fatal-log 扫描只豁免精确的 `monitor changes`/`KeyError '?'` 两行组合。filtered E repair 必须使用新 run id，补齐 artifact 后再用正式 run id 无过滤、无 overwrite 全量刷新状态。
   Rationale: 悬挂 anisotrop/struct_conn 引用造成数百万 warning 与系统性超时，而外部工具的科学输入是受检原子身份和 Cartesian 坐标。最小文档不改变这些值；日志窄豁免后仍由输出存在、MRC/几何 QC 与正式 release gate 提供独立硬门。
@@ -329,7 +330,7 @@
 
 ## Outcomes & Retrospective
 
-尚未完成。Stage C v4、ABC gate、MRC 放行与 Stage D 全量状态已完成；Stage E 已处理 22,386/22,386 并写出完整状态，但 DE gate 因首轮 19 个 unknown 正确保留原 allocation。其中 18 个工程失败正在独立恢复；2zhc 的科学决定已获得，本地 E/F 统一 `model_map_frame_mismatch` 实现和 178 项测试已通过，仍待安全同步、远端验收与正式无过滤 E/D-E gate。316116/316117 继续依赖等待，随后自动进入 F12、G analyze 和最终全量 QC。
+尚未完成。Stage C v4、ABC gate、MRC 放行与 Stage D 全量状态已完成；Stage E 已处理 22,386/22,386 并写出完整状态，但 DE gate 因首轮 19 个 unknown 正确保留原 allocation。其中 18 个工程失败正在独立恢复；2zhc 的科学决定已获得，本地 E/F 统一 `model_map_frame_mismatch` 实现和 178 项测试已通过，仍待安全同步、远端验收与正式无过滤 E/D-E gate。Stage G 单一 map-level schema v2 已在本地实现并纳入 182 项全套测试，但未同步、未执行 filter。316116/316117 继续依赖等待，随后自动进入 F12、G analyze 和最终全量 QC。
 
 ## Context and Orientation
 
@@ -361,7 +362,7 @@ C 把旧文件拆成可独立补算的组件。`ligand_coords.npz` 在保留旧�
 
 D 读取 C 受体/配体坐标，生成 `binding_atom`、`instance_id`、`nearest_dist`。E 的实验图加载和 target=1 Å/actual-voxel 重采样由零差异 `code/mrc_pocket_legacy.py` 与 `code/mrc.py` 薄适配共同提供；receptor-only CIF 只在 E2 临时目录生成并删除全部 `HETATM`；Chimera 调用集中在 `code/chimera.py`，命令、版本、输入 hash、退出码和日志都进入 provenance。ligand-area 使用逐元素 vdW 半径。
 
-F 用 Chimera 在 canonical grid 上生成全模型模拟密度并取得四种 CC；contour 缺失时 contour 两项为 `null`，不得猜阈值。MapQ 读取 native map 和完整模型，输出逐原子 Q；适配层用 mmCIF 原子身份与 C component/atom_name 做严格 join，再投影到 LigandObject 行序，并按 6 Å 原子包络聚合 occurrence 受体口袋 Q。G 汇总完整度、resolution、CC、配体/口袋 Q 和所有阶段状态，先输出质量分布；收到显式四类阈值后再输出排除原因和 `keep_list.jsonl`。
+F 用 Chimera 在 canonical grid 上生成全模型模拟密度并取得四种 CC；contour 缺失时 contour 两项为 `null`，不得猜阈值。MapQ 读取 native map 和完整模型，输出逐原子 Q；适配层用 mmCIF 原子身份与 C component/atom_name 做严格 join，再投影到 LigandObject 行序，并按 6 Å 原子包络聚合 occurrence 受体口袋 Q。G 汇总完整度、resolution、CC、配体/口袋 Q 和所有阶段状态，先输出质量分布；正式 filter 只接受 schema v2，按 PDB/map 聚合 occurrence pair pass，空口袋计入分母，通过 map 后保留其全部 occurrence。
 
 ### Milestone 4: 自动 smoke gate
 
@@ -407,7 +408,7 @@ E 验收必须满足：成功样本的 `exp.grid.shape == sim.grid.shape == (1,Z
 
 F 验收必须满足：四个 CC 非空值均有限且在 `[-1,1]`；contour 缺失时只允许两个 contour 值为 null；错配负对照不优于正确配对；`qscore_{cid}.shape == (M,)` 且与 LigandObject 行序严格一致；`present=False` 位置为 NaN；`n_valid` 与成功 join 数一致。每个 occurrence 还必须有数值升序的 `pocket_atom_site_id_{cid} (K,) int64` 与同序 `pocket_qscore_{cid} (K,) float32`；`K>0` 时全部原子精确满足 6 Å 包络，`K=0` 时两个数组均为空、聚合 null、状态显式且 occurrence 仍保留；不存在按输出/残基遍历顺序或坐标最近邻猜测映射。
 
-本轮 G analyze 验收必须满足：每个 A 样本在每个适用阶段恰好处于 success/skipped/known_failed 之一；任何静默缺失或 unknown failure 都阻塞；`quality_distribution.json` 与 `candidates.pending.jsonl` 保存完整候选、四 CC/配体 Q/口袋 Q/分辨率分布和输入 manifest hash，且不写 `keep_list`。后续用户显式授权 filter 时，`keep_list` 才只包含所有必需上游产物齐全且未被规则排除的 `(pdb_id,candidate_id)`，报告同时保存带 hash 的过滤配置与各原因计数。
+本轮 G analyze 验收必须满足：每个 A 样本在每个适用阶段恰好处于 success/skipped/known_failed 之一；任何静默缺失或 unknown failure 都阻塞；`quality_distribution.json` 与 `candidates.pending.jsonl` 保存完整候选、四 CC/配体 Q/口袋 Q/分辨率分布和输入 manifest hash，且不写 `keep_list`。后续显式 schema v2 filter 还必须证明：同 PDB selected CC/resolution 唯一一致；Q 等于阈值时 pair 失败，CC/resolution/fraction 等于边界时 map 可通过；空口袋失败且计入分母；通过 map 的全部 occurrence 进入稳定排序的 `keep_list`。`map_filter_diagnostics.jsonl`、summary、配置 hash 和输入 manifest 必须闭合。
 
 ## Idempotence and Recovery
 
@@ -469,6 +470,7 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 - 受体键枚举向后兼容追加 `triple=6`；source-dirty C 增加全集 cache-only audit、完整输入/依赖哈希、CCD atom-name 覆盖和受检 receptor-only 迁移。
 - filtered Stage C 增加正式 run 证据覆盖防护，避免子集状态替换 22,386 行全量状态。
 - E/F 增加单一确定性 model-map 包围盒前置门与稳定 `model_map_frame_mismatch` known failure，不再用全零模拟图或猜测坐标变换表达 source frame 缺口。
+- Stage G 从尚未正式使用的 occurrence 级 v1 收敛为唯一 map-level schema v2；直接复用 F 原始量，以 occurrence 合格比例评价 map，同时避免在通过 map 内二次删除 occurrence。
 
 ### Neutral drift
 
@@ -484,7 +486,7 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 ### Unfinished scope
 
 - C source repair、全量 C、ABC gate 和 Stage D 已完成；D–G 代码已实现。MRC 放行证据均已验收；Stage E 首轮全量状态已完成，18 个工程失败正在恢复，2zhc frame mismatch 契约已授权且本地实现通过。未完成范围是安全同步/远端验收、E 正式复核、DE→F→G release gate 与最终独立 QC。
-- G 的最终分辨率、选定 CC、配体 Q、口袋 Q 阈值及 contour-null 策略仍须先看正式分布再由用户确认；不得把猜测阈值写死在数值代码里。
+- G 的 map-level 算法、比较边界、空口袋分母和整 map 保留规则已冻结；最终分辨率、选定 CC、配体 Q、口袋 Q 与比例数值仍须先看正式分布后以 schema v2 配置显式给出。当前示例不写入默认值，正式 filter/`keep_list` 尚未执行。
 
 Revision note 2026-07-10 14:38+08:00: 创建本 ExecPlan，记录已确认边界、旧产物证据、科学语义、资源/许可纪律和从实现到服务器全量验收的恢复路径。
 
@@ -511,3 +513,5 @@ Revision note 2026-07-12 20:21+08:00: 补齐持久远端 pytest 证据与独立�
 Revision note 2026-07-13 07:10+08:00: 记录首轮 DE gate 的 D 完整闭合、E 19 unknown 分解和精确 try-lock 安全停点；实现 8ro 固定非致命日志序列窄豁免、filtered E 正式证据保护、未来 E timeout 参数与 18-ID 阶段感知恢复脚本。2zhc 的 frame mismatch 明确保持未决，不把猜测平移或 known-failure 分类静默写入 clean spec。
 
 Revision note 2026-07-13 10:02+08:00: 记录用户授权 `model_map_frame_mismatch`，把通用契约同步到 clean spec/README/mapping 并新建 durable decision memory；实现 E/F 共用确定性包围盒 preflight、自包含失败 detail 和禁止猜变换边界。专项 22 tests 与全套 178 tests 通过，远端同步/复核仍待当前 18-ID repair 进入安全停点。
+
+Revision note 2026-07-13 11:42+08:00: 用户明确取消 Stage G v1 兼容，冻结唯一 map-level schema v2。实现严格 occurrence Q pair、空口袋分母、map 级 CC/resolution/fraction 门、通过 map 全 occurrence 保留与 run-scoped map diagnostics；本地 182 tests 通过。保持 316117 analyze-only，具体示例阈值未成为生产配置或服务器命令。

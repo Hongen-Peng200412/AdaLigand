@@ -70,6 +70,10 @@ ${ROOT}/
     runs/{repair_run_id}/stage_c_source_rebuild/ # 单次授权 full rebuild 的 staging/backup/receipt
       primary_key_migration.records.jsonl # 本轮 before/after 审计，不是 C schema 或训练字段
     runs/{run_id}/stage_g_analysis/quality_distribution.json
+    runs/{run_id}/stage_g_analysis/candidates.pending.jsonl
+    runs/{run_id}/stage_g/map_filter_diagnostics.jsonl
+    runs/{run_id}/stage_g/excluded_maps.jsonl
+    runs/{run_id}/stage_g/summary.json
   scratch/{run_id}/...              # 外部工具 attempt；成功后删除大型临时 MRC
 ```
 
@@ -412,8 +416,50 @@ Q-score 使用 native EMDB map、首 model/规范 altloc 的完整 `ATOM+HETATM`
 ## 8. Stage G：分布与正式过滤
 
 - `--mode analyze` 自动检查本轮 D/E/F 每个 A 样本恰有一个终态，unknown、重复、额外或 silent missing 立即失败；随后写 `reports/runs/{run_id}/stage_g_analysis/quality_distribution.json` 和 `candidates.pending.jsonl`。分布同时包含四个 CC、配体 Q 和口袋 Q 原始统计；它**不会**写 `keep_list.jsonl`。
-- `--mode filter --config filter_config.json` 才写正式 `keep_list.jsonl`。配置必须显式给 `q_score_min`、`resolution_max`（可为 null）、`resolution_policy=exclude|flag_only` 和 `comparison=inclusive`；配置内容与 hash 进入 summary。
-- `keep_list.jsonl` 稳定按 `(pdb_id,candidate_id)` 排序；known-failed PDB 明确排除；任何 unknown/silent missing 阻塞。
+- `--mode filter --config filter_config.json` 只接受唯一的 `schema_version=2` map-level 契约；schema 1 明确拒绝，不保留 occurrence 级旧语义。过滤直接扫描 `candidates.pending.jsonl` 同款扁平字段，不读取 `quality_atoms`、原始密度图，也不重新运行 CC、MapQ 或 Q-score。
+
+schema v2 先按 `pdb_id` 聚合。每个 eligible PDB 必须至少有一个 occurrence；同一 PDB 重复保存的 `map_resolution` 和配置选定的 CC 必须各自唯一一致，否则视为上游契约错误。四种可选 CC 是 `cc_contour`、`cc_contour_about_mean`、`cc_all`、`cc_all_about_mean`；选中的 contour CC 若为合法 `null`，该 map 失败，不能偷换另一种 CC。
+
+对每个 occurrence：
+
+```text
+pair_pass = (q_score > ligand_q_min) AND (pocket_q_score > pocket_q_min)
+```
+
+两个 Q 均为**严格大于**。空口袋的 `pocket_q_score=null` 固定令 `pair_pass=false`，但仍计入 occurrence 总数。随后计算：
+
+```text
+qualified_fraction = n_pair_pass / n_occurrences
+map_pass = (
+    selected_cc >= cc_min
+    AND map_resolution <= resolution_max
+    AND qualified_fraction >= qualified_pair_fraction_min
+)
+```
+
+CC、分辨率和比例边界均含等号。一旦 map 通过，`keep_list.jsonl` 保留该 PDB 的**全部** occurrence，包括自身 `pair_pass=false` 的 occurrence；pair 判定只评价整张 map，不是第二次 occurrence 剪枝。
+
+配置必须逐项显式提供以下字段；策略字符串和两个布尔量是固定契约，不是可切换回退：
+
+```json
+{
+  "schema_version": 2,
+  "cc_field": "cc_all_about_mean",
+  "cc_min": 0.6,
+  "resolution_max": 5.0,
+  "resolution_comparison": "inclusive",
+  "ligand_q_min": 0.7,
+  "pocket_q_min": 0.65,
+  "qualified_pair_fraction_min": 0.8,
+  "empty_pocket": "fail_and_count_denominator",
+  "keep_only_maps_that_pass": true,
+  "keep_all_occurrences_in_passing_map": true
+}
+```
+
+上例只展示 schema 形状和候选数值，不是 CLI 默认值，也不会被 `g_analyze.sbatch` 自动执行。正式 filter 仍须显式提供配置文件；配置原文 hash、规范化语义和输入 manifest 进入 `stage_g/summary.json`。
+
+`stage_g/map_filter_diagnostics.jsonl` 每个 eligible PDB 一行，保存 selected CC/value/pass、resolution/pass、occurrence 总数、空口袋数、`n_pair_pass`、`qualified_fraction`、map pass/reasons 和 occurrence 判定明细；`excluded_maps.jsonl` 是未通过 map 的精简索引。`keep_list.jsonl` 稳定按 `(pdb_id,candidate_id)` 排序；known-failed PDB 明确排除；任何 unknown/silent missing 阻塞。
 
 ## 9. run-scoped 终态与失败纪律
 
@@ -476,5 +522,5 @@ for o in occ:
 - 代码与契约覆盖 **Stage A–G**；服务器正式全量产物以本轮 run-scoped release 报告为准，不以代码存在或历史文件计数代替完成。
 - `raw/emdb_maps/` 是否生成取决于 `b_download.py --resources` 是否含 `map`（默认含）。Stage C 不消费 map。
 - 解析失败的 occurrence 记 `resolve_failed` 入 `reports`，**不**进主产物；严格依赖 `_atom_site.label_atom_id` 与 CCD 原子名精确对齐（无图同构兜底）。
-- G 的最终分辨率、选定 CC、配体 Q 和口袋 Q 阈值仍按“先看正式分布再由用户确认”；当前 analyze 可自动完成但不冒充最终科学筛选。现有 filter schema v1 只表达 Q/resolution；收到四类阈值及 contour-null 策略后再显式升级 schema，禁止预猜。
+- G 的唯一 map-level schema v2 算法已经锁定；最终分辨率、selected CC、配体 Q、口袋 Q 和合格比例数值仍按“先看正式分布再显式配置”。当前 DAG 只运行 analyze，不自动消费示例配置，也不冒充最终科学筛选或写 `keep_list`。
 - 历史 A–C 见 `文档/exec_plan/数据下载与解析.md`；当前长任务日志见 `文档/exec_plan/A-G数据流水线实现与全量运行.md`；规格见 `文档/规划文档/数据处理_v2.md`。
