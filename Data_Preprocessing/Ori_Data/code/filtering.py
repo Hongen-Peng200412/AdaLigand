@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -15,8 +15,14 @@ from qc import cc_value_errors
 from reports import StageStatus, stage_report_path, stage_result, write_report, write_stage_results
 
 
-FILTER_CONFIG_SCHEMA_VERSION = 1
+FILTER_CONFIG_SCHEMA_VERSION = 2
 UPSTREAM_STAGES = ("stage_d", "stage_e", "stage_f")
+_CC_FIELDS = (
+    "cc_contour",
+    "cc_contour_about_mean",
+    "cc_all",
+    "cc_all_about_mean",
+)
 _DISTRIBUTION_FIELDS = (
     "q_score",
     "q_score_median",
@@ -93,70 +99,229 @@ def load_stage_statuses(
 
 
 def load_filter_config(path: Path) -> dict[str, Any]:
-    """读取并验证 Stage G 显式 JSON 配置；不提供隐式科学阈值。"""
+    """
+    读取并验证唯一的 Stage G map-level schema v2 配置。
+
+    输入参数:
+        - path: Path, JSON 配置路径; 所有科学阈值和固定策略均须显式给出
+
+    输出:
+        - config: dict[str, Any], 规范化配置, 包含:
+            - ``schema_version``: int, 固定为 2
+            - ``cc_field``: str, 四种 PDB 级 CC 中唯一选中的字段
+            - ``cc_min``: float, CC 含等号下限
+            - ``cc_comparison``: str, 固定为 ``inclusive``
+            - ``selected_cc_null``: str, 固定为 ``fail_map``
+            - ``resolution_max``: float, 分辨率含等号上限, 单位 Å
+            - ``resolution_comparison``: str, 固定为 ``inclusive``
+            - ``ligand_q_min``: float, 配体 Q 的严格下限
+            - ``pocket_q_min``: float, 口袋 Q 的严格下限
+            - ``pair_q_comparison``: str, 固定为 ``strict``
+            - ``qualified_pair_fraction_min``: float, 合格 occurrence 比例含等号下限
+            - ``qualified_pair_fraction_comparison``: str, 固定为 ``inclusive``
+            - ``empty_pocket``: str, 固定为空口袋失败且计入分母
+            - ``keep_only_maps_that_pass``: bool, 固定只保留通过的 map
+            - ``keep_all_occurrences_in_passing_map``: bool, 固定保留通过 map 的全部 occurrence
+    """
     config = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
         raise ValueError("filter config must be a JSON object")
     if config.get("schema_version") != FILTER_CONFIG_SCHEMA_VERSION:
         raise ValueError(f"filter config schema_version must be {FILTER_CONFIG_SCHEMA_VERSION}")
-    if "q_score_min" not in config:
-        raise ValueError("filter config must explicitly set q_score_min")
-    q_score_min = float(config["q_score_min"])
-    if not np.isfinite(q_score_min) or q_score_min < -1 or q_score_min > 1:
-        raise ValueError("q_score_min must be finite in [-1,1]")
-    resolution_max = config.get("resolution_max")
-    if resolution_max is not None:
-        resolution_max = float(resolution_max)
-        if not np.isfinite(resolution_max) or resolution_max <= 0:
-            raise ValueError("resolution_max must be null or a positive finite number")
-    resolution_policy = config.get("resolution_policy")
-    if resolution_policy not in {"exclude", "flag_only"}:
-        raise ValueError("resolution_policy must be explicitly 'exclude' or 'flag_only'")
-    if config.get("comparison") != "inclusive":
-        raise ValueError("comparison must explicitly be 'inclusive' (>= Q and <= resolution)")
+    required_fields = {
+        "schema_version",
+        "cc_field",
+        "cc_min",
+        "resolution_max",
+        "resolution_comparison",
+        "ligand_q_min",
+        "pocket_q_min",
+        "qualified_pair_fraction_min",
+        "empty_pocket",
+        "keep_only_maps_that_pass",
+        "keep_all_occurrences_in_passing_map",
+    }
+    missing_fields = sorted(required_fields.difference(config))
+    extra_fields = sorted(set(config).difference(required_fields))
+    if missing_fields or extra_fields:
+        raise ValueError(
+            f"filter config fields disagree: missing={missing_fields}, extra={extra_fields}"
+        )
+    if config["cc_field"] not in _CC_FIELDS:
+        raise ValueError(f"cc_field must be one of {_CC_FIELDS}")
+
+    cc_min = float(config["cc_min"])
+    ligand_q_min = float(config["ligand_q_min"])
+    pocket_q_min = float(config["pocket_q_min"])
+    qualified_fraction_min = float(config["qualified_pair_fraction_min"])
+    for field, value in (
+        ("cc_min", cc_min),
+        ("ligand_q_min", ligand_q_min),
+        ("pocket_q_min", pocket_q_min),
+    ):
+        if not np.isfinite(value) or value < -1 or value > 1:
+            raise ValueError(f"{field} must be finite in [-1,1]")
+    if not np.isfinite(qualified_fraction_min) or not 0 <= qualified_fraction_min <= 1:
+        raise ValueError("qualified_pair_fraction_min must be finite in [0,1]")
+    resolution_max = float(config["resolution_max"])
+    if not np.isfinite(resolution_max) or resolution_max <= 0:
+        raise ValueError("resolution_max must be a positive finite number")
+    if config["resolution_comparison"] != "inclusive":
+        raise ValueError("resolution_comparison must be 'inclusive'")
+    if config["empty_pocket"] != "fail_and_count_denominator":
+        raise ValueError("empty_pocket must be 'fail_and_count_denominator'")
+    if config["keep_only_maps_that_pass"] is not True:
+        raise ValueError("keep_only_maps_that_pass must be true")
+    if config["keep_all_occurrences_in_passing_map"] is not True:
+        raise ValueError("keep_all_occurrences_in_passing_map must be true")
     return {
         "schema_version": FILTER_CONFIG_SCHEMA_VERSION,
-        "q_score_min": q_score_min,
+        "cc_field": str(config["cc_field"]),
+        "cc_min": cc_min,
+        "cc_comparison": "inclusive",
+        "selected_cc_null": "fail_map",
         "resolution_max": resolution_max,
-        "resolution_policy": resolution_policy,
-        "comparison": "inclusive",
+        "resolution_comparison": "inclusive",
+        "ligand_q_min": ligand_q_min,
+        "pocket_q_min": pocket_q_min,
+        "pair_q_comparison": "strict",
+        "qualified_pair_fraction_min": qualified_fraction_min,
+        "qualified_pair_fraction_comparison": "inclusive",
+        "empty_pocket": "fail_and_count_denominator",
+        "keep_only_maps_that_pass": True,
+        "keep_all_occurrences_in_passing_map": True,
     }
 
 
-def apply_filter_config(
-    quality_records: list[dict[str, Any]],
+def apply_map_filter_config(
+    pending_records: list[dict[str, Any]],
     config: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    """按显式含等号边界应用硬 Q 门和配置化 resolution exclude/flag-only。"""
-    kept: list[dict[str, Any]] = []
-    excluded: list[dict[str, Any]] = []
-    flagged: list[dict[str, Any]] = []
+    """
+    按 schema v2 先聚合 PDB/map，再以 occurrence 合格比例决定是否保留整张 map。
+
+    输入参数:
+        - pending_records: list[dict[str, Any]], analyze 已扁平化的 occurrence 级 Stage F 质量记录
+        - config: dict[str, Any], ``load_filter_config`` 返回的 schema v2 配置
+
+    输出:
+        - kept: list[dict[str, Any]], 通过 map 内全部 ``pdb_id/candidate_id`` 主键
+        - excluded_maps: list[dict[str, Any]], 未通过 map 的精简诊断
+        - map_diagnostics: list[dict[str, Any]], 每个 PDB 一行的 map 与 occurrence 判定明细
+    """
+    records_by_pdb: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for record in sorted(
-        quality_records,
-        key=lambda item: (str(item["pdb_id"]), int(item["candidate_id"])),
+        pending_records,
+        key=lambda item: (str(item["pdb_id"]).lower(), int(item["candidate_id"])),
     ):
-        q_score = float(record["q_score"])
-        resolution = float(record["map_resolution"])
-        if not np.isfinite(q_score) or not np.isfinite(resolution):
-            raise RuntimeError(f"non-finite Stage F quality record: {record}")
-        reasons: list[str] = []
-        flags: list[str] = []
-        if q_score < config["q_score_min"]:
-            reasons.append("q_score_below_min")
-        resolution_max = config["resolution_max"]
-        if resolution_max is not None and resolution > resolution_max:
-            if config["resolution_policy"] == "exclude":
-                reasons.append("resolution_above_max")
-            else:
-                flags.append("resolution_above_max")
-        key = {"pdb_id": str(record["pdb_id"]).lower(), "candidate_id": int(record["candidate_id"])}
-        if reasons:
-            excluded.append({**key, "reasons": reasons})
+        records_by_pdb[str(record["pdb_id"]).lower()].append(record)
+
+    kept: list[dict[str, Any]] = []
+    excluded_maps: list[dict[str, Any]] = []
+    map_diagnostics: list[dict[str, Any]] = []
+    for pdb_id in sorted(records_by_pdb):
+        records = records_by_pdb[pdb_id]
+        resolution_values = {float(record["map_resolution"]) for record in records}
+        if len(resolution_values) != 1 or not all(np.isfinite(value) for value in resolution_values):
+            raise RuntimeError(f"map_resolution is not one finite PDB-level value for {pdb_id}")
+        resolution = resolution_values.pop()
+
+        cc_field = config["cc_field"]
+        raw_cc_values = [record[cc_field] for record in records]
+        if any(value is None for value in raw_cc_values):
+            if not all(value is None for value in raw_cc_values):
+                raise RuntimeError(f"{cc_field} mixes null and numeric values for {pdb_id}")
+            cc_value = None
         else:
-            kept.append(key)
-            if flags:
-                flagged.append({**key, "flags": flags})
-    return kept, excluded, flagged
+            cc_values = {float(value) for value in raw_cc_values}
+            if len(cc_values) != 1 or not all(np.isfinite(value) for value in cc_values):
+                raise RuntimeError(f"{cc_field} is not one finite PDB-level value for {pdb_id}")
+            cc_value = cc_values.pop()
+
+        occurrence_diagnostics: list[dict[str, Any]] = []
+        n_pair_pass = 0
+        n_empty_pocket = 0
+        for record in records:
+            q_score = float(record["q_score"])
+            if not np.isfinite(q_score):
+                raise RuntimeError(f"q_score is not finite for {pdb_id}/{record['candidate_id']}")
+            pocket_value = record["pocket_q_score"]
+            pair_reasons: list[str] = []
+            if q_score <= config["ligand_q_min"]:
+                pair_reasons.append("ligand_q_not_strictly_above_min")
+            if pocket_value is None:
+                n_empty_pocket += 1
+                pair_reasons.append("empty_pocket")
+                pocket_q_score = None
+            else:
+                pocket_q_score = float(pocket_value)
+                if not np.isfinite(pocket_q_score):
+                    raise RuntimeError(
+                        f"pocket_q_score is not finite for {pdb_id}/{record['candidate_id']}"
+                    )
+                if pocket_q_score <= config["pocket_q_min"]:
+                    pair_reasons.append("pocket_q_not_strictly_above_min")
+            pair_pass = not pair_reasons
+            n_pair_pass += int(pair_pass)
+            occurrence_diagnostics.append(
+                {
+                    "candidate_id": int(record["candidate_id"]),
+                    "q_score": q_score,
+                    "pocket_q_score": pocket_q_score,
+                    "pocket_status": str(record["pocket_status"]),
+                    "pair_pass": pair_pass,
+                    "reasons": pair_reasons,
+                }
+            )
+
+        n_occurrences = len(records)
+        qualified_fraction = n_pair_pass / n_occurrences
+        cc_pass = cc_value is not None and cc_value >= config["cc_min"]
+        resolution_pass = resolution <= config["resolution_max"]
+        fraction_pass = qualified_fraction >= config["qualified_pair_fraction_min"]
+        map_reasons: list[str] = []
+        if cc_value is None:
+            map_reasons.append("selected_cc_unavailable")
+        elif not cc_pass:
+            map_reasons.append("selected_cc_below_min")
+        if not resolution_pass:
+            map_reasons.append("resolution_above_max")
+        if not fraction_pass:
+            map_reasons.append("qualified_pair_fraction_below_min")
+        map_pass = not map_reasons
+        diagnostic = {
+            "pdb_id": pdb_id,
+            "n_occurrences": n_occurrences,
+            "n_empty_pocket_occurrences": n_empty_pocket,
+            "cc_field": cc_field,
+            "cc_value": cc_value,
+            "cc_pass": cc_pass,
+            "map_resolution": resolution,
+            "resolution_pass": resolution_pass,
+            "n_pair_pass": n_pair_pass,
+            "qualified_fraction": qualified_fraction,
+            "qualified_fraction_pass": fraction_pass,
+            "map_pass": map_pass,
+            "reasons": map_reasons,
+            "occurrences": occurrence_diagnostics,
+        }
+        map_diagnostics.append(diagnostic)
+        if map_pass:
+            kept.extend(
+                {"pdb_id": pdb_id, "candidate_id": int(record["candidate_id"])}
+                for record in records
+            )
+        else:
+            excluded_maps.append(
+                {
+                    "pdb_id": pdb_id,
+                    "reasons": map_reasons,
+                    "n_occurrences": n_occurrences,
+                    "n_pair_pass": n_pair_pass,
+                    "qualified_fraction": qualified_fraction,
+                }
+            )
+    return kept, excluded_maps, map_diagnostics
 
 
 def run_stage_g(
@@ -283,7 +448,7 @@ def run_stage_g(
             field: _numeric_distribution([record.get(field) for record in quality_records])
             for field in _DISTRIBUTION_FIELDS
         },
-        "threshold_status": "pending_user_approved_config",
+        "threshold_status": "explicit_schema_v2_filter_config_required",
     }
     write_jsonl(analysis_dir / "candidates.pending.jsonl", pending_records)
     write_report(analysis_dir / "quality_distribution.json", distribution)
@@ -306,7 +471,7 @@ def run_stage_g(
             stage_records,
         )
         return {
-            "status": "analysis_complete_threshold_pending",
+            "status": "analysis_complete_filter_pending",
             "distribution": str((analysis_dir / "quality_distribution.json").relative_to(root)),
             "n_candidates": len(pending_records),
         }
@@ -314,7 +479,14 @@ def run_stage_g(
     if config_path is None:
         raise ValueError("mode=filter requires --config")
     config = load_filter_config(config_path)
-    kept, excluded, flagged = apply_filter_config(quality_records, config)
+    pending_pdb_ids = {str(record["pdb_id"]).lower() for record in pending_records}
+    if pending_pdb_ids != set(eligible_pdb_ids):
+        missing = sorted(set(eligible_pdb_ids).difference(pending_pdb_ids))
+        extra = sorted(pending_pdb_ids.difference(eligible_pdb_ids))
+        raise RuntimeError(
+            f"eligible maps must each contain at least one occurrence: missing={missing}, extra={extra}"
+        )
+    kept, excluded_maps, map_diagnostics = apply_map_filter_config(pending_records, config)
     filter_dir = root / "reports" / "runs" / run_id / "stage_g"
     config_sha256 = sha256_file(config_path)
     filter_manifest = hashlib.sha256(
@@ -327,16 +499,22 @@ def run_stage_g(
         "config_path": str(config_path),
         "config_sha256": config_sha256,
         "config": config,
-        "n_kept": len(kept),
-        "n_excluded_by_threshold": len(excluded),
-        "n_flagged_but_kept": len(flagged),
+        "n_input_maps": len(map_diagnostics),
+        "n_passing_maps": sum(int(item["map_pass"]) for item in map_diagnostics),
+        "n_excluded_maps": len(excluded_maps),
+        "n_input_occurrences": len(pending_records),
+        "n_kept_occurrences": len(kept),
+        "n_pair_pass_occurrences": sum(int(item["n_pair_pass"]) for item in map_diagnostics),
+        "n_empty_pocket_occurrences": sum(
+            int(item["n_empty_pocket_occurrences"]) for item in map_diagnostics
+        ),
         "n_known_failed_pdb": len(known_failures),
-        "exclusion_reason_counts": dict(
-            sorted(Counter(reason for item in excluded for reason in item["reasons"]).items())
+        "map_exclusion_reason_counts": dict(
+            sorted(Counter(reason for item in excluded_maps for reason in item["reasons"]).items())
         ),
     }
-    write_jsonl(filter_dir / "excluded.jsonl", excluded)
-    write_jsonl(filter_dir / "flagged.jsonl", flagged)
+    write_jsonl(filter_dir / "map_filter_diagnostics.jsonl", map_diagnostics)
+    write_jsonl(filter_dir / "excluded_maps.jsonl", excluded_maps)
     write_report(filter_dir / "summary.json", summary)
     # keep_list 是最终 completion marker；只在所有检查/报告成功后原子提升。
     write_jsonl(root / "keep_list.jsonl", kept)
@@ -354,7 +532,12 @@ def run_stage_g(
         else:
             stage_records.append(stage_result(pdb_id, "stage_g", StageStatus.SUCCESS))
     write_stage_results(stage_report_path(root, run_id, "stage_g", 0, 1), stage_records)
-    return {"status": "success", "n_kept": len(kept), "n_excluded": len(excluded)}
+    return {
+        "status": "success",
+        "n_passing_maps": summary["n_passing_maps"],
+        "n_excluded_maps": summary["n_excluded_maps"],
+        "n_kept_occurrences": len(kept),
+    }
 
 
 def _numeric_distribution(values: list[Any]) -> dict[str, Any]:

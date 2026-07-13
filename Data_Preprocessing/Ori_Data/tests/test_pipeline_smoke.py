@@ -314,24 +314,30 @@ def test_synthetic_pipeline_smoke_reaches_g_analysis_and_explicit_filter(tmp_pat
             [stage_result("1abc", stage, "success")],
         )
     analysis = run_stage_g(root, "smoke", mode="analyze")
-    assert analysis["status"] == "analysis_complete_threshold_pending"
+    assert analysis["status"] == "analysis_complete_filter_pending"
     assert not (root / "keep_list.jsonl").exists()
 
     config_path = root / "filter_config.json"
     config_path.write_text(
         json.dumps(
             {
-                "schema_version": 1,
-                "q_score_min": 0.0,
+                "schema_version": 2,
+                "cc_field": "cc_all_about_mean",
+                "cc_min": -1.0,
                 "resolution_max": 3.0,
-                "resolution_policy": "exclude",
-                "comparison": "inclusive",
+                "resolution_comparison": "inclusive",
+                "ligand_q_min": -1.0,
+                "pocket_q_min": -1.0,
+                "qualified_pair_fraction_min": 0.0,
+                "empty_pocket": "fail_and_count_denominator",
+                "keep_only_maps_that_pass": True,
+                "keep_all_occurrences_in_passing_map": True,
             }
         ),
         encoding="utf-8",
     )
     filtered = run_stage_g(root, "smoke", mode="filter", config_path=config_path)
-    assert filtered["n_kept"] == 1
+    assert filtered["n_kept_occurrences"] == 1
     assert read_jsonl(root / "keep_list.jsonl") == [{"candidate_id": 0, "pdb_id": "1abc"}]
 
 
