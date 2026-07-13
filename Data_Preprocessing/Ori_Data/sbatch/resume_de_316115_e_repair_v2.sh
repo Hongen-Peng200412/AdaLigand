@@ -40,10 +40,29 @@ cd "${CODE_ROOT}"
 
 # 冻结正式 D/E 输入、run-scoped 排除决定以及独立补足样本集合。
 require_sha256 "${FORMAL_STAGE_D_STATUS}" "${EXPECTED_STAGE_D_SHA}"
-require_sha256 "${FORMAL_STAGE_E_STATUS}" "${INITIAL_STAGE_E_SHA}"
+require_regular_file "${FORMAL_STAGE_E_STATUS}"
+formal_stage_e_sha="$(sha256sum "${FORMAL_STAGE_E_STATUS}" | awk '{print $1}')"
 require_sha256 "${EXCLUSIONS}" "${EXPECTED_EXCLUSIONS_SHA}"
 require_sha256 "${SUPPLEMENT_IDS}" "${EXPECTED_SUPPLEMENT_IDS_SHA}"
 [[ "$(wc -l <"${SUPPLEMENT_IDS}")" -eq 6 ]]
+
+# 首次执行必须从冻结状态起步；若 core 在正式 E 写完后重试，则只接受完整全量状态。
+if [[ "${formal_stage_e_sha}" != "${INITIAL_STAGE_E_SHA}" ]]; then
+    PYTHONPATH="${CODE_ROOT}/code" "${PYTHON}" - "${DATA_ROOT}" "${FORMAL}" <<'PY'
+from pathlib import Path
+import sys
+
+from filtering import load_stage_statuses
+from io_utils import read_jsonl
+
+root = Path(sys.argv[1])
+run_id = sys.argv[2]
+expected = {str(row["pdb_id"]).lower() for row in read_jsonl(root / "raw" / "pair_list.jsonl")}
+statuses, _ = load_stage_statuses(root, run_id, "stage_e", expected)
+if set(statuses) != expected:
+    raise RuntimeError("retry Stage E status does not cover the frozen sample universe")
+PY
+fi
 
 # marker 只能由既有 job 316415 在 6/6 strict success gate 后原子发布。
 require_regular_file "${SUPPLEMENT_RELEASE}"
@@ -61,6 +80,41 @@ grep -Fxq "gate_sha256=${supplement_gate_sha}" "${SUPPLEMENT_RELEASE}"
 grep -Eq '^completed_at=[^[:space:]]+$' "${SUPPLEMENT_RELEASE}"
 [[ "$(wc -l <"${SUPPLEMENT_RELEASE}")" -eq 7 ]]
 
+# marker 的 SHA 只是身份绑定；这里另行验证 6 个样本与 gate 的科学终态语义。
+"${PYTHON}" - "${SUPPLEMENT_IDS}" "${SUPPLEMENT_STATUS}" "${SUPPLEMENT_GATE}" "${SUPPLEMENT}" <<'PY'
+from collections import Counter
+import json
+from pathlib import Path
+import sys
+
+ids_path, status_path, gate_path = map(Path, sys.argv[1:4])
+run_id = sys.argv[4]
+expected = {line.strip().lower() for line in ids_path.read_text(encoding="utf-8").splitlines() if line.strip()}
+records = [json.loads(line) for line in status_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+actual = [str(record.get("pdb_id", "")).lower() for record in records]
+if len(records) != 6 or len(set(actual)) != 6 or set(actual) != expected:
+    raise RuntimeError("supplement Stage E status does not cover the frozen six-PDB set exactly")
+if any(record.get("stage") != "stage_e" for record in records):
+    raise RuntimeError("supplement status contains a non-Stage-E record")
+if any(record.get("status") not in {"success", "skipped"} for record in records):
+    raise RuntimeError("supplement status contains a non-success terminal state")
+
+gate = json.loads(gate_path.read_text(encoding="utf-8"))
+counts = dict(Counter(str(record["status"]) for record in records))
+expected_gate = {
+    "status": "success",
+    "run_id": run_id,
+    "gate_name": "e_supp48_release",
+    "stages": ["stage_e"],
+    "n_expected_pdb": 6,
+    "status_counts": {"stage_e": counts},
+    "known_failure_reasons": {},
+}
+for field, value in expected_gate.items():
+    if gate.get(field) != value:
+        raise RuntimeError(f"supplement gate field mismatch: {field}")
+PY
+
 # exclusion manifest 必须仍由公共加载器解释为仅覆盖本 run 的 E/F 8ckb 排除。
 PYTHONPATH="${CODE_ROOT}/code" "${PYTHON}" - "${DATA_ROOT}" "${FORMAL}" "${EXPECTED_EXCLUSIONS_SHA}" <<'PY'
 from pathlib import Path
@@ -73,9 +127,12 @@ run_id = sys.argv[2]
 expected_sha = sys.argv[3]
 for stage in ("stage_e", "stage_f"):
     records, manifest_sha = load_run_exclusions(root, run_id, stage)
-    assert set(records) == {"8ckb"}
-    assert manifest_sha == expected_sha
-    assert records["8ckb"]["downstream_policy"] == "exclude_from_training_and_inference"
+    if set(records) != {"8ckb"}:
+        raise RuntimeError(f"unexpected {stage} run exclusion set")
+    if manifest_sha != expected_sha:
+        raise RuntimeError(f"unexpected {stage} exclusion manifest SHA")
+    if records["8ckb"]["downstream_policy"] != "exclude_from_training_and_inference":
+        raise RuntimeError(f"unexpected {stage} downstream exclusion policy")
 PY
 
 # 专用分块路线未产生正式模拟密度；8ckb 将由正式 E 写为 run_policy_excluded。

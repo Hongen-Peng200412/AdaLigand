@@ -122,7 +122,12 @@ def test_de_e_resume_v2_waits_for_supplement_and_uses_run_exclusion() -> None:
     assert "21c14b03565807d5d52f59561ee771c84dd0c0042f56794f801c1ae7bd838366" in script
     assert "b586cab20644c3cc8fb1f4e0eaa7eead4cff0d496a862c2313b5e0c1847257fe" in script
     assert "load_run_exclusions" in script
-    assert 'set(records) == {"8ckb"}' in script
+    assert 'set(records) != {"8ckb"}' in script
+    assert "load_stage_statuses" in script
+    assert 'record.get("status") not in {"success", "skipped"}' in script
+    assert '"gate_name": "e_supp48_release"' in script
+    assert "supplement gate field mismatch" in script
+    assert "assert " not in script
     assert '[[ ! -e "${DATA_ROOT}/density/8ckb/sim.npz" ]]' in script
 
     assert script.count('"${PYTHON}" scripts/e_density.py') == 1
