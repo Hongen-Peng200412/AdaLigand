@@ -200,3 +200,45 @@ def test_de_e_resume_v3_consumes_cutoff_and_refreshes_formal_e_only() -> None:
     assert '--run_id "${FORMAL}"' in formal_command
     assert "--stages stage_d,stage_e" in script
     assert "--gate_name de_release" in script
+
+
+def test_f_resume_records_only_6kgx_as_run_scoped_stage_f_timeout() -> None:
+    """316116 恢复入口只能追加已取证的 6kgx F 超时，并继续 F12 全量复核。"""
+    script = (SBATCH_ROOT / "resume_f_316116_long_tail_v1.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'FORMAL_JOB="316116"' in script
+    assert "stage_f_long_tail_cutoff_20260714T2213" in script
+    assert "exclusions.stage_f.jsonl" in script
+    assert "380844d0b908b08707fada689f64b2fa4cc519f4771df92dec8b5bf0b2cd325f" in script
+    assert '"pdb_id": "6kgx"' in script
+    assert '"stages": ["stage_f"]' in script
+    assert "user_authorized_stage_f_long_tail_timeout" in script
+    assert '"downstream_policy": "exclude_from_training_and_inference"' in script
+    assert 'set(stage_e) != set(base_records)' in script
+    assert 'set(stage_f) != set(final_records)' in script
+    assert "shared Stage E/F exclusion manifest drifted after Stage E release" in script
+    assert "quality.project_occurrence_qscores/_row_matches_component" in script
+    assert '"occurrence_count": 1588' in script
+    assert '"selected_model_atom_count": 1011574' in script
+    assert "run_cmd_exit_137" in script
+    assert "VALIDATE_ONLY" in script
+    assert "APPLY_CUTOFF" in script
+    assert 'transition_mode="apply"' in script
+    assert 'transition_mode="validate"' in script
+    assert "read-only validation succeeded" in script
+    assert "remote_test_log_sha256" in script
+    assert "resume_script_sha256" in script
+    assert "run_cmd_sha256" in script
+    assert "assert " not in script
+
+    assert script.count('"${PYTHON}" scripts/f_quality.py') == 1
+    formal_start = script.index('"${PYTHON}" scripts/f_quality.py')
+    formal_end = script.index('"${PYTHON}" scripts/stage_release_gate.py', formal_start)
+    formal_command = script[formal_start:formal_end]
+    assert "--n_jobs 12" in formal_command
+    assert "--overwrite" not in formal_command
+    assert '--run_id "${FORMAL}"' in formal_command
+    assert "--stages stage_f" in script
+    assert "--gate_name f_release" in script

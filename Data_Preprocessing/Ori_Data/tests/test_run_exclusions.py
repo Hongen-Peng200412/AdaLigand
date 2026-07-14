@@ -12,7 +12,11 @@ import pytest
 CODE_ROOT = Path(__file__).resolve().parents[1] / "code"
 sys.path.insert(0, str(CODE_ROOT))
 
-from exclusions import exclusion_status_fields, load_run_exclusions
+from exclusions import (
+    STAGE_F_EXCLUSIONS_FILENAME,
+    exclusion_status_fields,
+    load_run_exclusions,
+)
 from failures import KnownFailureCode
 from io_utils import sha256_file
 
@@ -36,10 +40,16 @@ def _record() -> dict:
     }
 
 
-def _write_manifest(root: Path, run_id: str, records: list[dict]) -> Path:
+def _write_manifest(
+    root: Path,
+    run_id: str,
+    records: list[dict],
+    *,
+    filename: str = "exclusions.jsonl",
+) -> Path:
     """写测试专用 JSONL；生产代码仍只读该 manifest。"""
-    path = root / "reports" / "runs" / run_id / "exclusions.jsonl"
-    path.parent.mkdir(parents=True)
+    path = root / "reports" / "runs" / run_id / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "".join(json.dumps(record, sort_keys=True) + "\n" for record in records),
         encoding="utf-8",
@@ -95,3 +105,59 @@ def test_duplicate_pdb_id_is_rejected(tmp_path: Path) -> None:
     _write_manifest(tmp_path, "formal", [_record(), _record()])
     with pytest.raises(ValueError, match="duplicate"):
         load_run_exclusions(tmp_path, "formal", "stage_e")
+
+
+def test_stage_f_view_adds_f_only_timeout_without_changing_stage_e_identity(tmp_path: Path) -> None:
+    """F-only 长尾追加使用独立视图，已放行的 E 继续绑定共享 manifest SHA。"""
+    base_record = _record()
+    base_manifest = _write_manifest(tmp_path, "formal", [base_record])
+    f_only_record = {
+        **base_record,
+        "pdb_id": "6kgx",
+        "stages": ["stage_f"],
+        "reason": "user_authorized_stage_f_long_tail_timeout",
+        "detail": "post-MapQ projection exceeded the accepted run envelope",
+        "evidence": {"job_id": 316116, "public_quality_trio_complete": False},
+    }
+    stage_f_manifest = _write_manifest(
+        tmp_path,
+        "formal",
+        [base_record, f_only_record],
+        filename=STAGE_F_EXCLUSIONS_FILENAME,
+    )
+
+    stage_e, stage_e_digest = load_run_exclusions(tmp_path, "formal", "stage_e")
+    stage_f, stage_f_digest = load_run_exclusions(tmp_path, "formal", "stage_f")
+    assert set(stage_e) == {"8ckb"}
+    assert stage_e_digest == sha256_file(base_manifest)
+    assert set(stage_f) == {"8ckb", "6kgx"}
+    assert stage_f_digest == sha256_file(stage_f_manifest)
+
+
+@pytest.mark.parametrize("mutation", ["omit_base", "change_base", "add_stage_e"])
+def test_stage_f_view_rejects_non_additive_drift(tmp_path: Path, mutation: str) -> None:
+    """Stage F 视图不得遗漏/修改既有决策，也不得把补充项扩散回 Stage E。"""
+    base_record = _record()
+    _write_manifest(tmp_path, "formal", [base_record])
+    f_only_record = {
+        **base_record,
+        "pdb_id": "6kgx",
+        "stages": ["stage_f"],
+        "evidence": {"job_id": 316116},
+    }
+    records = [base_record, f_only_record]
+    if mutation == "omit_base":
+        records = [f_only_record]
+    elif mutation == "change_base":
+        records[0] = {**base_record, "detail": "silently changed"}
+    else:
+        records[1] = {**f_only_record, "stages": ["stage_e", "stage_f"]}
+    _write_manifest(
+        tmp_path,
+        "formal",
+        records,
+        filename=STAGE_F_EXCLUSIONS_FILENAME,
+    )
+
+    with pytest.raises(ValueError):
+        load_run_exclusions(tmp_path, "formal", "stage_f")
