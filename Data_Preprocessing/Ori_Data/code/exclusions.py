@@ -58,7 +58,12 @@ def load_run_exclusions(
         raise ValueError(f"run exclusions do not support stage: {stage}")
     run_dir = root / "reports" / "runs" / run_id
     manifest_path = run_dir / RUN_EXCLUSIONS_FILENAME
+    stage_f_path = run_dir / STAGE_F_EXCLUSIONS_FILENAME
     if not manifest_path.exists():
+        if manifest_path.is_symlink():
+            raise ValueError(f"run exclusion manifest must be a regular file: {manifest_path}")
+        if stage == "stage_f" and (stage_f_path.exists() or stage_f_path.is_symlink()):
+            raise ValueError("Stage F exclusion view requires the shared base manifest")
         return {}, None
     base_by_pdb_id = _load_manifest_records(manifest_path, run_id=run_id)
     selected = {
@@ -69,8 +74,7 @@ def load_run_exclusions(
 
     # Stage E 已完成后新增 F-only 人工超时，不能改写共享 manifest 的 SHA 并使 E provenance 失效。
     # 可选的 Stage F 视图必须完整包含且逐字段保留共享清单中的所有 F 决策，只允许追加 F-only 行。
-    stage_f_path = run_dir / STAGE_F_EXCLUSIONS_FILENAME
-    if stage == "stage_f" and stage_f_path.exists():
+    if stage == "stage_f" and (stage_f_path.exists() or stage_f_path.is_symlink()):
         stage_f_by_pdb_id = _load_manifest_records(stage_f_path, run_id=run_id)
         for pdb_id, record in stage_f_by_pdb_id.items():
             if "stage_f" not in record["stages"]:
@@ -79,6 +83,8 @@ def load_run_exclusions(
             if stage_f_by_pdb_id.get(pdb_id) != record:
                 raise ValueError(f"Stage F exclusion view changed or omitted base record: {pdb_id}")
         for pdb_id in set(stage_f_by_pdb_id).difference(selected):
+            if pdb_id in base_by_pdb_id:
+                raise ValueError(f"Stage F supplemental exclusion shadows a base record: {pdb_id}")
             if stage_f_by_pdb_id[pdb_id]["stages"] != ["stage_f"]:
                 raise ValueError(f"Stage F supplemental exclusion must be F-only: {pdb_id}")
         return stage_f_by_pdb_id, sha256_file(stage_f_path)

@@ -214,7 +214,7 @@ def test_f_resume_records_only_6kgx_as_run_scoped_stage_f_timeout() -> None:
     assert "380844d0b908b08707fada689f64b2fa4cc519f4771df92dec8b5bf0b2cd325f" in script
     assert '"pdb_id": "6kgx"' in script
     assert '"stages": ["stage_f"]' in script
-    assert "user_authorized_stage_f_long_tail_timeout" in script
+    assert "user_authorized_stage_f_engineering_long_tail_timeout" in script
     assert '"downstream_policy": "exclude_from_training_and_inference"' in script
     assert 'set(stage_e) != set(base_records)' in script
     assert 'set(stage_f) != set(final_records)' in script
@@ -229,6 +229,8 @@ def test_f_resume_records_only_6kgx_as_run_scoped_stage_f_timeout() -> None:
     assert 'transition_mode="validate"' in script
     assert "read-only validation succeeded" in script
     assert "remote_test_log_sha256" in script
+    assert '"remote_test_exit_code"' in script
+    assert "unique clean pass summary" in script
     assert "resume_script_sha256" in script
     assert "run_cmd_sha256" in script
     assert "assert " not in script

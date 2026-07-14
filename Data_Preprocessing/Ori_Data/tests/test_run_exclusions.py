@@ -115,7 +115,7 @@ def test_stage_f_view_adds_f_only_timeout_without_changing_stage_e_identity(tmp_
         **base_record,
         "pdb_id": "6kgx",
         "stages": ["stage_f"],
-        "reason": "user_authorized_stage_f_long_tail_timeout",
+        "reason": "user_authorized_stage_f_engineering_long_tail_timeout",
         "detail": "post-MapQ projection exceeded the accepted run envelope",
         "evidence": {"job_id": 316116, "public_quality_trio_complete": False},
     }
@@ -160,4 +160,44 @@ def test_stage_f_view_rejects_non_additive_drift(tmp_path: Path, mutation: str) 
     )
 
     with pytest.raises(ValueError):
+        load_run_exclusions(tmp_path, "formal", "stage_f")
+
+
+def test_stage_f_view_rejects_shadowing_an_e_only_base_record(tmp_path: Path) -> None:
+    """同一 PDB 的 E-only 基础决策不能被 Stage F 补充行换义覆盖。"""
+    e_only_record = {**_record(), "stages": ["stage_e"]}
+    f_shadow = {
+        **e_only_record,
+        "stages": ["stage_f"],
+        "reason": "different_decision",
+        "evidence": {"job_id": 316116},
+    }
+    _write_manifest(tmp_path, "formal", [e_only_record])
+    _write_manifest(
+        tmp_path,
+        "formal",
+        [f_shadow],
+        filename=STAGE_F_EXCLUSIONS_FILENAME,
+    )
+
+    with pytest.raises(ValueError, match="shadows"):
+        load_run_exclusions(tmp_path, "formal", "stage_f")
+
+
+def test_stage_f_view_without_shared_base_manifest_is_rejected(tmp_path: Path) -> None:
+    """Stage F 视图不是独立黑名单；缺少共享基础清单时必须 fail-fast。"""
+    f_only_record = {
+        **_record(),
+        "pdb_id": "6kgx",
+        "stages": ["stage_f"],
+        "evidence": {"job_id": 316116},
+    }
+    _write_manifest(
+        tmp_path,
+        "formal",
+        [f_only_record],
+        filename=STAGE_F_EXCLUSIONS_FILENAME,
+    )
+
+    with pytest.raises(ValueError, match="requires the shared base"):
         load_run_exclusions(tmp_path, "formal", "stage_f")

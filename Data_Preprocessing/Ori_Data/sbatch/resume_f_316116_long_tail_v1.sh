@@ -63,6 +63,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sys
 from uuid import uuid4
 
@@ -174,7 +175,11 @@ expected_release_fields = {
     "authorization": authorization,
     **code_sha256,
 }
-if set(release_fields) != set(expected_release_fields) | {"remote_tests", "remote_test_log_sha256"}:
+if set(release_fields) != set(expected_release_fields) | {
+    "remote_tests",
+    "remote_test_exit_code",
+    "remote_test_log_sha256",
+}:
     raise RuntimeError("Stage F cutoff release marker field set drift")
 for field, value in expected_release_fields.items():
     if release_fields.get(field) != value:
@@ -184,8 +189,15 @@ if remote_test_log.is_symlink() or not remote_test_log.is_file():
     raise RuntimeError("Stage F cutoff remote test log is missing")
 if sha256_file(remote_test_log) != release_fields["remote_test_log_sha256"]:
     raise RuntimeError("Stage F cutoff remote test log SHA mismatch")
-if release_fields["remote_tests"] not in remote_test_log.read_text(encoding="utf-8"):
-    raise RuntimeError("Stage F cutoff remote test count is absent from its log")
+remote_test_text = remote_test_log.read_text(encoding="utf-8")
+passed_summaries = re.findall(r"(?m)^(\d+) passed in [0-9.]+s$", remote_test_text)
+if (
+    release_fields["remote_test_exit_code"] != "0"
+    or len(passed_summaries) != 1
+    or release_fields["remote_tests"] != f"{passed_summaries[0]}_passed"
+    or re.search(r"(?im)(\d+ failed|\d+ error|errors during collection)", remote_test_text)
+):
+    raise RuntimeError("Stage F cutoff remote tests did not end in a unique clean pass summary")
 
 write_immutable(before_path, before_bytes, create=allow_create)
 
@@ -215,7 +227,6 @@ predecision = {
         "finding": "each present ligand slot repeatedly scanned the full selected_atom_rows list",
     },
     "raw_evidence_sha256": raw_evidence_sha256,
-    "authorization": authorization,
 }
 posttermination = {
     "schema_version": 1,
@@ -230,7 +241,6 @@ posttermination = {
     "g_job": {"job_id": 316117, "state": "PENDING", "reason": "Dependency"},
     "public_quality_trio_complete": False,
     "raw_evidence_sha256": raw_evidence_sha256,
-    "authorization": authorization,
 }
 pre_bytes = encode_json(predecision)
 post_bytes = encode_json(posttermination)
@@ -247,8 +257,8 @@ record = {
     "pdb_id": "6kgx",
     "run_id": run_id,
     "stages": ["stage_f"],
-    "reason": "user_authorized_stage_f_long_tail_timeout",
-    "detail": "6kgx exceeded the accepted Stage F resource envelope during post-MapQ occurrence Q-score projection",
+    "reason": "user_authorized_stage_f_engineering_long_tail_timeout",
+    "detail": "6kgx received a user-authorized manual timeout after post-MapQ occurrence projection became an engineering performance long tail",
     "authorization": authorization,
     "decision_scope": "current_run_only",
     "downstream_policy": "exclude_from_training_and_inference",
@@ -313,6 +323,7 @@ summary = {
     "release_marker_path": str(release_marker),
     "release_marker_sha256": sha256_file(release_marker),
     "remote_tests": release_fields["remote_tests"],
+    "remote_test_exit_code": release_fields["remote_test_exit_code"],
     "remote_test_log_sha256": release_fields["remote_test_log_sha256"],
     **code_sha256,
     "policy": "run-only Stage F timeout; keep sample in universe and status denominator",
