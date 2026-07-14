@@ -407,6 +407,8 @@ F 在读取当前 E1 和 Stage C polymer receptor token 坐标（`receptor_token
 
 Q-score 使用 native EMDB map、首 model/规范 altloc 的完整 `ATOM+HETATM` 重原子模型、MapQ 2.9.7 固定包（commit `c3bdf...`，zip SHA-256 `ee004e...fe55`）、显式 `sigma=0.4,np=8`。MapQ 输出先按原始 `_atom_site.id` join，再核对完整身份和坐标；随后用 `components.index + atom_name` 投到 LigandObject 行序。禁止按输出行序、残基遍历顺序或坐标最近邻猜测。正式 F 默认 12 个 PDB 并发，因此 MapQ 子进程上限约 96；真实 smoke 还会把 np=8 的配体/口袋子集逐 id 对照已保存的 np=1 基线，验证并行数值一致性。
 
+正式 run 可以在共享 `reports/runs/{run_id}/exclusions.jsonl` 之外提供严格的 Stage F 加法视图 `exclusions.stage_f.jsonl`。该视图只在显式存在时供 F 读取：必须逐字段保留共享 manifest 中全部适用于 F 的记录，只能追加新的 `stages=["stage_f"]` PDB，不能遮蔽已有 PDB、删改 Stage E 记录、接受孤立/损坏 symlink 或回退到空清单。共享 manifest 继续作为 Stage E 的原始 provenance；F 专用视图的 SHA 独立进入本轮状态和迁移证据。这个接口用于审计本轮阶段后置的运行策略，不改变 Q-score、CC、口袋或通用 known-failure 科学契约。
+
 固定 MapQ CLI 的 CIF 分支漏掉了 `mmcif.ReadMol` 结果的 `chimera.openModels.add`，会在 classic Chimera 1.19 中触发 `ValueError: unopen model`。适配器不修改安装目录，而是在每个 PDB 的 scratch 中生成 basename 仍为 `mapq_cmd.py` 的一次性兼容副本，只插入这一行；原始 CLI SHA、固定 zip SHA 和补丁标识 `mapq_cmd_cif_readmol_openmodels_v1` 均写入 provenance。任何上游源码 anchor 漂移会直接失败，不静默跳过补丁。
 
 口袋定义固定为：同一首 model/altloc 选择下，`group_PDB=ATOM` 的受体重原子中，到该 occurrence **任一** `present=True` 配体重原子的距离 ≤ 6.0 Å 的原子并集。它不是配体中心球，因此长条或分支配体两端的局部受体都能进入；配体自身 HETATM 不进入口袋。若某个 occurrence 的 6 Å 包络确实没有受体原子，保留该 occurrence：写 typed empty 原子/Q 数组、`pocket_n_atoms=pocket_n_valid=0`、三个 Q 聚合为 JSON `null`、`pocket_status=no_receptor_atoms_within_radius`；不得把它升级为整 PDB 失败或预先过滤。
@@ -527,6 +529,6 @@ for o in occ:
 - `raw/emdb_maps/` 是否生成取决于 `b_download.py --resources` 是否含 `map`（默认含）。Stage C 不消费 map。
 - 解析失败的 occurrence 记 `resolve_failed` 入 `reports`，**不**进主产物；严格依赖 `_atom_site.label_atom_id` 与 CCD 原子名精确对齐（无图同构兜底）。
 - 当前正式 run `adaligand_ag_20260711T154658` 的 `316115` 已于 2026-07-14 01:26:42 以 `COMPLETED 0:0` 闭合 D/E：D 为 22,339 success、3 skipped、44 known；E 为 22,309 skipped-valid、77 known，unknown、duplicate、silent missing 均为 0。E status SHA-256 为 `3a0d4148…c54c`，`de_release` success marker SHA-256 为 `ab49f43c…da6`；四条 run-only exclusion 与 2zhc frame mismatch 均按既定终态和 provenance 保留，风险分层 artifact 审计通过。
-- `316116` 已在同一时刻由原 afterok 链启动，确认复用预置 run_cmd SHA-256 `8399d571…d13` 并以 `F_N_JOBS=12` 运行。2026-07-14 04:05 已完成 944 个外层任务，874 份早期完整 `quality/{pdb_id}.jsonl + quality_atoms/{pdb_id}.npz + quality/{pdb_id}.provenance.json` 三件套的契约抽查通过；四条 exclusion 的最终 F 终态仍须在全量 F 完成后复核。`316117` 继续依赖等待且只运行 analyze，不自动执行示例阈值或写 `keep_list`。
+- `316116` 首轮推进到 22,363/22,386 后，现场证据将唯一活动工程长尾定位为 `6kgx` 的 post-MapQ occurrence 投影；它没有公开质量三件套。用户授权后，Stage E 共享 manifest 保持 SHA-256 `380844d0…325f`，Stage F 加法视图以 SHA-256 `3b10abb5…8ee8` 追加 `6kgx`，令它保留在状态分母并写 `known_failed:run_policy_excluded`，但不进入训练、推理或 G 候选。214 项本地/远端回归和只读重放通过后，`316116` 于 2026-07-14 22:46:44 复用 run_cmd SHA-256 `bd7edb94…5ffa`，以原 run id、F12、无 overwrite 恢复；全量 F 仍待最终审计。`316117` 继续依赖等待且只运行 analyze，不自动执行示例阈值或写 `keep_list`。
 - G 的唯一 map-level schema v2 算法已经锁定；最终分辨率、selected CC、配体 Q、口袋 Q 和合格比例数值仍按“先看正式分布再显式配置”。当前 DAG 只运行 analyze，不自动消费示例配置，也不冒充最终科学筛选或写 `keep_list`。
 - 历史 A–C 见 `文档/exec_plan/数据下载与解析.md`；当前长任务日志见 `文档/exec_plan/A-G数据流水线实现与全量运行.md`；规格见 `文档/规划文档/数据处理_v2.md`。
