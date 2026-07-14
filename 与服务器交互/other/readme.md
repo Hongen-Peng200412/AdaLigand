@@ -63,6 +63,16 @@ Data_Preprocessing/Ori_Data/sbatch/c.sbatch
 - 远端写入默认只允许在用户明确授权的位置进行。
 - `-InputFile` 传给远端 bash 时必须使用 LF 行尾。
 
+### SSH 主机密钥基线
+
+`penghongen@10.102.33.220:10022` 于 2026-07-15 发生过一次三种主机密钥同时变化。用户确认 endpoint、账号和密码未变，并明确授权恢复连接；三次独立 `ssh-keyscan` 观察完全一致，随后在严格主机校验下登录，并以 `master` 主机名、AdaLigand 固定目录、正式 run、Slurm Job ID 和历史时间线完成连续性核验。当前受信任指纹为：
+
+- ED25519：`SHA256:wRrXzA2Yf/RD2+C0KnLOhdpg7pVNPLo9XnCCIlNP8yg`
+- ECDSA：`SHA256:/B9db9yFvST5K4l+yW7UznZnghbtt4XGSSuhAD0dXPE`
+- RSA：`SHA256:jWyUeF87w5UXCkurG/m1vwjBTjiOS8hQb7GTVFwozJo`
+
+本机 `%USERPROFILE%\.ssh\known_hosts` 已只替换该精确 endpoint 的条目，更新后文件 SHA-256 为 `bc8a377526f81c42b7c69ab47ff3619c80191890d7fb6bba876054c3bdcbc4c4`；旧文件应保留带时间戳的同哈希备份。该记录不包含密码，也不授权未来自动接受新的密钥变化。若指纹再次变化，必须停止认证，不得使用 `StrictHostKeyChecking=no`；先备份旧 pin，再重复稳定采样、取得用户授权并核对主机/项目/Slurm 连续性。
+
 ## AdaLigand A–G 专用辅助入口
 
 - `install_adaligand_tools.sh`：在用户目录安装并验证 Chimera 1.19 OSMesa、固定 MapQ 2.9.7 与 `mrcfile`；不写系统目录。正式 manifest 位于 `/home/penghongen/.local/opt/adaligand_tools_manifest.json`。

@@ -31,7 +31,8 @@
     "2026-07-13：Stage G冻结为唯一map-level schema v2，不兼容未正式运行的occurrence v1。G直接消费F扁平字段；Q严格大于、空口袋失败且计分母，CC/resolution/fraction含等号，通过map保留全部occurrence。本地全套182项测试通过；316117仍analyze-only，示例阈值未成为生产配置。",
     "2026-07-13：Stage E长尾补足316415在用户授权截止点完成受检收口：8j07/9dp7/9qwt形成完整三件套，8glv/9e5c/9fqr与既有8ckb写入正式run-only exclusions；精确终止3个孤儿Chimera后，before/after/summary、release marker、resume v3与run_cmd形成SHA证据链。本地/远端全套207项测试及VALIDATE_ONLY预检通过，316115于21:04:43在原96核allocation启动正式无过滤E24，316116/316117继续依赖等待。",
     "2026-07-14：DE已闭合并由原DAG释放F：D为22,339 success+3 skipped+44 known，E为22,309 skipped-valid+77 known，二者unknown/duplicate/missing均为0；de_release成功。316116于01:26:42复用冻结run_cmd 8399d571…d13启动F12，早期874个PDB的quality JSONL、provenance JSON与quality_atoms NPZ三件套审计通过。",
-    "2026-07-14：F首轮推进到22,363/22,386后，现场栈将唯一活动工程长尾定位为6kgx的post-MapQ occurrence投影；用户授权本轮超时。共享Stage E manifest SHA保持380844…325f，Stage F专用加法视图SHA为3b10ab…8ee8并仅追加6kgx。专项23项、本地/远端全套214项、release与只读零漂移验证通过；316116于22:46:44在原96核allocation以原run id、F12、无overwrite恢复，316117继续依赖等待。"
+    "2026-07-14：F首轮推进到22,363/22,386后，现场栈将唯一活动工程长尾定位为6kgx的post-MapQ occurrence投影；用户授权本轮超时。共享Stage E manifest SHA保持380844…325f，Stage F专用加法视图SHA为3b10ab…8ee8并仅追加6kgx。专项23项、本地/远端全套214项、release与只读零漂移验证通过；316116于22:46:44在原96核allocation以原run id、F12、无overwrite恢复，316117继续依赖等待。",
+    "2026-07-15：监控入口发现SSH三种主机密钥同时变化；旧pin已带时间戳备份。经三次稳定采样、用户显式恢复授权以及严格登录后的主机/目录/run/Slurm连续性核验，精确更新该endpoint的known_hosts并恢复只读监控；期间未触碰远端作业或锁。316116继续正常F12，316117依赖等待。"
   ],
   "blockers": [
     "当前无科学契约决策阻塞；316116正在受检恢复F12。需等待全量F完成，复核5条run_policy_excluded的F终态与全量质量契约，再由既有依赖链进入316117的G analyze。正式G数值配置/filter仍须在质量分布后另行显式执行。"

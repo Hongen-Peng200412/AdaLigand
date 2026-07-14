@@ -135,6 +135,9 @@
 - Observation: 第一次安全同步在实际上传前因远端 SSH/rsync 会话被关闭而失败，随后轻量 helper 也短暂得到 `Connection closed`。
   Evidence: `与服务器交互/sync_code.ps1` 在步骤 1 的远端 rsync/auth 检查退出；没有发生服务器写入。按项目纪律先停止密集探测并在本地完成回归，再重试轻量连接。
 
+- Observation: 2026-07-15 的低噪声监控遇到三种 SSH 主机密钥同时变化；密码不构成服务器身份证明，因此在恢复认证前先停止连接，保留旧 pin，并取得用户对当前 endpoint 的显式恢复授权。
+  Evidence: 三次独立公开握手得到完全一致的 ED25519/ECDSA/RSA 指纹；精确更新 `known_hosts` 后只使用严格主机校验登录，随后 `master` 主机名、账号、两个固定 AdaLigand 根目录、正式 run、DAG `316114→316115→316116→316117` 及其完整 Slurm 时间线均与冻结证据连续。恢复期间没有触碰远端作业、锁或产物。
+
 - Observation: classic Chimera 1.19 的 Midas `open` 解析器使用普通 `str.split()`，不会剥离 shell 风格双引号；`open "/path"` 会把引号当作文件名字符。
   Evidence: 首轮真实 smoke 三个 E2 均报 `MidasError: No such file or directory`，而输入文件存在；安装源 `Midas/midas_text.py::doOpen` 证实该行为。适配器现对无空白服务器路径传裸绝对路径并显式拒绝空白。
 
