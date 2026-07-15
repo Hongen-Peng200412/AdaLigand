@@ -42,6 +42,29 @@ def test_full_pipeline_resource_defaults_match_cpu96_contract() -> None:
     assert "F_N_JOBS=12" in submit_script
 
 
+def test_f_supplement_uses_independent_cpu96_tail_contract() -> None:
+    """远尾补算使用独立 run/F12/冻结清单，绝不成为正式 release 写入者。"""
+    script = (SBATCH_ROOT / "f_supplement_96.sbatch").read_text(encoding="utf-8")
+
+    assert "#SBATCH --cpus-per-task=96" in script
+    assert "#SBATCH --time" not in script
+    assert '${F_N_JOBS:-12}' in script
+    assert "ADALIGAND_F_SUPPLEMENT_FORMAL_RUN_ID" in script
+    assert "ADALIGAND_F_SUPPLEMENT_IDS_SHA256" in script
+    assert "ADALIGAND_F_SUPPLEMENT_PLAN_SHA256" in script
+    assert "ADALIGAND_F_SUPPLEMENT_FORMAL_JOB_ID" in script
+    assert "ADALIGAND_F_SUPPLEMENT_FORMAL_LOG" in script
+    assert 'if [[ "${supplement_n_jobs}" != "12" ]]' in script
+    assert 'if [[ "${SLURM_CPUS_PER_TASK:-}" != "96" ]]' in script
+    assert "scripts/f_supplement_guard.py" in script
+    assert "--stop_marker" in script
+    assert 'if [[ "${supplement_exit}" -eq 75 ]]' in script
+    assert '--pdb_ids_file "${ADALIGAND_F_SUPPLEMENT_IDS_FILE}"' in script
+    assert '--run_id "${ADALIGAND_RUN_ID}"' in script
+    assert "--gate_name f_supplement_release" in script
+    assert "--gate_name f_release" not in script
+
+
 def test_de_f_g_use_cluster_unlimited_walltime_default() -> None:
     """DE/F/G 不应重新引入会截断多日正式运行的显式 walltime。"""
     for script_name in ("de_full.sbatch", "f_full.sbatch", "g_analyze.sbatch"):
