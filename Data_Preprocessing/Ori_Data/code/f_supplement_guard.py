@@ -156,17 +156,18 @@ def supervise_f_supplement(
         )
         return COLLISION_GUARD_EXIT_CODE
 
-    process = subprocess.Popen(list(command), start_new_session=True)
     previous_handlers: dict[signal.Signals, Any] = {}
+    process: subprocess.Popen[Any] | None = None
 
     def _raise_supervisor_signal(signum: int, _frame: Any) -> None:
         raise _SupervisorSignal(signum)
 
     try:
-        _write_child_pgid(child_pgid_path, process.pid)
         for current_signal in (signal.SIGTERM, signal.SIGINT):
             previous_handlers[current_signal] = signal.getsignal(current_signal)
             signal.signal(current_signal, _raise_supervisor_signal)
+        process = subprocess.Popen(list(command), start_new_session=True)
+        _write_child_pgid(child_pgid_path, process.pid)
         while True:
             try:
                 return process.wait(timeout=poll_seconds)
@@ -186,10 +187,12 @@ def supervise_f_supplement(
                 )
                 return COLLISION_GUARD_EXIT_CODE
     except _SupervisorSignal as exc:
-        _terminate_process_group(process, grace_seconds=termination_grace_seconds)
+        if process is not None:
+            _terminate_process_group(process, grace_seconds=termination_grace_seconds)
         return 128 + exc.signum
     except BaseException:
-        _terminate_process_group(process, grace_seconds=termination_grace_seconds)
+        if process is not None:
+            _terminate_process_group(process, grace_seconds=termination_grace_seconds)
         raise
     finally:
         for current_signal, previous_handler in previous_handlers.items():
