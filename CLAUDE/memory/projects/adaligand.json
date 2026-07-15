@@ -33,10 +33,13 @@
     "2026-07-14：DE已闭合并由原DAG释放F：D为22,339 success+3 skipped+44 known，E为22,309 skipped-valid+77 known，二者unknown/duplicate/missing均为0；de_release成功。316116于01:26:42复用冻结run_cmd 8399d571…d13启动F12，早期874个PDB的quality JSONL、provenance JSON与quality_atoms NPZ三件套审计通过。",
     "2026-07-14：F首轮推进到22,363/22,386后，现场栈将唯一活动工程长尾定位为6kgx的post-MapQ occurrence投影；用户授权本轮超时。共享Stage E manifest SHA保持380844…325f，Stage F专用加法视图SHA为3b10ab…8ee8并仅追加6kgx。专项23项、本地/远端全套214项、release与只读零漂移验证通过；316116于22:46:44在原96核allocation以原run id、F12、无overwrite恢复，316117继续依赖等待。",
     "2026-07-15：监控入口发现SSH三种主机密钥同时变化；旧pin已带时间戳备份。经三次稳定采样、用户显式恢复授权以及严格登录后的主机/目录/run/Slurm连续性核验，精确更新该endpoint的known_hosts并恢复只读监控；期间未触碰远端作业或锁。316116继续正常F12，316117依赖等待。",
-    "2026-07-15：用户把主用CPU扩为192并另留48作测试/备用。只读证据确认cpu分区为4×96核、Cpu96用户上限192；正式316116保留cnode04/F12×MapQ np8，独立尾段补算318350在空闲cnode01零排队启动相同F12契约，总分配恰192。补算run为adaligand_ag_20260711T154658_fsupp96_v1，冻结尾段2990项，plan/ID SHA为1d5c1217…dff4f/acacde79…cea80，正式进度17386触发碰撞停止；补算不写正式status/release，G仍只依赖正式f_release。"
+    "2026-07-15：用户把主用CPU扩为192并另留48作测试/备用。只读证据确认cpu分区为4×96核、Cpu96用户上限192；正式316116保留cnode04/F12×MapQ np8，独立尾段补算318350在空闲cnode01零排队启动相同F12契约，总分配恰192。补算run为adaligand_ag_20260711T154658_fsupp96_v1，冻结尾段2990项，plan/ID SHA为1d5c1217…dff4f/acacde79…cea80，正式进度17386触发碰撞停止；补算不写正式status/release，G仍只依赖正式f_release。",
+    "2026-07-16：发现Stage F异常路径会永久残留大型MRC/CIF，账号分配块曾以约3.47 GiB/min增长。精确kill-lock将316116/318350停在8821/22386与2426/2990；两者均保留原96核allocation、after+try锁，无F/Loky/Chimera/MapQ进程，316117继续依赖等待。异常安全attempt清理、硬中断manifest回收和额外生命周期测试提交为a9d9e30/39e5185/d4849fc。",
+    "2026-07-16：旧schema v1遗漏master上的SSH/stdin孤儿清理进程；该进程在v3 audit结束后无journal删除1497个精确transient，冻结清单预计约1.085 TiB，但受影响小证据与公开质量三件套未漂移。v3 bundle永久作废，v1/v3只保留事故证据；当前只允许v4 inventory→全新audit→全新apply链。",
+    "2026-07-16：跨节点真实进程门提交d53d190，绑定master+双allocation、argv/stdout/stderr、node/scope/job、最老时间、scan error、opaque stdin Python和canonical脚本/模块SHA；Windows全套272 passed+4 skipped，Linux全套276 passed。v4 inventory step316116.43在cnode04单task推进；另有不归属本任务的只读容量扫描PID54412会保守阻断process gate，未经授权不得信号。"
   ],
   "blockers": [
-    "当前无科学契约决策阻塞；正式316116与独立尾段补算318350正在两台CPU96节点并行运行。需等待正式F复用补算三件套并完成22,386行终态，复核5条run_policy_excluded与全量质量契约，再由既有依赖链进入316117的G analyze。正式G数值配置/filter仍须在质量分布后另行显式执行。"
+    "当前无科学契约决策阻塞，但Stage F writer处于受检scratch恢复安全停点。必须等待v4 inventory闭合，并在master/cnode04/cnode01零F/cleanup/opaque进程时分别生成audit前与apply前的新鲜schema v2 process证据；v4回收验收后按318350→316116顺序恢复。不得使用v3 bundle或终止不归属的PID54412。正式G数值配置/filter仍须在质量分布后另行显式执行。"
   ],
   "failures": [
     "2026-07-12 Stage C gate 事件：366/22,386 为 unknown_failed，涉及 43,175 occurrences、506 object_keys；这是系统性工程/契约问题，不能按小比例忽略。",
@@ -45,6 +48,7 @@
     "2026-07-12 csrc_v3联合gate安全阻断：41条均只有atom_name差异，旧receptor缺bond_index/bond_type/feat被实现误当derived差异；未写canonical C、未解锁，v3证据保留。",
     "2026-07-13 Stage E首轮DE gate阻断：19个unknown分解为15个Chimera 3600秒超时、3个`monitor changes`/`KeyError '?'`假fatal-log、1个2zhc/EMD-1470 model-map世界坐标包围盒完全分离。前18个按工程恢复；2zhc由用户授权转为通用、受检的`model_map_frame_mismatch` known failure，不猜测坐标变换。",
     "2026-07-13 Stage E长尾截止：补足作业316415到绝对截止点仍有8glv/9e5c/9fqr缺少完整公共三件套；按用户授权仅对正式run标记`run_policy_excluded`。316415以预期的FAILED 9:0收口，不是DAG依赖；三个外部Chimera孤儿进程逐一核验归属并终止，未伪造补足success或改变通用科学契约。",
-    "2026-07-14 Stage F长尾截止：6kgx在外部工具完成后因百万行模型上的occurrence投影复杂度成为唯一活动长尾，且无公开质量三件套。按用户授权仅在Stage F专用run-scoped视图记`run_policy_excluded`；样本保留在22,386宇宙和状态分母，共享Stage E manifest不变，未把一次性性能决策扩散为通用科学契约。"
+    "2026-07-14 Stage F长尾截止：6kgx在外部工具完成后因百万行模型上的occurrence投影复杂度成为唯一活动长尾，且无公开质量三件套。按用户授权仅在Stage F专用run-scoped视图记`run_policy_excluded`；样本保留在22,386宇宙和状态分母，共享Stage E manifest不变，未把一次性性能决策扩散为通用科学契约。",
+    "2026-07-16 Stage F scratch事故：旧SSH/stdin v1进程绕过只查allocation的schema v1零进程门，在无journal情况下删除1497个MRC/CIF；公开质量三件套未漂移，但v3 live-tree证据失效。新schema v2门和v4重建已启动，任何旧bundle或手填zero证据不得用于apply。"
   ]
 }
