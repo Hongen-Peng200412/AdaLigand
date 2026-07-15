@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import stat
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -18,6 +19,12 @@ from typing import Any, Iterable
 from io_utils import file_lock, read_jsonl, sha256_file, write_jsonl
 from quality import _is_quality_attempt_transient
 from reports import write_report
+from stage_f_process_audit import (
+    PROCESS_AUDIT_SCHEMA_VERSION,
+    PROCESS_PROBE_CONTRACT,
+    PROCESS_PROBE_SCHEMA_VERSION,
+    implementation_identity,
+)
 
 
 _SMALL_EVIDENCE_HASH_LIMIT = 16 * 1024 * 1024
@@ -62,12 +69,139 @@ def _validate_stopped_locks(lock_root: Path, job_ids: Iterable[int]) -> None:
                 raise RuntimeError(f"unexpected {kind} lock for job {job_id}: {path}")
 
 
+@lru_cache(maxsize=1)
+def _expected_process_probe_identity() -> dict[str, str]:
+    """返回当前 checkout 中受信 probe 入口和模块的内容身份。"""
+    script_path = Path(__file__).resolve().parents[1] / "scripts" / "stage_f_process_audit.py"
+    if not script_path.is_file() or script_path.is_symlink():
+        raise RuntimeError(f"process probe script must be a regular file: {script_path}")
+    return implementation_identity(script_path)
+
+
+def _parse_aware_time(value: Any, *, label: str) -> datetime:
+    """解析必须携带时区的证据时间。"""
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"invalid process audit timestamp for {label}: {value}") from exc
+    if parsed.tzinfo is None:
+        raise RuntimeError(f"process audit timestamp lacks timezone for {label}: {value}")
+    return parsed.astimezone(timezone.utc)
+
+
+def _validate_zero_process_check(
+    check: Any,
+    *,
+    label: str,
+    expected_node: str,
+    expected_scope: str,
+    expected_identity: dict[str, str],
+    expected_job_id: int | None = None,
+) -> None:
+    """闭合验证一个节点的零 writer、零 recovery 与零 stdin Python 证据。"""
+    if not isinstance(check, dict):
+        raise RuntimeError(f"invalid process audit check for {label}: {check}")
+    command = check.get("probe_command")
+    output = check.get("probe_output")
+    stderr = check.get("probe_stderr")
+    probe_argv = check.get("probe_argv")
+    try:
+        probe = json.loads(output) if isinstance(output, str) else None
+    except json.JSONDecodeError:
+        probe = None
+    count_fields = (
+        "active_stage_f_processes",
+        "active_inventory_or_cleanup_processes",
+        "active_opaque_stdin_python_processes",
+    )
+    process_lists = (
+        "stage_f_processes",
+        "inventory_or_cleanup_processes",
+        "opaque_stdin_python_processes",
+    )
+    command_markers = ("stage_f_process_audit.py", "probe")
+    allocation_markers = (
+        "srun",
+        f"--jobid={expected_job_id}",
+        f"--nodelist={expected_node}",
+    )
+    expected_script = (
+        Path(__file__).resolve().parents[1] / "scripts" / "stage_f_process_audit.py"
+    ).resolve()
+    try:
+        started_at = _parse_aware_time(check.get("started_at"), label=f"{label} started_at")
+        completed_at = _parse_aware_time(check.get("completed_at"), label=f"{label} completed_at")
+    except RuntimeError:
+        started_at = completed_at = datetime.min.replace(tzinfo=timezone.utc)
+    identity_matches = all(
+        check.get(key) == expected_identity[key]
+        and isinstance(probe, dict)
+        and probe.get(key) == expected_identity[key]
+        for key in ("probe_contract", "probe_script_sha256", "probe_module_sha256")
+    )
+    argv_shape_matches = (
+        isinstance(probe_argv, list)
+        and all(isinstance(item, str) and item for item in probe_argv)
+        and (
+            (expected_scope == "controller" and len(probe_argv) == 3)
+            or (
+                expected_scope == "allocation"
+                and len(probe_argv) == 10
+                and probe_argv[0] == "srun"
+            )
+        )
+        and Path(probe_argv[-3]).name.lower().startswith("python")
+        and Path(probe_argv[-2]).resolve() == expected_script
+        and probe_argv[-1] == "probe"
+    )
+    valid = (
+        isinstance(expected_node, str)
+        and bool(expected_node)
+        and check.get("scope") == expected_scope
+        and check.get("job_id") == expected_job_id
+        and check.get("node") == expected_node
+        and check.get("reported_node") == expected_node
+        and check.get("probe_exit_code") == 0
+        and started_at <= completed_at
+        and argv_shape_matches
+        and isinstance(command, str)
+        and bool(command.strip())
+        and command == shlex.join(probe_argv)
+        and all(marker in command for marker in command_markers)
+        and (
+            expected_scope != "allocation"
+            or all(marker in probe_argv for marker in allocation_markers)
+        )
+        and isinstance(output, str)
+        and isinstance(stderr, str)
+        and stderr == ""
+        and _sha256_text(command) == check.get("probe_command_sha256")
+        and _sha256_text(output) == check.get("probe_output_sha256")
+        and _sha256_text(stderr) == check.get("probe_stderr_sha256")
+        and isinstance(probe, dict)
+        and probe.get("schema_version") == PROCESS_PROBE_SCHEMA_VERSION
+        and probe.get("probe_contract") == PROCESS_PROBE_CONTRACT
+        and probe.get("node") == expected_node
+        and type(probe.get("uid")) is int
+        and int(probe["uid"]) >= 0
+        and identity_matches
+        and all(check.get(field) == 0 and probe.get(field) == 0 for field in count_fields)
+        and all(isinstance(probe.get(field), list) and not probe[field] for field in process_lists)
+        and check.get("scan_error_count") == 0
+        and probe.get("scan_error_count") == 0
+        and isinstance(probe.get("scan_errors"), list)
+        and not probe["scan_errors"]
+    )
+    if not valid:
+        raise RuntimeError(f"invalid process audit check for {label}: {check}")
+
+
 def _validate_process_audit(
     process_audit_path: Path,
     expected_sha256: str,
     job_ids: list[int],
 ) -> dict[str, Any]:
-    """验证由两个 allocation 生成的零 writer/零 inventory 结构化证据。"""
+    """验证登录节点和各 allocation 的零 writer/零 recovery 结构化证据。"""
     if not process_audit_path.is_file() or process_audit_path.is_symlink():
         raise RuntimeError(f"process audit must be a regular file: {process_audit_path}")
     payload = process_audit_path.read_bytes()
@@ -75,48 +209,83 @@ def _validate_process_audit(
         raise RuntimeError("process audit SHA-256 mismatch")
     audit = json.loads(payload.decode("utf-8"))
     job_checks = audit.get("job_checks")
+    controller_check = audit.get("controller_check")
     scheduler_snapshot = audit.get("scheduler_snapshot")
     try:
-        captured_at = datetime.fromisoformat(str(audit.get("captured_at", "")).replace("Z", "+00:00"))
-        if captured_at.tzinfo is None:
-            raise ValueError("captured_at must include timezone")
-        age_seconds = abs((datetime.now(timezone.utc) - captured_at.astimezone(timezone.utc)).total_seconds())
-    except (TypeError, ValueError):
+        capture_started_at = _parse_aware_time(
+            audit.get("capture_started_at"),
+            label="capture_started_at",
+        )
+        captured_at = _parse_aware_time(audit.get("captured_at"), label="captured_at")
+        age_seconds = (datetime.now(timezone.utc) - capture_started_at).total_seconds()
+    except RuntimeError:
+        capture_started_at = captured_at = datetime.min.replace(tzinfo=timezone.utc)
         age_seconds = float("inf")
     if (
-        audit.get("schema_version") != 1
+        audit.get("schema_version") != PROCESS_AUDIT_SCHEMA_VERSION
         or audit.get("status") != "success"
-        or age_seconds > 900
+        or not -60 <= age_seconds <= 900
         or sorted(int(item) for item in audit.get("job_ids", [])) != sorted(job_ids)
         or int(audit.get("active_stage_f_processes", -1)) != 0
         or int(audit.get("active_inventory_or_cleanup_processes", -1)) != 0
+        or int(audit.get("active_opaque_stdin_python_processes", -1)) != 0
+        or int(audit.get("scan_error_count", -1)) != 0
         or not isinstance(job_checks, dict)
+        or not isinstance(controller_check, dict)
+        or not isinstance(audit.get("controller_node"), str)
+        or not audit["controller_node"]
+        or set(job_checks) != {str(job_id) for job_id in job_ids}
+        or not isinstance(audit.get("job_nodes"), dict)
+        or set(audit["job_nodes"]) != {str(job_id) for job_id in job_ids}
+        or audit.get("scheduler_exit_code") != 0
         or not isinstance(scheduler_snapshot, str)
         or _sha256_text(scheduler_snapshot) != audit.get("scheduler_snapshot_sha256")
     ):
         raise RuntimeError(f"process audit does not prove a stopped writer set: {audit}")
+    if audit["controller_node"].split(".", 1)[0].lower() in {
+        str(node).split(".", 1)[0].lower() for node in audit["job_nodes"].values()
+    }:
+        raise RuntimeError("process audit controller overlaps an allocation node")
+    expected_identity = _expected_process_probe_identity()
+    if any(audit.get(key) != value for key, value in expected_identity.items()):
+        raise RuntimeError("process audit implementation identity mismatch")
+    controller_node = audit["controller_node"]
+    _validate_zero_process_check(
+        controller_check,
+        label="controller",
+        expected_node=controller_node,
+        expected_scope="controller",
+        expected_identity=expected_identity,
+    )
+    check_times = [
+        (
+            _parse_aware_time(controller_check["started_at"], label="controller started_at"),
+            _parse_aware_time(controller_check["completed_at"], label="controller completed_at"),
+        )
+    ]
     for job_id in job_ids:
         check = job_checks.get(str(job_id))
-        command = check.get("probe_command") if isinstance(check, dict) else None
-        output = check.get("probe_output") if isinstance(check, dict) else None
-        node = check.get("node") if isinstance(check, dict) else None
-        if (
-            not isinstance(check, dict)
-            or not isinstance(node, str)
-            or not node
-            or int(check.get("active_stage_f_processes", -1)) != 0
-            or int(check.get("active_inventory_or_cleanup_processes", -1)) != 0
-            or int(check.get("probe_exit_code", -1)) != 0
-            or not isinstance(command, str)
-            or not command.strip()
-            or not isinstance(output, str)
-            or _sha256_text(command) != check.get("probe_command_sha256")
-            or _sha256_text(output) != check.get("probe_output_sha256")
-            or f"node={node}" not in output
-            or "active_stage_f_processes=0" not in output
-            or "active_inventory_or_cleanup_processes=0" not in output
-        ):
-            raise RuntimeError(f"invalid per-job process audit for {job_id}: {check}")
+        expected_node = audit["job_nodes"].get(str(job_id))
+        _validate_zero_process_check(
+            check,
+            label=f"job {job_id}",
+            expected_node=expected_node,
+            expected_scope="allocation",
+            expected_identity=expected_identity,
+            expected_job_id=job_id,
+        )
+        check_times.append(
+            (
+                _parse_aware_time(check["started_at"], label=f"job {job_id} started_at"),
+                _parse_aware_time(check["completed_at"], label=f"job {job_id} completed_at"),
+            )
+        )
+    if (
+        capture_started_at > min(start for start, _end in check_times)
+        or max(end for _start, end in check_times) > captured_at
+        or captured_at < capture_started_at
+    ):
+        raise RuntimeError("process audit capture window is inconsistent")
     return audit
 
 

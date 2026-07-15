@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -19,12 +20,19 @@ if str(CODE_DIR) not in sys.path:
 
 from io_utils import sha256_file
 import stage_f_scratch_recovery as recovery
+from stage_f_process_audit import (
+    PROCESS_AUDIT_SCHEMA_VERSION,
+    PROCESS_PROBE_CONTRACT,
+    PROCESS_PROBE_SCHEMA_VERSION,
+    implementation_identity,
+)
 from stage_f_scratch_recovery import apply_scratch_cleanup, build_scratch_audit
 
 
 RUN_A = "formal_run"
 RUN_B = "supplement_run"
 JOB_IDS = [101, 102]
+PROCESS_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "stage_f_process_audit.py"
 
 
 def _write_public_trio(root: Path, pdb_id: str) -> dict[str, str]:
@@ -49,40 +57,102 @@ def _write_locks(lock_root: Path) -> None:
 
 
 def _write_process_audit(report_dir: Path) -> tuple[Path, str]:
-    """写结构化的零 writer/零 recovery 进程证据。"""
+    """写登录节点与两个 allocation 的零 writer/零 recovery 进程证据。"""
     path = report_dir / "process_audit.json"
     scheduler_snapshot = "316116|RUNNING|node-101\n318350|RUNNING|node-102\n"
-    job_checks = {}
-    for job_id in JOB_IDS:
-        node = f"node-{job_id}"
-        command = f"srun --jobid={job_id} ps stage-f-and-recovery"
-        output = (
-            f"node={node}\n"
-            "active_stage_f_processes=0\n"
-            "active_inventory_or_cleanup_processes=0\n"
-        )
-        job_checks[str(job_id)] = {
+    identity = implementation_identity(PROCESS_SCRIPT)
+    captured_at = datetime.now(timezone.utc).isoformat()
+
+    def process_check(
+        node: str,
+        *,
+        scope: str,
+        job_id: int | None = None,
+    ) -> dict[str, object]:
+        """构造与生产 probe JSON 完全同形的零进程节点证据。"""
+        payload = {
+            "schema_version": PROCESS_PROBE_SCHEMA_VERSION,
+            "probe_contract": PROCESS_PROBE_CONTRACT,
             "node": node,
+            "uid": 1000,
             "active_stage_f_processes": 0,
             "active_inventory_or_cleanup_processes": 0,
+            "active_opaque_stdin_python_processes": 0,
+            "scan_error_count": 0,
+            "stage_f_processes": [],
+            "inventory_or_cleanup_processes": [],
+            "opaque_stdin_python_processes": [],
+            "scan_errors": [],
+            **identity,
+        }
+        if job_id is None:
+            argv = [sys.executable, str(PROCESS_SCRIPT), "probe"]
+        else:
+            argv = [
+                "srun",
+                "--overlap",
+                f"--jobid={job_id}",
+                "--nodes=1",
+                "--ntasks=1",
+                "--cpus-per-task=1",
+                f"--nodelist={node}",
+                sys.executable,
+                str(PROCESS_SCRIPT),
+                "probe",
+            ]
+        command = shlex.join(argv)
+        output = json.dumps(payload, sort_keys=True) + "\n"
+        return {
+            "scope": scope,
+            "job_id": job_id,
+            "started_at": captured_at,
+            "completed_at": captured_at,
+            "node": node,
+            "reported_node": node,
+            "active_stage_f_processes": 0,
+            "active_inventory_or_cleanup_processes": 0,
+            "active_opaque_stdin_python_processes": 0,
+            "scan_error_count": 0,
+            **identity,
             "probe_exit_code": 0,
+            "probe_argv": argv,
             "probe_command": command,
             "probe_command_sha256": hashlib.sha256(command.encode()).hexdigest(),
             "probe_output": output,
             "probe_output_sha256": hashlib.sha256(output.encode()).hexdigest(),
+            "probe_stderr": "",
+            "probe_stderr_sha256": hashlib.sha256(b"").hexdigest(),
         }
+
+    job_checks = {}
+    for job_id in JOB_IDS:
+        node = f"node-{job_id}"
+        job_checks[str(job_id)] = process_check(
+            node,
+            scope="allocation",
+            job_id=job_id,
+        )
+    controller_check = process_check("controller", scope="controller")
     path.write_text(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": PROCESS_AUDIT_SCHEMA_VERSION,
                 "status": "success",
-                "captured_at": datetime.now(timezone.utc).isoformat(),
+                "capture_started_at": captured_at,
+                "captured_at": captured_at,
                 "job_ids": JOB_IDS,
+                "job_nodes": {str(job_id): f"node-{job_id}" for job_id in JOB_IDS},
+                "controller_node": "controller",
+                **identity,
                 "active_stage_f_processes": 0,
                 "active_inventory_or_cleanup_processes": 0,
+                "active_opaque_stdin_python_processes": 0,
+                "scan_error_count": 0,
+                "scheduler_exit_code": 0,
                 "scheduler_snapshot": scheduler_snapshot,
                 "scheduler_snapshot_sha256": hashlib.sha256(scheduler_snapshot.encode()).hexdigest(),
                 "job_checks": job_checks,
+                "controller_check": controller_check,
             },
             sort_keys=True,
         ),
@@ -262,6 +332,103 @@ def test_process_audit_recomputes_embedded_command_and_output_hashes(tmp_path: P
     fixture["process_audit"].write_text(json.dumps(payload), encoding="utf-8")
     fixture["process_audit_sha256"] = sha256_file(fixture["process_audit"])
     with pytest.raises(RuntimeError, match="process audit does not prove"):
+        _audit(fixture)
+
+
+def test_process_audit_rejects_controller_opaque_stdin_python(tmp_path: Path) -> None:
+    """登录节点遗留的 ``python -`` 即使没有脚本 token，也必须阻断 audit。"""
+    fixture = _build_fixture(tmp_path)
+    payload = json.loads(fixture["process_audit"].read_text(encoding="utf-8"))
+    check = payload["controller_check"]
+    check["active_opaque_stdin_python_processes"] = 1
+    probe = json.loads(check["probe_output"])
+    probe["active_opaque_stdin_python_processes"] = 1
+    probe["opaque_stdin_python_processes"] = [
+        {"pid": 52523, "ppid": 52118, "argv": ["python", "-"], "command": "python -"}
+    ]
+    check["probe_output"] = json.dumps(probe, sort_keys=True) + "\n"
+    check["probe_output_sha256"] = hashlib.sha256(check["probe_output"].encode()).hexdigest()
+    fixture["process_audit"].write_text(json.dumps(payload), encoding="utf-8")
+    fixture["process_audit_sha256"] = sha256_file(fixture["process_audit"])
+    with pytest.raises(RuntimeError, match="invalid process audit check for controller"):
+        _audit(fixture)
+
+
+def test_process_audit_rejects_legacy_schema_without_controller_check(tmp_path: Path) -> None:
+    """旧 schema 只探测 compute 节点，不能继续冒充完整停写证据。"""
+    fixture = _build_fixture(tmp_path)
+    payload = json.loads(fixture["process_audit"].read_text(encoding="utf-8"))
+    payload["schema_version"] = 1
+    payload.pop("controller_check")
+    payload.pop("active_opaque_stdin_python_processes")
+    fixture["process_audit"].write_text(json.dumps(payload), encoding="utf-8")
+    fixture["process_audit_sha256"] = sha256_file(fixture["process_audit"])
+    with pytest.raises(RuntimeError, match="process audit does not prove"):
+        _audit(fixture)
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    ["raw_node", "raw_count", "raw_identity", "reported_node", "scope", "stderr"],
+)
+def test_process_audit_rejects_inner_probe_tamper(tmp_path: Path, tamper: str) -> None:
+    """即使重算外层哈希，raw JSON、节点、身份和 stderr 漂移仍必须阻断。"""
+    fixture = _build_fixture(tmp_path)
+    payload = json.loads(fixture["process_audit"].read_text(encoding="utf-8"))
+    check = payload["controller_check"]
+    probe = json.loads(check["probe_output"])
+    if tamper == "raw_node":
+        probe["node"] = "other-controller"
+    elif tamper == "raw_count":
+        probe["active_stage_f_processes"] = 1
+        probe["stage_f_processes"] = [{"pid": 1}]
+    elif tamper == "raw_identity":
+        probe["probe_module_sha256"] = "f" * 64
+    elif tamper == "reported_node":
+        check["reported_node"] = "other-controller"
+    elif tamper == "scope":
+        check["scope"] = "allocation"
+    else:
+        check["probe_stderr"] = "warning\n"
+        check["probe_stderr_sha256"] = hashlib.sha256(b"warning\n").hexdigest()
+    if tamper.startswith("raw_"):
+        check["probe_output"] = json.dumps(probe, sort_keys=True) + "\n"
+        check["probe_output_sha256"] = hashlib.sha256(check["probe_output"].encode()).hexdigest()
+    fixture["process_audit"].write_text(json.dumps(payload), encoding="utf-8")
+    fixture["process_audit_sha256"] = sha256_file(fixture["process_audit"])
+    with pytest.raises(RuntimeError, match="invalid process audit check for controller"):
+        _audit(fixture)
+
+
+@pytest.mark.parametrize("tamper", ["scheduler_exit", "top_identity", "extra_job"])
+def test_process_audit_rejects_top_level_tamper(tmp_path: Path, tamper: str) -> None:
+    """顶层调度、实现身份和 job 集合也必须与节点正文闭合。"""
+    fixture = _build_fixture(tmp_path)
+    payload = json.loads(fixture["process_audit"].read_text(encoding="utf-8"))
+    if tamper == "scheduler_exit":
+        payload["scheduler_exit_code"] = 1
+    elif tamper == "top_identity":
+        payload["probe_module_sha256"] = "e" * 64
+    else:
+        payload["job_checks"]["999"] = payload["job_checks"][str(JOB_IDS[0])]
+    fixture["process_audit"].write_text(json.dumps(payload), encoding="utf-8")
+    fixture["process_audit_sha256"] = sha256_file(fixture["process_audit"])
+    message = "implementation identity mismatch" if tamper == "top_identity" else "does not prove"
+    with pytest.raises(RuntimeError, match=message):
+        _audit(fixture)
+
+
+def test_process_audit_freshness_uses_oldest_probe_start(tmp_path: Path) -> None:
+    """不能用刚写出的 captured_at 掩盖已过期的早期 allocation probe。"""
+    fixture = _build_fixture(tmp_path)
+    payload = json.loads(fixture["process_audit"].read_text(encoding="utf-8"))
+    stale = datetime(2020, 1, 1, tzinfo=timezone.utc).isoformat()
+    payload["capture_started_at"] = stale
+    payload["job_checks"][str(JOB_IDS[0])]["started_at"] = stale
+    payload["job_checks"][str(JOB_IDS[0])]["completed_at"] = stale
+    fixture["process_audit"].write_text(json.dumps(payload), encoding="utf-8")
+    fixture["process_audit_sha256"] = sha256_file(fixture["process_audit"])
+    with pytest.raises(RuntimeError, match="does not prove"):
         _audit(fixture)
 
 
