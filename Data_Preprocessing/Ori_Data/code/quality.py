@@ -9,6 +9,8 @@ from __future__ import annotations
 import gzip
 import json
 import shutil
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -67,6 +69,78 @@ CC_SEMANTICS = {
     "cc_all_about_mean": "同一实验图非零 mask 内两图分别减各自均值",
 }
 CONTOUR_SCALE_METHOD = "prod(even_input_shape_zyx)/prod(actual_output_shape_zyx)"
+_QUALITY_TRANSIENT_SUFFIXES = frozenset({".cif", ".map", ".mrc"})
+_QUALITY_ATOMIC_TEMP_MARKERS = (".cif.tmp.", ".map.tmp.", ".mrc.tmp.")
+
+
+def _is_quality_attempt_transient(path: Path) -> bool:
+    """判断文件是否为 Stage F attempt 内不应长期保留的大型中间体。"""
+    name = path.name.lower()
+    return path.suffix.lower() in _QUALITY_TRANSIENT_SUFFIXES or any(
+        marker in name for marker in _QUALITY_ATOMIC_TEMP_MARKERS
+    )
+
+
+def _cleanup_quality_attempt_transients(attempt_dir: Path) -> list[str]:
+    """
+    仅清理一个精确 Stage F attempt 内的大型 MRC/MAP/CIF 中间体。
+
+    返回值是已删除文件相对 attempt 的有序路径；小型日志、脚本和目录原样保留。
+    任一路径越界或删除失败都会显式抛错，禁止静默扩大清理范围。
+    """
+    attempt_root = attempt_dir.resolve(strict=False)
+    removed: list[str] = []
+    failures: list[str] = []
+    for path in sorted(attempt_dir.rglob("*"), key=lambda item: item.as_posix()):
+        if not (path.is_file() or path.is_symlink()) or not _is_quality_attempt_transient(path):
+            continue
+        resolved = path.resolve(strict=False)
+        if not resolved.is_relative_to(attempt_root):
+            failures.append(f"out_of_scope:{path}")
+            continue
+        try:
+            relative = path.relative_to(attempt_dir).as_posix()
+            path.unlink(missing_ok=True)
+            removed.append(relative)
+        except OSError as exc:
+            failures.append(f"unlink_failed:{path}:{type(exc).__name__}:{exc}")
+    if failures:
+        evidence_path = attempt_dir / "cleanup_errors.json"
+        try:
+            write_report(
+                evidence_path,
+                {
+                    "schema_version": 1,
+                    "attempt_dir": str(attempt_dir),
+                    "failures": failures,
+                },
+            )
+        except OSError:
+            pass
+        raise RuntimeError(f"Stage F scratch cleanup failed: {failures}")
+    return removed
+
+
+@contextmanager
+def _quality_attempt_scope(attempt_dir: Path) -> Iterator[None]:
+    """为一个精确 attempt 提供成功与异常路径一致的大文件清理边界。"""
+    primary_error: BaseException | None = None
+    try:
+        yield
+    except BaseException as exc:
+        primary_error = exc
+        raise
+    finally:
+        try:
+            _cleanup_quality_attempt_transients(attempt_dir)
+        except Exception as cleanup_error:
+            if primary_error is not None:
+                raise RuntimeError(
+                    "Stage F attempt failed and scratch cleanup also failed: "
+                    f"{type(primary_error).__name__}: {primary_error}; "
+                    f"cleanup={type(cleanup_error).__name__}: {cleanup_error}"
+                ) from primary_error
+            raise
 
 
 def _contour_provenance_from_exp(exp_arrays: dict[str, np.ndarray]) -> dict[str, Any]:
@@ -754,164 +828,158 @@ def build_quality(
     attempt_id = uuid4().hex
     scratch_dir = scratch_root / run_id / "stage_f" / pdb_id / attempt_id
     scratch_dir.mkdir(parents=True, exist_ok=False)
-    full_model_path = scratch_dir / "full_model.cif"
-    model_stats = write_normalized_model_cif(cif_path, full_model_path, atom_only=False)
-    canonical_mrc_path = scratch_dir / "canonical_exp.mrc"
-    write_canonical_mrc(
-        canonical_mrc_path,
-        MapGrid(exp["grid"][0], exp["voxel_size"], exp["origin"]),
-    )
-    full_sim_path = scratch_dir / "full_model_sim.mrc"
-    molmap_result = chimera_runner.molmap_on_grid(
-        full_model_path,
-        canonical_mrc_path,
-        full_sim_path,
-        resolution=resolution,
-        scratch_dir=scratch_dir,
-    )
-    full_sim = load_map(full_sim_path, multiply_global_origin=False)
-    full_sim_arrays = {
-        "grid": full_sim.grid[None],
-        "voxel_size": full_sim.voxel_size,
-        "origin": full_sim.origin,
-    }
-    geometry_errors = density_pair_errors(exp, full_sim_arrays, receptor_coords)
-    if geometry_errors:
-        raise ExternalToolError(ToolFailureCode.GEOMETRY_QC, str(geometry_errors))
-    contour = float(exp["contour_canonical"]) if bool(exp["contour_present"]) else None
-    cc_values, cc_result = chimera_runner.measure_correlations(
-        canonical_mrc_path,
-        full_sim_path,
-        contour=contour,
-        scratch_dir=scratch_dir,
-    )
+    with _quality_attempt_scope(scratch_dir):
+        full_model_path = scratch_dir / "full_model.cif"
+        model_stats = write_normalized_model_cif(cif_path, full_model_path, atom_only=False)
+        canonical_mrc_path = scratch_dir / "canonical_exp.mrc"
+        write_canonical_mrc(
+            canonical_mrc_path,
+            MapGrid(exp["grid"][0], exp["voxel_size"], exp["origin"]),
+        )
+        full_sim_path = scratch_dir / "full_model_sim.mrc"
+        molmap_result = chimera_runner.molmap_on_grid(
+            full_model_path,
+            canonical_mrc_path,
+            full_sim_path,
+            resolution=resolution,
+            scratch_dir=scratch_dir,
+        )
+        full_sim = load_map(full_sim_path, multiply_global_origin=False)
+        full_sim_arrays = {
+            "grid": full_sim.grid[None],
+            "voxel_size": full_sim.voxel_size,
+            "origin": full_sim.origin,
+        }
+        geometry_errors = density_pair_errors(exp, full_sim_arrays, receptor_coords)
+        if geometry_errors:
+            raise ExternalToolError(ToolFailureCode.GEOMETRY_QC, str(geometry_errors))
+        contour = float(exp["contour_canonical"]) if bool(exp["contour_present"]) else None
+        cc_values, cc_result = chimera_runner.measure_correlations(
+            canonical_mrc_path,
+            full_sim_path,
+            contour=contour,
+            scratch_dir=scratch_dir,
+        )
 
-    native_mrc_path = scratch_dir / "native.mrc"
-    with gzip.open(native_gz_path, "rb") as source, native_mrc_path.open("wb") as target:
-        shutil.copyfileobj(source, target, length=1024 * 1024)
-    load_map(native_mrc_path, multiply_global_origin=True)
-    mapq_result = mapq_runner.run(
-        native_mrc_path,
-        full_model_path,
-        resolution=resolution,
-        scratch_dir=scratch_dir,
-    )
-    qscore_arrays = project_occurrence_qscores(
-        occurrences,
-        coords_arrays,
-        ligand_objects,
-        selected_rows,
-        mapq_result.q_by_atom_site_id,
-    )
-    qscore_arrays.update(
-        compute_occurrence_pocket_qscores(
+        native_mrc_path = scratch_dir / "native.mrc"
+        with gzip.open(native_gz_path, "rb") as source, native_mrc_path.open("wb") as target:
+            shutil.copyfileobj(source, target, length=1024 * 1024)
+        load_map(native_mrc_path, multiply_global_origin=True)
+        mapq_result = mapq_runner.run(
+            native_mrc_path,
+            full_model_path,
+            resolution=resolution,
+            scratch_dir=scratch_dir,
+        )
+        qscore_arrays = project_occurrence_qscores(
             occurrences,
             coords_arrays,
+            ligand_objects,
             selected_rows,
             mapq_result.q_by_atom_site_id,
         )
-    )
-    qscore_arrays.update(
-        {
-            "schema_version": np.asarray(QUALITY_SCHEMA_VERSION, dtype=np.uint16),
-            "source_manifest_sha256": np.asarray(source_manifest),
-            "mapping_method": np.asarray("atom_site.id+full_identity+component_index+atom_name"),
-            "mapq_sigma": np.asarray(MAPQ_SIGMA, dtype=np.float32),
-            "mapq_np": np.asarray(MAPQ_NP, dtype=np.int16),
-            "pocket_radius_angstrom": np.asarray(POCKET_RADIUS_ANGSTROM, dtype=np.float32),
-            "pocket_definition": np.asarray(POCKET_DEFINITION),
+        qscore_arrays.update(
+            compute_occurrence_pocket_qscores(
+                occurrences,
+                coords_arrays,
+                selected_rows,
+                mapq_result.q_by_atom_site_id,
+            )
+        )
+        qscore_arrays.update(
+            {
+                "schema_version": np.asarray(QUALITY_SCHEMA_VERSION, dtype=np.uint16),
+                "source_manifest_sha256": np.asarray(source_manifest),
+                "mapping_method": np.asarray(
+                    "atom_site.id+full_identity+component_index+atom_name"
+                ),
+                "mapq_sigma": np.asarray(MAPQ_SIGMA, dtype=np.float32),
+                "mapq_np": np.asarray(MAPQ_NP, dtype=np.int16),
+                "pocket_radius_angstrom": np.asarray(POCKET_RADIUS_ANGSTROM, dtype=np.float32),
+                "pocket_definition": np.asarray(POCKET_DEFINITION),
+            }
+        )
+        quality_records = build_quality_records(
+            pdb_id,
+            occurrences,
+            coords_arrays,
+            qscore_arrays,
+            resolution=resolution,
+            cc_values=cc_values,
+            contour_status=str(exp["contour_status"].item()),
+        )
+        errors = quality_artifact_errors(
+            occurrences,
+            coords_arrays,
+            ligand_objects,
+            selected_rows,
+            qscore_arrays,
+            quality_records,
+            resolution=resolution,
+            contour_status=str(exp["contour_status"].item()),
+            source_manifest_sha256=source_manifest,
+        )
+        if errors:
+            raise RuntimeError(f"Stage F contract failed for {pdb_id}: {errors}")
+
+        provenance = {
+            "schema_version": QUALITY_SCHEMA_VERSION,
+            "pdb_id": pdb_id,
+            "source_manifest_sha256": source_manifest,
+            "full_model_selection": FULL_MODEL_SELECTION,
+            "normalized_model_n_atoms": model_stats["n_atoms"],
+            "pocket_qscore": {
+                "definition": POCKET_DEFINITION,
+                "radius_angstrom": POCKET_RADIUS_ANGSTROM,
+                "atom_group": "group_PDB=ATOM heavy atoms",
+                "envelope": "distance to any present ligand heavy atom <= radius",
+                "raw_arrays": "pocket_atom_site_id_{cid} + pocket_qscore_{cid}",
+            },
+            "cc_semantics": CC_SEMANTICS,
+            "cc_values": cc_values,
+            "contour": contour_provenance,
+            "chimera_version": chimera_version,
+            "mapq": {
+                "package": MAPQ_PACKAGE_NAME,
+                "commit": MAPQ_COMMIT,
+                "zip_sha256": MAPQ_ZIP_SHA256,
+                "mapq_cmd_sha256": mapq_cmd_sha256,
+                "adapter_patch": mapq_result.adapter_patch,
+                "cli_banner": mapq_result.cli_banner,
+                "sigma": MAPQ_SIGMA,
+                "np": MAPQ_NP,
+            },
+            "logs": {
+                "molmap_stdout": str(molmap_result.stdout_path.relative_to(scratch_root)),
+                "molmap_stderr": str(molmap_result.stderr_path.relative_to(scratch_root)),
+                "cc_stdout": str(cc_result.stdout_path.relative_to(scratch_root)),
+                "cc_stderr": str(cc_result.stderr_path.relative_to(scratch_root)),
+                "mapq_stdout": str(mapq_result.tool_result.stdout_path.relative_to(scratch_root)),
+                "mapq_stderr": str(mapq_result.tool_result.stderr_path.relative_to(scratch_root)),
+            },
+            "scratch": str(scratch_dir.relative_to(scratch_root)),
         }
-    )
-    quality_records = build_quality_records(
-        pdb_id,
-        occurrences,
-        coords_arrays,
-        qscore_arrays,
-        resolution=resolution,
-        cc_values=cc_values,
-        contour_status=str(exp["contour_status"].item()),
-    )
-    errors = quality_artifact_errors(
-        occurrences,
-        coords_arrays,
-        ligand_objects,
-        selected_rows,
-        qscore_arrays,
-        quality_records,
-        resolution=resolution,
-        contour_status=str(exp["contour_status"].item()),
-        source_manifest_sha256=source_manifest,
-    )
-    if errors:
-        raise RuntimeError(f"Stage F contract failed for {pdb_id}: {errors}")
+        provenance_errors = quality_provenance_errors(
+            provenance,
+            pdb_id=pdb_id,
+            source_manifest_sha256=source_manifest,
+            expected_contour=contour_provenance,
+            chimera_version=chimera_version,
+            mapq_cmd_sha256=mapq_cmd_sha256,
+        )
+        if provenance_errors:
+            raise RuntimeError(f"Stage F provenance failed for {pdb_id}: {provenance_errors}")
+        atomic_save_npz(atoms_output_path, **qscore_arrays)
+        write_jsonl(quality_output_path, quality_records)
+        write_report(provenance_path, provenance)
 
-    provenance = {
-        "schema_version": QUALITY_SCHEMA_VERSION,
-        "pdb_id": pdb_id,
-        "source_manifest_sha256": source_manifest,
-        "full_model_selection": FULL_MODEL_SELECTION,
-        "normalized_model_n_atoms": model_stats["n_atoms"],
-        "pocket_qscore": {
-            "definition": POCKET_DEFINITION,
-            "radius_angstrom": POCKET_RADIUS_ANGSTROM,
-            "atom_group": "group_PDB=ATOM heavy atoms",
-            "envelope": "distance to any present ligand heavy atom <= radius",
-            "raw_arrays": "pocket_atom_site_id_{cid} + pocket_qscore_{cid}",
-        },
-        "cc_semantics": CC_SEMANTICS,
-        "cc_values": cc_values,
-        "contour": contour_provenance,
-        "chimera_version": chimera_version,
-        "mapq": {
-            "package": MAPQ_PACKAGE_NAME,
-            "commit": MAPQ_COMMIT,
-            "zip_sha256": MAPQ_ZIP_SHA256,
-            "mapq_cmd_sha256": mapq_cmd_sha256,
-            "adapter_patch": mapq_result.adapter_patch,
-            "cli_banner": mapq_result.cli_banner,
-            "sigma": MAPQ_SIGMA,
-            "np": MAPQ_NP,
-        },
-        "logs": {
-            "molmap_stdout": str(molmap_result.stdout_path.relative_to(scratch_root)),
-            "molmap_stderr": str(molmap_result.stderr_path.relative_to(scratch_root)),
-            "cc_stdout": str(cc_result.stdout_path.relative_to(scratch_root)),
-            "cc_stderr": str(cc_result.stderr_path.relative_to(scratch_root)),
-            "mapq_stdout": str(mapq_result.tool_result.stdout_path.relative_to(scratch_root)),
-            "mapq_stderr": str(mapq_result.tool_result.stderr_path.relative_to(scratch_root)),
-        },
-        "scratch": str(scratch_dir.relative_to(scratch_root)),
-    }
-    provenance_errors = quality_provenance_errors(
-        provenance,
-        pdb_id=pdb_id,
-        source_manifest_sha256=source_manifest,
-        expected_contour=contour_provenance,
-        chimera_version=chimera_version,
-        mapq_cmd_sha256=mapq_cmd_sha256,
-    )
-    if provenance_errors:
-        raise RuntimeError(f"Stage F provenance failed for {pdb_id}: {provenance_errors}")
-    atomic_save_npz(atoms_output_path, **qscore_arrays)
-    write_jsonl(quality_output_path, quality_records)
-    write_report(provenance_path, provenance)
-
-    # 正式产物和 provenance 已原子提升；成功 attempt 只保留小型脚本/日志。
-    for temporary_path in (
-        canonical_mrc_path,
-        full_sim_path,
-        native_mrc_path,
-        full_model_path,
-        mapq_result.output_cif,
-    ):
-        temporary_path.unlink(missing_ok=True)
-    return {
-        "status": "success",
-        "quality": str(quality_output_path.relative_to(root)),
-        "quality_atoms": str(atoms_output_path.relative_to(root)),
-        "n_occurrences": len(occurrences),
-        "scratch": str(scratch_dir.relative_to(scratch_root)),
-    }
+        return {
+            "status": "success",
+            "quality": str(quality_output_path.relative_to(root)),
+            "quality_atoms": str(atoms_output_path.relative_to(root)),
+            "n_occurrences": len(occurrences),
+            "scratch": str(scratch_dir.relative_to(scratch_root)),
+        }
 
 
 def _row_matches_component(row: dict[str, str], component: dict[str, Any]) -> bool:
