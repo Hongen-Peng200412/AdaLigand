@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from exclusions import load_run_exclusions
+from f_supplement_guard import latest_formal_completed_tasks
 from filtering import load_stage_statuses
 from io_utils import atomic_replace, read_jsonl, sha256_file
 from reports import StageStatus, resolve_run_id
@@ -24,6 +25,7 @@ def create_f_supplement_plan(
     formal_run_id: str,
     supplement_run_id: str,
     evidence_dir: Path,
+    formal_log_path: Path,
     tail_count: int,
     formal_completed_upper_bound: int,
     minimum_initial_gap: int,
@@ -39,6 +41,7 @@ def create_f_supplement_plan(
         - root: Path，服务器 Ori_Data 数据根
         - formal_run_id/supplement_run_id: str，正式 run 与独立补算 run 身份
         - evidence_dir: Path，本轮只写一次的计划证据目录
+        - formal_log_path: Path，正式 316116 当前追加写入的 stderr 日志
         - tail_count: int，从 ``pair_list`` 末尾取出的原始位置数
         - formal_completed_upper_bound: int，计划时正式 joblib 已完成任务数的保守上界
         - minimum_initial_gap: int，正式进度与补算尾段起点之间的最小安全间隔
@@ -65,6 +68,17 @@ def create_f_supplement_plan(
         raise ValueError("safety gaps must be positive")
     if minimum_initial_gap <= collision_guard_tasks:
         raise ValueError("minimum_initial_gap must exceed collision_guard_tasks")
+
+    formal_log_path = formal_log_path.resolve()
+    _require_regular_file(formal_log_path, "formal Stage F stderr log")
+    formal_log_stat = formal_log_path.stat()
+    formal_completed_observed = latest_formal_completed_tasks(formal_log_path)
+    if formal_completed_observed <= 0:
+        raise RuntimeError("formal Stage F log has no current joblib progress")
+    if formal_completed_upper_bound < formal_completed_observed:
+        raise ValueError(
+            "formal_completed_upper_bound is below the observed formal progress"
+        )
 
     pair_list_path = root / "raw" / "pair_list.jsonl"
     _require_regular_file(pair_list_path, "pair_list")
@@ -162,6 +176,10 @@ def create_f_supplement_plan(
         "formal_run_id": formal_run_id,
         "supplement_run_id": supplement_run_id,
         "formal_job_id": formal_job_id,
+        "formal_log_path": str(formal_log_path),
+        "formal_log_device": formal_log_stat.st_dev,
+        "formal_log_inode": formal_log_stat.st_ino,
+        "formal_completed_observed_at_plan": formal_completed_observed,
         "pair_list_path": str(pair_list_path),
         "pair_list_sha256": pair_list_sha256,
         "universe_count": len(pdb_ids),

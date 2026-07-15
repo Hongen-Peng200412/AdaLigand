@@ -19,6 +19,14 @@ COLLISION_GUARD_EXIT_CODE = 75
 _DONE_PATTERN = re.compile(rb"Done\s+(\d+)\s+tasks")
 
 
+class _SupervisorSignal(Exception):
+    """把外层 TERM/INT 转为可执行 finally 清理的内部控制流。"""
+
+    def __init__(self, signum: int):
+        super().__init__(f"supplement supervisor received signal {signum}")
+        self.signum = signum
+
+
 def validate_supplement_guard_contract(
     plan_path: Path,
     ids_path: Path,
@@ -26,6 +34,7 @@ def validate_supplement_guard_contract(
     formal_run_id: str,
     supplement_run_id: str,
     formal_job_id: int,
+    formal_log_path: Path,
     n_jobs: int,
 ) -> dict[str, Any]:
     """交叉验证计划、冻结 ID 与实际运行环境，返回规范化计划。"""
@@ -51,6 +60,21 @@ def validate_supplement_guard_contract(
         raise RuntimeError(f"supplement plan identity drift: {drift}")
     if Path(str(plan.get("pdb_ids_path", ""))).resolve() != ids_path.resolve():
         raise RuntimeError("supplement plan points to a different PDB id file")
+    formal_log_path = formal_log_path.resolve()
+    _require_regular_file(formal_log_path, "formal Stage F stderr log")
+    if Path(str(plan.get("formal_log_path", ""))).resolve() != formal_log_path:
+        raise RuntimeError("supplement plan points to a different formal Stage F log")
+    formal_log_stat = formal_log_path.stat()
+    if plan.get("formal_log_device") != formal_log_stat.st_dev:
+        raise RuntimeError("formal Stage F log device identity drift")
+    if plan.get("formal_log_inode") != formal_log_stat.st_ino:
+        raise RuntimeError("formal Stage F log inode identity drift")
+    observed_at_plan = plan.get("formal_completed_observed_at_plan")
+    if not isinstance(observed_at_plan, int) or observed_at_plan <= 0:
+        raise ValueError("formal progress observed at plan time must be positive")
+    current_observed = latest_formal_completed_tasks(formal_log_path)
+    if current_observed <= 0:
+        raise RuntimeError("formal Stage F log lost its current joblib progress")
 
     expected_resource_contract = {
         "formal_cpu": 96,
@@ -130,24 +154,42 @@ def supervise_f_supplement(
         return COLLISION_GUARD_EXIT_CODE
 
     process = subprocess.Popen(list(command), start_new_session=True)
-    while True:
-        try:
-            return process.wait(timeout=poll_seconds)
-        except subprocess.TimeoutExpired:
-            current_done = latest_formal_completed_tasks(formal_log_path)
-            if current_done < stop_at:
-                continue
-            _terminate_process_group(process, grace_seconds=termination_grace_seconds)
-            _write_stop_marker(
-                stop_marker_path,
-                plan=plan,
-                plan_path=plan_path,
-                ids_path=ids_path,
-                formal_log_path=formal_log_path,
-                completed_tasks=current_done,
-                process_started=True,
-            )
-            return COLLISION_GUARD_EXIT_CODE
+    previous_handlers: dict[signal.Signals, Any] = {}
+
+    def _raise_supervisor_signal(signum: int, _frame: Any) -> None:
+        raise _SupervisorSignal(signum)
+
+    try:
+        for current_signal in (signal.SIGTERM, signal.SIGINT):
+            previous_handlers[current_signal] = signal.getsignal(current_signal)
+            signal.signal(current_signal, _raise_supervisor_signal)
+        while True:
+            try:
+                return process.wait(timeout=poll_seconds)
+            except subprocess.TimeoutExpired:
+                current_done = latest_formal_completed_tasks(formal_log_path)
+                if current_done < stop_at:
+                    continue
+                _terminate_process_group(process, grace_seconds=termination_grace_seconds)
+                _write_stop_marker(
+                    stop_marker_path,
+                    plan=plan,
+                    plan_path=plan_path,
+                    ids_path=ids_path,
+                    formal_log_path=formal_log_path,
+                    completed_tasks=current_done,
+                    process_started=True,
+                )
+                return COLLISION_GUARD_EXIT_CODE
+    except _SupervisorSignal as exc:
+        _terminate_process_group(process, grace_seconds=termination_grace_seconds)
+        return 128 + exc.signum
+    except BaseException:
+        _terminate_process_group(process, grace_seconds=termination_grace_seconds)
+        raise
+    finally:
+        for current_signal, previous_handler in previous_handlers.items():
+            signal.signal(current_signal, previous_handler)
 
 
 def _terminate_process_group(process: subprocess.Popen[Any], *, grace_seconds: float) -> None:

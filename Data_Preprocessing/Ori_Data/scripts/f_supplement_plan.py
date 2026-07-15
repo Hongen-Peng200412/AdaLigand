@@ -19,6 +19,7 @@ def main() -> None:
     parser.add_argument("--formal_run_id", required=True)
     parser.add_argument("--supplement_run_id", required=True)
     parser.add_argument("--evidence_dir", type=Path, required=True)
+    parser.add_argument("--formal_log", type=Path, required=True)
     parser.add_argument("--tail_count", type=int, required=True)
     parser.add_argument("--formal_completed_upper_bound", type=int, required=True)
     parser.add_argument("--minimum_initial_gap", type=int, required=True)
@@ -33,6 +34,7 @@ def main() -> None:
         formal_run_id=args.formal_run_id,
         supplement_run_id=args.supplement_run_id,
         evidence_dir=args.evidence_dir,
+        formal_log_path=args.formal_log,
         tail_count=args.tail_count,
         formal_completed_upper_bound=args.formal_completed_upper_bound,
         minimum_initial_gap=args.minimum_initial_gap,

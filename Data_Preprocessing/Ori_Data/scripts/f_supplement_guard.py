@@ -37,6 +37,7 @@ def main() -> None:
         formal_run_id=args.formal_run_id,
         supplement_run_id=args.supplement_run_id,
         formal_job_id=args.formal_job_id,
+        formal_log_path=args.formal_log,
         n_jobs=args.n_jobs,
     )
     raise SystemExit(
