@@ -1,15 +1,15 @@
 # AdaLigand BOX 级数据契约
 
-> **本文定位**：AdaLigand 把"从冷冻电镜密度图里找配体并建模"拆成多个模型训练（Stage1 Find / Stage2 Match / Stage3 Build / 预训练化学 UNet）。这些模型的训练样本统一是 **BOX 形式**。本文是「整图级产物 → 每个模型可直接训练的 BOX 级样本」之间那段**数据契约**的唯一权威：一个 BOX 到底存哪些东西、按什么来源拆分、怎么落盘、怎么挑选、怎么添油、各模型怎么对接。
+> **本文定位**：AdaLigand 把“从冷冻电镜密度图里找配体并建模”拆成 Stage1 Find、Stage1 proposal selector、Stage2 Match、Stage3 Build 与可选轻量密度 U-Net。这些模型的训练和推理产物统一通过 BOX 组织。本文是“整图级产物 → 模型可读取的 BOX 级样本”之间的数据契约唯一权威：一个 BOX 存什么、怎样共享、如何添油、怎样追溯和各模型怎样读取。
 >
 > **上下游**：
-> - **上游** = `规划文档/数据处理_v2.md`，它产出**整图级 / occurrence 级**产物（受体 token、LigandObject、per-occurrence GT 坐标与两套中心、原子标签、exp/sim/ligand_area 密度网格、质量/过滤），**到此为止，不切 BOX**。本文从这里接手。
-> - **下游** = `模型总规划_v2.md`（Stage2 预测什么/损失）、`Stage2_Stage3_迭代运算设计_讨论.md`（怎么算/算子）。它们消费本文定义的 BOX 块；数据怎么存只在本文写一遍，那两份只留指针。
-> - **产物来源** = `Stage1_Find_接缝与推理重写.md`：第 3 层 blob / 两个概率 / UNet 特征的**产法与语义**（二阶段推理、打分、二次筛选）归它；本文只管这些量**怎么存**（同一个 blob，产法写在 Stage1、存储写在本文）。
+> - **上游** = `文档/规划文档/数据处理_v2.md`，它产出**整图级 / occurrence 级**产物（受体 token、LigandObject、per-occurrence GT 坐标与两套中心、原子标签、exp/sim/ligand_area 密度网格、质量/过滤），**到此为止，不切 BOX**。本文从这里接手。
+> - **下游** = `文档/讨论/模型总规划_v2.md`（Stage2 预测什么/损失）、`文档/讨论/Stage2_Stage3_迭代运算设计_讨论.md`（怎么算/算子）。它们消费本文定义的 BOX 块；数据怎么存只在本文写一遍，那两份只留指针。
+> - **产物来源** = `文档/规划文档/Stage1训练与多阈值推理.md`：全图概率、组件森林、候选谱系组（CLG）、Global Proposal、局部物化、候选打分、反链选择与可选精修的**产法和语义**归它；本文只规定这些量**怎么存**。
 >
-> **边界**：本文只管"**盘上长什么样**"。"块怎么拼成模型张量"是 featurizer 的事（见 `迭代运算 §4`），"模型拿这些预测什么"是模型文档的事。本文不重复运算与监督细节。
+> **边界**：本文只管“**盘上长什么样**”。“块怎么拼成模型张量”见 `文档/讨论/Stage2_Stage3_迭代运算设计_讨论.md §4`；“模型拿这些预测什么”见 `文档/讨论/模型总规划_v2.md`。本文不重复运算与监督细节。
 >
-> **权威层级**：实际代码 > Hydra 配置 / checkpoint > 真实 `.npz`/`.json` 产物与日志 > 本文。字段/布局以实现为准；给出的 schema 是可照着实现的规范，不把 dtype 钉死。
+> **治理与精度**：本文规定目标逻辑 schema，包括字段语义、解码后的 shape 与逻辑 dtype。物理文件可以压缩或分片，但不能改变解码结果。若实现与本文漂移，先按 `AGENTS.md` 审计并请求回填决定，不能让代码静默覆盖契约。
 
 ---
 
@@ -17,7 +17,7 @@
 
 > 一个 BOX 不是一坨打包好的张量，而是**一个轻量身份 + 若干按来源分开、可拆卸、可添油的块**。重的东西**整图级存一次**，BOX 只是切片入口；模型在运行时拿一份**清单（配方）**，按需读到它要的块。换来源、换档位、加特征，都不动模型，也不重写老数据。
 >
-> **统一锚（贯穿全文）**：所有 box（center/bias/context/infered_box）对 blob 与 occurrence 的态度**完全一致**。每个 box 至多对应**一个 blob**，充当覆盖矩阵的一行；覆盖矩阵的**列是整张图的全部 occurrence**（Stage2 的输入：候选身份 × count）。box **不记"主锚"**，只记两件事——**枚举时**它到各 in-box occurrence 的几何距离、**推理后**它那一个 blob 对各 in-box occurrence 的覆盖。α/β/O 全由这两样 + 整图级 GT **现场派生**。
+> **统一锚（贯穿全文）**：所有 BOX 共用同一套轻量身份 schema。`center/bias/context` 只表示训练 BOX 原点来源；blob 只来自全图推理并只属于 `infered_box`。一个 `clg_group_parent` 角色的 `infered_box` 对应一个 CLG，框内可以有多个 Global Proposal Candidate；Stage2/3 的正式候选行是反链选择后的 Global Proposal，而不是 BOX 本身。局部重跑的 mask 只作辅助观察，不能替换全图候选身份。
 
 ---
 
@@ -28,15 +28,15 @@
 | 层 | 名称 | 粒度 | 何时产生 | 可变性 | 装什么 |
 |---|---|---|---|---|---|
 | **1** | 整图级落盘 | per-PDB | 数据处理阶段（慢、贵） | 固定 | exp/sim 密度、49 维受体特征、ligand_area mask + 两套质心、binding/instance 原子标签、LigandObject、per-occurrence GT 坐标 |
-| **2** | BOX 描述子 | per-BOX（极小） | 枚举 BOX 时 | 冻结 | `pdb_id, box_type, box_id, origin, shape_zyx, voxel_size, source/provenance, occ_distances(稀疏)` |
-| **3** | per-BOX 添油 | per-BOX，按 `(box_type, box_id)` keyed | Stage1 推理后 / 任意时刻 | **只增不改** | blob（mask + `scores` 套打分 + 对各 in-box occurrence 的覆盖 + 逐配体原子覆盖 + provenance）、ligand-area 内 UNet 特征 + 概率、逐受体原子 binding 概率（受体上下文）、其余落盘特征与未来任意派生特征等等 |
+| **2** | BOX 描述子 | per-BOX（极小） | 枚举或物化 BOX 时 | 冻结 | 通用几何身份；`infered_box` 额外记录 materialization role、proposal run、CLG 和来源节点 |
+| **3** | per-BOX 添油 | 仅需要添油的 BOX，按稳定 ID keyed | Stage1 整图推理后 / 任意时刻 | **只增不改** | proposal/CLG 表、Group-parent 共享 voxel/P/receptor 表、候选行索引、GT overlap、selector score、selection result、可选 refinement 与密度 U-Net 特征 |
 | **4** | 现场算 | per-BOX，运行时 | dataset `__getitem__` | 瞬时 | 56 维辅助密度通道、diff、O-distance、覆盖矩阵装配、materialize 扰动 |
 
 **为什么这么分**：
 
-- 慢且固定的东西（第 1 层）**整图算一次、切片复用**，避免把同一份密度拷进上百万个 BOX 文件。
-- BOX 身份（第 2 层）小、冻结，是一切的索引锚。
-- 只有 Stage1 跑完才存在、且 per-BOX 不可共享的东西（第 3 层 blob）单独添油，**加它不重写 BOX**。
+- 慢且固定的东西（第 1 层）**每个 PDB 整图算并存一次、现场切片复用**，避免把同一份密度、标签和受体拷进上百万个 80³ BOX 文件。这是避免物化重复大数组，**不是对 BOX 的空间位置或体素内容去重**。
+- BOX 身份（第 2 层）小、冻结，是一切的索引锚；空间重合的两条采样记录也可以同时存在。
+- 只有 Stage1 整图推理后才存在的第 3 层量只为 `infered_box` 添油。基础 proposal、不同 selector checkpoint、不同 selection 参数和 refinement 各自写独立 addon，不能原地覆盖。
 - 便宜的派生量（第 4 层）现场算，省盘、留灵活。
 
 **对接概览**（详见 §8）：Stage1 切第 1 层；Stage2 用第 2 层 + 第 3 层；Stage3 用第 2 层几何 + 第 3 层 blob 的 prompt 点；UNet 吃第 1 层密度、其特征按 box 落第 3 层。
@@ -97,10 +97,16 @@
   "pdb_id": "7abc",
   "box_type": "center",              // 开放字符串，见 §3.3
   "box_id": 17,                       // (pdb_id, box_type) 内唯一
-  "origin": [x, y, z],               // 世界坐标 Å
+  "box_start_zyx": [z0, y0, x0],     // 完整网格中的整数起点
+  "origin_xyz": [x, y, z],           // 世界坐标 Å
   "shape_zyx": [80, 80, 80],
-  "voxel_size": [1.0, 1.0, 1.0],
+  "voxel_size_xyz": [1.0, 1.0, 1.0],
   "provenance": "...",               // bias 实际偏移向量 / context 随机种子 / infered_box 来自哪次全图推理 + 阈值
+  "materialization_role": null,       // infered_box 才使用，见下文
+  "proposal_run_id": null,
+  "clg_id": -1,
+  "source_tree_id": -1,
+  "source_node_id": -1,
   "occ_distances": [                  // 稀疏：到各 in-box occurrence 的距离，见 §3.2
     {"cid": 3, "dist": 1.2},
     {"cid": 5, "dist": 31.7}
@@ -110,10 +116,26 @@
 ```
 
 - **`box_id` 在 `(pdb_id, box_type)` 内唯一**：每个 box_type 的枚举器各自从 0 起编号，互不协调；寻址用 `(box_type, box_id)`（第 3 层添油同此 key，§4.1）。
+- `box_start_zyx: int32[3]` 使全图 voxel index 与 BOX 局部 index 能精确互换。`origin_xyz: float32[3]` 严格定义为 BOX 局部 voxel `[0,0,0]` 的**中心**世界坐标；底层文件若使用 voxel 外角，数据适配层必须先转换。
+- `shape_zyx: uint16[3]` 第一版固定为 `(80,80,80)`；`voxel_size_xyz: float32[3]` 与完整图一致。
+- `infered_box` 的 `materialization_role` 取 `clg_group_parent`、`f1_baseline` 或 `selected_final`。其它 box_type 为 null。
+- 所有 `infered_box` 都必须有 `proposal_run_id`。`clg_group_parent` 必须有 `clg_id`；`f1_baseline/selected_final` 还必须有 `source_tree_id + source_node_id`。不适用的整数 ID 用 `-1`，不能省略后让消费方猜测。
+
+坐标转换唯一规定为：BOX 局部索引 `[z,y,x]` 的中心世界坐标是：
+
+```text
+world_xyz = origin_xyz + voxel_size_xyz * [x, y, z]
+```
+
+完整图使用同一定义，所以：
+
+```text
+origin_xyz = full_grid_origin_xyz + voxel_size_xyz * [box_start_x, box_start_y, box_start_z]
+```
 
 ### 3.2 occ_distances 与 in-box 判定（没有"主锚"）
 
-- **`occ_distances`**：稀疏 `{cid: dist}`，`dist = ||box 中心 − centroid_atom_{cid}||`（box 中心 = origin + shape/2）。只记 **in-box** 的 occurrence。
+- **`occ_distances`**：稀疏 `{cid: dist}`，`dist = ||box 中心 − centroid_atom_{cid}||`。BOX 几何中心使用 voxel 中心约定：`origin_xyz + voxel_size_xyz * ([W,H,D]-1)/2`。只记 **in-box** 的 occurrence。
 - **in-box 判定 = `centroid_atom_{cid}` 落在 box 体积内**（用重原子中心，不用 mask 相交——保持口径最小、不过度扩展）。
 - 用途：(1) 纯受体档 **距离-O** 的几何原料（`O_dist = 1[dist < ρ]`，ρ 训练期定、不烤进盘）；(2) 圈定该 box 的"相关 occurrence 范围"，给第 3 层覆盖与矩阵装配（§6）当列范围。
 
@@ -122,10 +144,11 @@
 ### 3.3 box_type 是开放枚举 + box_index 选择表
 
 - `box_type` 是**开放字符串字段**。当前集合 = `{center, bias, context, infered_box}`（语义见 §9），**未来可加新类型**。
-- 全量描述子拼成一张 **`box_index`** 表（`pdb_id, box_type, box_id, origin, shape, addons, ...`）。
-- **挑选 = 查表**：要"只挑 context"就 `filter(box_type=="context")`；要"只挑有 blob 添油的 bias"就再叠条件。按任意维度都能挑。
+- 当前整图推理 BOX 名称固定为 **`infered_box`**；新契约不引入其它拼写或兼容别名。
+- 全量描述子拼成一张 **`box_index`** 表（`pdb_id, box_type, box_id, box_start_zyx, origin_xyz, shape_zyx, materialization_role, proposal_run_id, clg_id, source_tree_id, source_node_id, addons, ...`）。
+- **挑选 = 查表**：要“只挑 context”就 `filter(box_type=="context")`；要 blob 条件样本就选择拥有对应添油的 `infered_box`。按任意维度都能挑。
 - **描述子层不分文件夹**；选择灵活性交给索引字段，不交给目录结构。
-- **空间查询**：给定一个 3D 坐标或区域，通过 origin/shape 找到所有覆盖该位置的 BOX（filter/match by `origin/shape` + BOX 身份）。
+- **空间查询**：给定一个 3D 坐标或区域，通过 `box_start_zyx/shape_zyx` 或 `origin_xyz/voxel_size_xyz` 找到所有覆盖该位置的 BOX。
 
 ---
 
@@ -145,116 +168,262 @@ addons/{addon_name}/{pdb_id}.npz      # 装该 PDB 所有 BOX 在该添油上的
 - **加新特征 = 新建 `addons/{新名}/` 目录**，老添油一字节不动。
 - 寻址用 **`(box_type, box_id)`**（§3.1）。
 
-### 4.2 blob（Stage1 推理产出，喂 Stage2 的关键料）
+### 4.2 proposal run、CLG 与 Global Proposal
 
-**每个 box 至多一个 blob**，充当覆盖矩阵的一行。**产法与语义归 `Stage1_Find_接缝与推理重写.md`**，本节只管存储：
+blob 只来自完整全图概率图。一个 `clg_group_parent` BOX 对应一个 **候选谱系组（Candidate Lineage Group, CLG）**，组内有 `N` 个 **Global Proposal Candidate**。候选 mask 永远指第一次全图组件森林中的节点；Group-parent 局部重跑只补特征和局部形状观察。
 
-- **box 级推理（冻结 box）**：一个冻结 box（center/bias/context）跑 Stage1，可能出多个 blob → 取 **mask 体素中心离 box 中心最近**的那一个，其余忽略（邻近 occurrence 由它们自己的 box 负责）。
-- **全图划窗推理（infered_box，两阶段）**：pass-1 全图滑窗定位 blob → pass-2 以每个 blob 中心重裁 box 再推一遍 → **落盘 pass-2（近似中心化）的 blob**（详见 `Stage1 §3.2`、本文 §9.1）。天生一框一 blob，不涉挑选。
-- **不删、过量保存**：两个 pass 后**只存不删**，比"最优 F1 截取数目"存更多，只用很松的 recall-first 下限丢明显垃圾；每 blob 附 `scores`（下）。**"用哪些 blob"是消费侧的事**（`迭代运算 §4` featurizer 选择旋钮），不在存储层决定——这是"怎么存 / 用哪些"两个独立问题的落地。
-- **没有 blob 的 box 不进训练**（直接丢，不留空行）。
+#### 4.2.1 proposal run manifest（per-PDB、per-run）
 
-字段：
+每次 Stage1 全图推理先保存一份不隶属于某个 BOX 的 manifest：
 
-| 字段 | 形式 | 说明 |
+| 字段 | shape / 逻辑 dtype | 说明 |
 |---|---|---|
-| `blob_mask` | ragged 体素 mask（COO/offset） | pass-2 产的 blob 体素集；**不在存储层硬过滤/删除**，保留供下游按 `scores` 自选 |
-| `blob_voxels` | int | `|b|`，供覆盖派生 |
-| `prompt_point` | `[3] float` | blob 的 ligand-area 体素质心 → 交 Stage3 |
-| `scores` | dict `{name: float}`（**可扩展命名集，只增不改**） | **套打分**：老的粗预测置信分（必存，老代码用来排序、被"最优 F1"切的那个）+ "最优 F1 截取参考值" + 将来迷你网分数**并列**。每个打分器产一个条目，下游 featurizer 按名选阈截取（`Stage1 §4`） |
-| `provenance` | dict | Stage1 checkpoint、阈值、pass-1/pass-2 参数 |
+| `schema_version` | scalar `uint16` | 本 proposal 产物的 schema 版本 |
+| `proposal_run_id` | string | checkpoint、滑窗融合、阈值和 CLG 配置的联合稳定身份 |
+| `pdb_id` | string | PDB 身份 |
+| `stage1_checkpoint_sha256` | string | checkpoint 内容哈希 |
+| `full_grid_shape_zyx` | `[3] int32` | 完整概率图形状 |
+| `full_grid_origin_xyz` | `[3] float32` | 完整网格 voxel `[0,0,0]` 的中心世界坐标 |
+| `voxel_size_xyz` | `[3] float32` | 完整网格 voxel size |
+| `threshold_value` | `[T] float32` | 物理阈值，严格按高到低排列，`T<255` |
+| `alpha_value` | `[A] float32` | calibration 使用的全部 alpha |
+| `alpha_to_threshold_rank` | `[A] uint8` | 每个 alpha 对应的物理阈值位次；重复阈值可映射同一 rank |
+| `connectivity` | scalar `uint8` | 固定为 26 |
+| `proposal_config` | JSON | 体素上下界、空间 fit、split/merge 深度、CLG 上限等完整配置 |
+| `component_tree_asset_ref` | string + hash | 原始组件森林审计表引用 |
+| `probability_asset_ref` | string + hash 或 null | 可选完整概率缓存引用；读取 BOX 不依赖它 |
 
-### 4.3 coverage + 逐配体原子覆盖（稀疏，落 blob 时顺手算）
+阈值 rank 的重建规则固定为：`threshold_value[0]` 最高；局部 `threshold_rank_map <= r` 恰好得到第 `r` 个阈值下的前景。
 
-落 blob 的同时，算这个 blob 对**各 occurrence** 的覆盖，**稀疏落盘**（只存有交的条目；有任何原子在 BOX 内即算 in-box，无交集的 coverage=0 省略不存）：
+#### 4.2.2 CLG 候选表
 
-```
-coverage = [ {cid, inter_voxels}, ... ]   # inter_voxels = |blob ∩ occurrence GT mask|
-```
+设：
+
+- `N`：本 CLG 可供 selector 评分的候选数；
+- `N_seed`：原始种子与类种子姐妹数量。
+
+每个 `clg_group_parent` BOX 保存：
+
+| 字段 | shape / 逻辑 dtype | 说明 |
+|---|---|---|
+| `clg_id` | scalar `int32` | proposal run 内唯一 |
+| `tree_id` | scalar `int32` | 所属组件树 |
+| `group_parent_node_id` | scalar `int32` | CLG 唯一 Group-parent Node |
+| `group_parent_candidate_row` | scalar `int16` | Group-parent 在候选表中的行号 |
+| `candidate_node_id` | `[N] int32` | 每行对应的原始全图组件树节点 |
+| `candidate_tree_parent_node_id` | `[N] int32` | 原始树直接父节点，可不在本 CLG 内；树根为 `-1` |
+| `candidate_threshold_rank` | `[N] uint8` | Global Proposal 所在物理阈值位次 |
+| `seed_candidate_row` | `[N_seed] int16` | 原种子和类种子姐妹的候选行号 |
+| `lca_distance_from_i` | `[N,N] uint8` | 有序对 `(i,j)` 中，`i` 到两者 LCA 的边数 |
+| `lca_distance_from_j` | `[N,N] uint8` | `j` 到同一 LCA 的边数 |
+
+LCA 距离沿完整原始树计算，即使路径经过没有物化的不可选节点也要计数。由两张距离矩阵可推导祖先、子孙、姐妹、其它分支、阈值差和反链冲突，不重复保存关系枚举表。
+
+`N` 只包含可供 selector 评分的候选。因体素上下界、触边或 80³ fit 失败而不可选择的节点留在组件树审计表中。
+
+#### 4.2.3 Group-parent voxel 共享表
+
+设 `K_v` 为 Group-parent Global Proposal Mask 的体素数，`L_v` 为所有候选 voxel 行索引拼接后的总长度：
+
+| 字段 | shape / 逻辑 dtype | 说明 |
+|---|---|---|
+| `parent_voxel_index_local_zyx` | `[K_v,3] int16` | Group-parent Mask 的 BOX 局部体素索引；字典序排序、唯一 |
+| `parent_voxel_global_probability` | `[K_v] float32` | 第一次全图概率在这些体素上的值 |
+| `candidate_voxel_offset` | `[N+1] int64` | ragged offset |
+| `candidate_voxel_row` | `[L_v] int32` | 每个 Global Proposal Mask 在父 voxel 表中的行号 |
+| `threshold_rank_map` | `[80,80,80] uint8` | Group-parent 局部重跑的多阈值形状；255 表示所有阈值下均为背景 |
+| `voxel_feat__{source_name}` | `[K_v,C_{v,s}] float16` | 局部重跑产生的已命名多尺度 voxel 特征 |
+
+必须区分：
+
+- `candidate_voxel_row` 是 Global Proposal Mask，决定 selector 标签、打分和 Stage2/3 默认 blob。
+- `threshold_rank_map` 是 Group-parent 局部观察，只作输入信息，不产生新候选。
+
+可确定性派生而不重复落盘的量包括：候选 voxel 数、局部/全图 mask、bbox、质心、`prompt_point`、全图概率 mean/max、`rank_at_parent_voxel`、候选 rank histogram 和局部体积变化曲线。
+
+#### 4.2.4 F1 baseline
+
+F1 居中基线使用同一 schema，`materialization_role=f1_baseline`，`clg_id=-1`，`N=1`；`proposal_run_id + source_tree_id + source_node_id` 唯一指向该 F1 Global Proposal Node。它不另造“基线 blob”字段。
+
+### 4.3 Global Proposal × GT overlap（稀疏）
+
+对 CLG 内每个 Global Proposal Candidate，计算它与同一 PDB 各 GT occurrence mask 的非零交集。所有量都以全图 Global Proposal Mask 为准，不使用局部重跑形状或 Refined Mask。
+
+设 `E` 为非零 candidate-occurrence 记录数：
+
+| 字段 | shape / 逻辑 dtype | 说明 |
+|---|---|---|
+| `candidate_occ_offset` | `[N+1] int64` | 每个候选的非零 GT 相交记录区间 |
+| `overlap_occurrence_id` | `[E] int32` | GT occurrence 身份 |
+| `overlap_intersection_voxels` | `[E] int32` | Global Proposal 与该 GT mask 的交集体素数 |
+| `atom_coverage_offset` | `[E+1] int64` | 每条 candidate-occurrence 记录的原子覆盖区间 |
+| `atom_coverage_value` | `[L_atom] bool` | 对齐对应 LigandObject 原子行；缺失原子固定为 false |
 
 派生关系（不另存）：
 
 - `α = inter_voxels / |g|`（recall，`|g|` 来自 `mask_{cid}`）
-- `β = inter_voxels / |b|`（precision，`|b| = blob_voxels`）
+- `β = inter_voxels / |b|`（precision，`|b|` 由 `candidate_voxel_offset` 相邻差得到）
 - `O_IoU = inter_voxels / (|b| + |g| − inter_voxels)`（密度档对称分类目标）
 - `O_dist = 1[ dist(box 中心, centroid_atom_{cid}) < ρ ]`（纯受体档；由 §3.2 `occ_distances` 现推，不入此表）
 
-> 离线一次性算（blob 出生时），稀疏存（一个 blob 通常压 1 条，merge 时 2+ 条）。这是 Stage2 覆盖监督的数据根。
+由上述 overlap 与第 1 层 GT mask 体积还可派生 selector 软标签 `q_i=max_j IoU(GlobalProposal_i,GT_j)`、最佳 occurrence 与任意 `theta_valid` 下的硬标签。硬标签不落基础契约，因为 `theta_valid` 是训练配置。
 
 **逐配体原子覆盖**（细分支 recall 辅助监督 of 标签）：
 
-落 blob 时同时算它对各 occurrence 的**逐配体原子覆盖**——即该 occurrence 每个 present 重原子的体素是否落在 blob mask 内，**稀疏落盘**（只存有交 occurrence 的条目）：
+- **定义（生产方写一遍）**：`covered[a] = 1[ world_to_voxel(coords_{cid}[a]) ∈ GlobalProposalMask ]`，仅对 `present_{cid}[a]` 为真的原子有效，缺失原子恒 0。
+- **用途**：`文档/讨论/Stage2_Stage3_迭代运算设计_讨论.md §12` 的“逐配体原子覆盖辅助”标签；下游只保留指针，不重写定义。
+- 该表既保持旧 Stage2 coverage/逐原子监督可追溯，也避免 selector 训练反复做大规模 voxel 集合求交。
 
+### 4.4 Group-parent 的 P 与 receptor 共享表
+
+Group-parent 局部重跑只保存一份 P token 表和一份 parent pocket receptor 表；候选通过 ragged 行索引取得自己的视图。
+
+#### 4.4.1 P token 表
+
+设 `N_P` 为 P token 数，`L_P` 为全部候选 P 行索引拼接长度：
+
+| 字段 | shape / 逻辑 dtype | 说明 |
+|---|---|---|
+| `p_pos_box_xyz` | `[N_P,3] float32` | 相对 BOX 原点的 Å 坐标 |
+| `p_probability` | `[N_P] float32` | 已冻结语义的 P-head ligand-area 概率 |
+| `p_feat__{source_name}` | `[N_P,C_{P,s}] float16` | 已命名多尺度 P 特征 |
+| `candidate_p_offset` | `[N+1] int64` | ragged offset |
+| `candidate_p_row` | `[L_P] int32` | 每个 Global Proposal 对应的 P 行索引 |
+| `p_membership_rule_id` | string | 回指确定性的候选—P 空间归属规则及参数 |
+
+P probability 必须在 feature manifest 中说明来自哪个 head，不能保留“base 或 P head 待猜”的语义。
+
+#### 4.4.2 Group-parent pocket receptor 表
+
+设 `R` 为 parent pocket 原子数，`L_R` 为全部候选 receptor 行索引拼接长度：
+
+| 字段 | shape / 逻辑 dtype | 说明 |
+|---|---|---|
+| `receptor_atom_global_index` | `[R] int32` | 在第 1 层完整 receptor table 中的行号 |
+| `receptor_binding_probability` | `[R] float32` | Group-parent 局部重跑的受体 binding 概率 |
+| `receptor_feat__{source_name}` | `[R,C_{R,s}] float16` | 已命名多尺度 receptor 特征 |
+| `candidate_receptor_offset` | `[N+1] int64` | ragged offset |
+| `candidate_receptor_row` | `[L_R] int32` | 各候选自己的 pocket 原子在 parent 表中的行号 |
+| `pocket_radius_angstrom` | scalar `float32` | 本产物实际使用的包络半径 |
+
+受体坐标、49 维特征、元素/残基和键表由 `receptor_atom_global_index` 回到第 1 层获取，不重复保存。空 P 或空 receptor 子集由相邻 offset 相等表示；不在磁盘写伪 token。
+
+#### 4.4.3 feature-source manifest
+
+所有 `voxel_feat__*`、`p_feat__*`、`receptor_feat__*` 都必须有来源清单：
+
+| 字段 | 说明 |
+|---|---|
+| `source_name` | 稳定字段名，例如 `voxel_feat__decoder_pre_head` |
+| `entity` | `voxel`、`p_token` 或 `receptor_atom` |
+| `producer_module` | 精确到模块出口的来源 |
+| `checkpoint_sha256` | 生产 checkpoint |
+| `channel_dim` | 通道数 |
+| `storage_dtype` | 实际存储 dtype，第一版通常 float16 |
+| `coordinate_frame` | 空间实体使用的坐标帧 |
+| `semantic_description` | 特征含义，不用“第几层”代替 |
+
+Stage2/3 的 `FuseSources` 从这些稳定来源装配输入。旧的 `P_feat_L*` / `receptor_feat_L*` 只能通过显式迁移映射读取，不能在新 schema 中继续作为含义不明的正式字段。
+
+### 4.5 可选密度 U-Net 特征
+
+Stage1 selector、Stage2 和 Stage3 可以共用一个可关闭的轻量密度 U-Net。原始 exp 密度仍从第 1 层按 BOX 描述子裁剪，不重复存储。该模块有两种运行方式：
+
+1. **模型内现算**：只保存 U-Net checkpoint 与输入归一化 manifest，不增加第 3 层大数组。
+2. **冻结后缓存**：把输出作为新的 feature source，沿 §4.2 voxel 表或 §4.4 P/receptor 共享表对齐保存。
+
+现有预训练化学特征 U-Net 可以实现同一接口。若复用，它的输出字段命名为例如 `voxel_feat__chem_unet_*`；若另训更轻的密度上下文 U-Net，使用不同 `source_name`、checkpoint hash 和 addon 目录。不得只用同名 `blob_voxel_feat` 覆盖旧产物。
+
+缓存 voxel 特征时不再重复保存一份 `blob_voxel_index`；它直接与 `parent_voxel_index_local_zyx` 的行对齐。点对象调制特征若缓存，则与 `p_pos_box_xyz` 或 `receptor_atom_global_index` 的共享表行对齐。
+
+### 4.6 口袋视图
+
+Stage2/3 是否使用预测候选或 GT 输入由运行配置决定，不增加“GT probe”样本身份。
+
+| 口袋类型 | 定义 | 存储 |
+|---|---|---|
+| **GT ligand atom envelope** | 对所选 GT occurrence 的 present ligand atoms 分别做半径查询，再合并受体原子索引；不保留中心球备选 | Dataset 现场算；每个 worker 缓存 per-PDB receptor `cKDTree` |
+| **Group-parent pocket** | 对 Group-parent Global Proposal Mask 的包络选受体原子 | §4.4 parent receptor 共享表 |
+| **Candidate pocket** | 对某个 Global Proposal Mask 用同一半径选受体原子 | `candidate_receptor_offset/row`，是 parent pocket 的子集 |
+| **Selected-final pocket** | 对可选 Refined Mask 或 final proposal 投影定义 | selected-final 自己的独立完整 receptor 表 |
+
+旧的 `pocket_atom_index` 可由：
+
+```text
+receptor_atom_global_index[candidate_receptor_row]
 ```
-atom_coverage = [ {cid, covered}, ... ]   # covered: 长度 = 该 occurrence LigandObject 原子数的 bool，行序对齐 present
-```
 
-- **定义（生产方写一遍）**：`covered[a] = 1[ world_to_voxel(coords_{cid}[a]) ∈ blob_mask ]`，仅对 `present_{cid}[a]` 为真的原子有效，缺失原子恒 0。
-- **用途**：`迭代运算 §12（监督全清单）` 的"逐配体原子覆盖辅助"（挂 `fine_probe_recall`）的标签；§12 只留指针指到本节，不重写定义。
-- 依赖 blob（第 3 层），随 `coverage` 一起在 blob 出生时算；无 blob 的 box 不进训练、自然无此条目。
+直接得到。`n_pocket_atoms`、Rg、残基直方图、Wiener index 和 graph energy 均可由候选 receptor 行索引与第 1 层 receptor 表确定性派生，第一版不物化这些化学/碎片描述子，以减少契约复杂度。
 
-### 4.4 Stage1 per-box 多尺度中间产出 → `addons/stage1_feat/{pdb_id}.npz`
+### 4.7 selector score 与 selection result
 
-Stage1（Pocket_Plus）对每个 BOX 产出 4 个层级的多尺度特征（PP 侧 = 体素特征，A 侧 = 受体原子特征），供 Stage2/3 表示前导的 `FuseSources` 多源融合作为 conditioning 使用。产法与语义归 `Stage1_Find_接缝与推理重写.md`，本节只管存储。
+基础 proposal 数据不能被某次网络推理或某组 calibration 参数覆盖。两类结果分别追加。
 
-| key | 形式 | 说明 |
+#### 4.7.1 selector score addon
+
+| 字段 | shape / 逻辑 dtype | 说明 |
 |---|---|---|
-| `ligand_voxel_index` | `[K, 3] int` | 预测 ligand-area 内体素索引（K 可变、完整不截断） |
-| `ligand_voxel_prob` | `[K] float` | Stage1 逐体素 `ligand_area` 概率；PP 采样按它 top-k，且作 PP 节点输入特征（= 模型侧 `density_point_ligand_area_probability`） |
-| `ligand_voxel_feat_L2` | `[K, C] float` | PP 侧 L2：UNet 中间层特征 |
-| `ligand_voxel_feat_L3` | `[K, C] float` | PP 侧 L3：cross-attn 前特征 |
-| `ligand_voxel_feat_L4` | `[K, C] float` | PP 侧 L4：cross-attn 后特征 |
-| `receptor_atom_index` | `[R] int32` | 本 box 口袋受体原子的**全局索引**（切回第 1 层受体几何 / 49 维特征） |
-| `receptor_binding_prob` | `[R] float` | Stage1 逐受体原子 binding 概率 |
-| `receptor_feat_L1` | `[R, C] float` | A 侧 L1：embed head 后 |
-| `receptor_feat_L2` | `[R, C] float` | A 侧 L2：density box 特征 |
-| `receptor_feat_L3` | `[R, C] float` | A 侧 L3：cross-attn 前 |
-| `receptor_feat_L4` | `[R, C] float` | A 侧 L4：cross-attn 后 |
+| `selector_run_id` | string | checkpoint、模型配置和输入 feature manifest 的联合身份 |
+| `proposal_run_id` | string | 回指基础 proposal |
+| `clg_id` | scalar `int32` | CLG |
+| `candidate_node_id` | `[N] int32` | 与基础候选表 join |
+| `predicted_max_iou` | `[N] float32` | 反链目标唯一使用的 `q_hat` |
+| `valid_logit` | `[N] float32` | 仅作辅助监督和诊断 |
 
-- **多尺度 conditioning 对接**（与 `迭代运算 §4` 表示前导）：
-  - **A 的 `FuseSources`**：main = 49 维手工特征（第 1 层）；aux_sources = L1–L4 的 receptor 侧特征
-  - **PP 的 `FuseSources`**：main = 化学 UNet 特征（§4.5）⊕ Stage1 UNet voxel 特征 拼接；aux_sources = L2–L4 的 ligand 侧特征（L1 不含 PP）
-- **口袋以 blob 为锚**（§8.2）；空间分布由 `receptor_atom_index → 第 1 层 coords` 现推，不重复落坐标。
-- PP 采样运行时从 `ligand_voxel_prob` top-k（加 min 兜住太小的 blob）；**灌不灌背景是一个运行时开关，不在落盘层决定**。
-- Stage1 UNet 很重、**不能现场算**，故必须落；**只落 ligand-area 内**把体量从"整图几十 TB"压到"单位数 TB"。同一区域 of center/bias box 因 Stage1 特征带 box 上下文而**各不相同**，不是冗余副本，是有意的增广。
-- **命名对称**：PP 侧统一 `ligand_` 前缀，A 侧统一 `receptor_` 前缀。
+#### 4.7.2 selection addon
 
-### 4.5 预训练化学 UNet 特征 → `addons/chem_unet_feat/{pdb_id}.npz`
-
-独立于 Stage1 的预训练化学 UNet，其特征**在 Stage1 推理之后、根据 pred-ligand-area mask 计算并存储**。与 `stage1_feat` 分开存储（计算时序不同、可独立添油）。
-
-| key | 形式 | 说明 |
+| 字段 | shape / 逻辑 dtype | 说明 |
 |---|---|---|
-| `ligand_voxel_index` | `[K, 3] int` | 冗耐存储（与 `stage1_feat` 当前一致，未来可能不同） |
-| `ligand_voxel_feat` | `[K, C_chem] float` | 化学 UNet 特征 |
+| `selection_run_id` | string | 一组唯一选择配置 |
+| `selector_run_id` | string | 使用哪次候选打分 |
+| `clg_id` | scalar `int32` | CLG |
+| `b_over_a` | scalar `float32` | 固定 `a=1` 后的均值项系数 |
+| `lambda_over_a` | scalar `float32` | 候选数惩罚 |
+| `selected_candidate_row` | `[N_selected] int16` | 最优可行反链；允许长度为 0 |
+| `selection_objective` | scalar `float32` | 该反链的目标值 |
 
-- 消费方在 `FuseSources` 时与 `stage1_feat` 的 voxel 特征**拼接**后作为 PP 的 main source。
-- **加新特征 = 新建 `addons/{新名}/` 目录**，老添油一字节不动（第 3 层"只增不改"原则）。
+改变 `b,lambda` 只写新的 selection addon，不重跑 selector，也不改基础 candidate 表。
 
-### 4.6 口袋描述子 → `addons/pocket_gt/` + `addons/pocket_blob/`
+### 4.8 可选 selected-final refinement
 
-两种口袋定义，各为独立添油，各自记录**口袋身份**（包含哪些受体原子）+ **口袋描述子**：
+每个被精修候选建立独立 `infered_box`，并设置 `materialization_role=selected_final`：
 
-| 口袋类型 | 定义 | 何时产 | 依赖 |
-|---|---|---|---|
-| **`pocket_gt`** | per-BOX，取中心最近的 occurrence（`centroid_atom` 距离），对该 occurrence 的 GT 原子逐个取 vdW 包络，包络内的受体原子 | BOX 枚举时（只需第 1 层 GT 坐标 + 受体坐标） | 不依赖 Stage1 |
-| **`pocket_blob`** | per-BOX，blob 体素包络选周围受体原子 | blob 出生时 | 依赖 blob（第 3 层） |
-
-`addons/pocket_gt/{pdb_id}.npz` 与 `addons/pocket_blob/{pdb_id}.npz` 内部字段**对称**：
-
-| key | 形式 | 说明 |
+| 字段 | shape / 逻辑 dtype | 说明 |
 |---|---|---|
-| `pocket_atom_index` | `[P] int32` | 口袋受体原子全局索引 |
-| `n_pocket_atoms` | `int32` | 口袋原子数 |
-| `radius_gyration` | `float32` | 口袋 Rg |
-| `res_type_hist` | `(25,) float32` | 残基类型直方图（RES_VOCAB 25 类） |
-| `wiener_index` | `float32` | 口袋内化学键子图的 Wiener 指数 |
-| `graph_energy` | `float32` | 口袋内化学键子图邻接矩阵的谱能量 |
+| `selection_run_id` | string | 哪次选择产生它 |
+| `source_clg_id` | scalar `int32` | 来源 CLG |
+| `source_group_parent_box_id` | scalar `int32` | 来源 Group-parent BOX |
+| `source_candidate_node_id` | scalar `int32` | 被选中的全图树节点 |
+| `source_threshold_rank` | scalar `uint8` | 精修固定使用的原阈值 |
+| `final_voxel_index_local_zyx` | `[K_f,3] int16` | proposal 投影与 refined mask 坐标的并集表 |
+| `proposal_voxel_row` | `[K_p] int32` | Global Proposal 投影进 final BOX 后的行索引 |
+| `refined_voxel_row` | `[K_r] int32` | 固定阈值局部重跑选出的 refined component |
+| `proposal_voxels_total` | scalar `int32` | 原 Global Proposal 总体素数 |
+| `proposal_voxels_in_box` | scalar `int32` | 进入 final BOX 的体素数 |
+| `refine_status` | enum string | `success`、`empty`、`no_overlap_component` 等显式终态 |
+| `threshold_rank_map` | `[80,80,80] uint8` | final 居中重跑的完整局部多阈值观察 |
 
-- 描述子计算**复用配体侧通用函数**（`wiener_index`, `graph_energy`, `radius_gyration` 为通用实现，配体和口袋共用）。
-- 口袋的化学键子图 = 第 1 层受体键表（`bond_index`/`bond_type`）按 `pocket_atom_index` 切片。
-- context box 通常无 in-box occurrence → 无 `pocket_gt`（自然缺失）。
-- `pocket_gt` 用于训练（GT 可见）；`pocket_blob` 用于模拟推理（blob 为锚）。
+Selected-final BOX 还保存自己的 voxel/P/receptor 特征表，不与 Group-parent 特征混用。`proposal_was_clipped`、proposal/refined IoU、prompt 和 refined pocket都可派生。精修失败不得静默覆盖原 Global Proposal；下游显式决定是否回退。
+
+### 4.9 旧字段追溯
+
+| 旧字段 | 新契约中的来源 |
+|---|---|
+| `blob_mask` | `parent_voxel_index_local_zyx[candidate_voxel_row]`，默认指 Global Proposal Mask |
+| `blob_voxels` | `candidate_voxel_offset` 相邻差 |
+| `prompt_point` | Global Proposal 体素质心转换到世界坐标 |
+| `scores` | Global Proposal 统计 + 指定 `selector_run_id` 的 score addon |
+| `provenance` | proposal、materialization、selector、selection、refinement manifests |
+| `coverage/atom_coverage` | §4.3 overlap ragged 表 |
+| `blob_voxel_index` | 候选行查询 parent voxel 表 |
+| `blob_voxel_prob` | `parent_voxel_global_probability[candidate_voxel_row]` |
+| `blob_voxel_feat` | `voxel_feat__{source}[candidate_voxel_row]` |
+| `P_pos/P_prob/P_feat_*` | Group-parent P 共享表；候选视图由 `candidate_p_row` 取得 |
+| `receptor_atom_index` | Group-parent receptor 表；候选视图由 `candidate_receptor_row` 取得 |
+| `receptor_binding_prob/receptor_feat_*` | 同上 |
+| `pocket_atom_index` | `receptor_atom_global_index[candidate_receptor_row]` |
+| chemical U-Net voxel feature | 一个命名化 `voxel_feat__{source_name}` |
+| refined blob | 仅来自 selected-final 的 `refined_voxel_row`，不覆盖 Global Proposal |
 
 ---
 
@@ -265,16 +434,18 @@ Stage1（Pocket_Plus）对每个 BOX 产出 4 个层级的多尺度特征（PP �
 - **56 维辅助密度通道**：dataset `__getitem__` 里从第 1 层 exp/sim 在线算（`density_channel_builder`，`{op}_{norm}_{post}` 命名）。
 - **`diff`**：`exp − sim` 现场算。
 - **O-distance**：box 中心 + `centroid_atom` 现推。
+- **GT ligand atom envelope 口袋**：Stage2/3 Dataset 现场通过每-worker per-PDB receptor `cKDTree` 计算（§4.6）。
 - **覆盖矩阵装配**：见 §6。
 
 ### 5.2 不变量 A：身份冻结 + materialize 时扰动
 
-- **BOX 身份冻结**：origin/shape/occ_distances 等枚举时定死、落盘。
-- 模型读取两种姿势：**原样读**（Stage2/3）按描述子直接切片；**先扰动再读**（仅 Stage1）在 materialize 时对 origin 加 jitter / 体素增广再切第 1 层得标签——增广**下沉到 materialize 层**，不动 BOX 身份。
+- **BOX 身份冻结**：`box_start_zyx/origin_xyz/shape_zyx/occ_distances` 等枚举或物化时定死、落盘。
+- `box_index` 的每一行都是独立 BOX 身份；不按原点、覆盖区域或体素内容去重。训练 sampler 用简单权重/比例开关混采 center/bias/context，某类权重为 0 即关闭。
+- 模型读取两种姿势：**原样读**（Stage2/3）按描述子直接切片；**先扰动再读**（仅 Stage1 基础训练）在 materialize 时对临时裁剪原点加 jitter / 体素增广再切第 1 层得标签——增广下沉到 materialize 层，不回写 BOX 身份。
 
 ### 5.3 不变量 B：扰动 ⟺ 放弃第 3 层
 
-第 3 层 blob/coverage 是为**冻结那个身份**缓存的。一旦 Stage1 把 origin 扰动了就对不上。所以：**扰动路径只用第 1、2 层；原样读才能吃第 3 层添油。** 即 Stage1 增广路径 ⟺ 不用 blob；Stage2/3 原样读 ⟺ 可用 blob。
+第 3 层 blob/coverage 只为整图推理建立的 `infered_box` 身份缓存。Stage1 的 center/bias/context 增广路径只用第 1、2 层；Stage2/3 是否读取预测 blob 添油由运行配置决定，无预测 blob 时可改用 §4.6 的 GT ligand atom envelope 现场视图。
 
 ---
 
@@ -282,15 +453,18 @@ Stage1（Pocket_Plus）对每个 BOX 产出 4 个层级的多尺度特征（PP �
 
 ```text
 对一张图 P：
-  行 = 收集 P 的所有 box 的 blob（无 blob 的 box 已不在样本里）
+  selector 训练行 = 收集 P 的所有 CLG Global Proposal Candidate
+  Stage2/3 正式行 = 按 selection_run_id 收集各 CLG 的 selected_candidate_row
   列 = P 的全部 occurrence（候选身份 × count 展开成 slot；图级，与 box 无关）
-  entry(行 i, 列 j):
-     密度档：读 box_i 的稀疏 coverage → 命中 j 取其 α/β/O_IoU；未命中 = 0（拒假阳负监督）
-     纯受体档：读 box_i 的稀疏 occ_distances → O_dist(box_i, occ_j)；未命中 = 远/0
+  entry(候选 i, occurrence j):
+     读 candidate_occ_offset / overlap 表
+     → 命中 j 取其 α/β/O_IoU；未命中 = 0
   → [n_blobs, n_slots] 网格
 ```
 
 > off-diagonal（merge、负样本）天然可算：只需 `blob_i` 与 `occurrence_j` 各自的量（mask 或中心），**不需要任何 box 级交叉记录**。
+>
+> 无预测 blob 的 Stage2/3 试水不装配本矩阵；它使用哪些 GT-envelope 输入与监督由运行配置决定，不通过新增样本身份或伪造 blob 来复用本矩阵。selected-final refinement 不改变这张矩阵的行身份；若下游专门评估 Refined Mask，应另算诊断量。
 
 ---
 
@@ -298,17 +472,17 @@ Stage1（Pocket_Plus）对每个 BOX 产出 4 个层级的多尺度特征（PP �
 
 三档 = **同一批 BOX 的不同清单切片**，由 dataset 配方决定激活哪些块；**不是切出了不同的产物**。
 
-| 档 | Stage1 输入 | Stage2/3 激活的块 | blob | 备注 |
+| 档 | Stage1 输入 | Stage2/3 激活的块 | 口袋/空间锚 | 备注 |
 |---|---|---|---|---|
-| **纯密度档** | 只有密度 | 第 1 层 density（+56 通道）、第 2 层、第 3 层 blob/coverage/Stage1 voxel 特征 | 有 | 前置：Stage1 也只吃密度 |
-| **统一档** | 密度 + 受体 | 上面全部 + 49 维受体特征 + A 侧多尺度特征 + 受体几何 | 有 | 最强模型 |
-| **"纯受体"档** | **密度 + 受体** | 49 维受体特征 + A 侧多尺度特征 + 受体几何 + **blob mask 作空间锚**（关 PP 特征、关 56 通道密度） | **有** | Stage1 仍有密度 → blob 仍产出；Stage2/3 只用受体侧 |
+| **纯密度档** | 只有密度 | 第 1 层 density（+56 通道）、第 2 层；有预测 blob 时再激活第 3 层 blob/coverage/Stage1 PP 特征 | 由配置选择预测 blob 或 GT ligand atom envelope | 前置：Stage1 也只吃密度 |
+| **统一档** | 密度 + 受体 | 上面全部 + 49 维受体特征 + A 侧特征 + 受体几何 | 由配置选择预测 blob 或 GT ligand atom envelope | 最强模型 |
+| **"纯受体"档** | **密度 + 受体** | 49 维受体特征 + A 侧特征 + 受体几何；关 PP 特征、关 56 通道密度 | 早期试水可现场用 GT ligand atom envelope；后期消融可用预测 blob | Stage2/3 只消费受体侧 |
 
-可拆卸 = 丢掉 PP 特征退回纯受体、丢掉受体块退回纯密度，**消融和换档是同一个开关**。
+可拆卸 = 丢掉 PP 特征退回纯受体、丢掉受体块退回纯密度，**消融和换档是同一个开关**。输入来源和监督同样由配置开关决定；不为“GT envelope / predicted blob”增加样本级身份机制。
 
 ### 7.1 两条红线
 
-1. **三档不另立 BOX 来源**：纯受体档**不能**为了"免费拿到位点+口袋"去单切一种"site+pocket box"。三档都跑在现有 box_type 上，口袋只是"以 blob/box 为锚选受体原子"的**视图**（§8.2），不是新产物。
+1. **三档不另立 BOX 来源**：纯受体档**不能**为了“免费拿到位点+口袋”去单切一种 `site+pocket box`。三档都跑在现有 box_type 上，口袋只是由配置选择 Global Proposal 包络或 GT ligand atom envelope 后得到的受体切片视图（§8.1），不是新 box_type。
 2. **box_type 可扩展 ≠ 三档后门**：§3.3 的开放性是为别的真实用途留的；**不得**用新 box_type 绕过三档可拆卸性。
 
 ---
@@ -317,18 +491,19 @@ Stage1（Pocket_Plus）对每个 BOX 产出 4 个层级的多尺度特征（PP �
 
 | 模型 | 读什么 | 怎么对接 |
 |---|---|---|
-| **Stage1（Find）** | 第 1 层切片（密度 + 标签）；可 materialize 扰动 | dataset 迭代 BOX 描述子，懒切 80³ 样本；标签 = 切全局 mask/原子标签。口袋 = **box + buffer** 选受体原子（它没有更精细的锚）。复用 `box_geometry` + `density_channel_builder` |
-| **Stage2（Match）** | 第 2 层 + 第 3 层 blob/coverage | 同 PDB 多 box 的 blob 拼成行、图级 occurrence 拼成列（§6）；早期（无全图推理）：混采 bias（真）+ context（假）；正式（全图推理完毕）：infered_box（自然分布）；口袋以 **blob 为锚**（§8.2） |
-| **Stage3（Build）** | 第 2 层几何 + 第 3 层 blob 的 prompt 点 + 受体块 | (blob box, 配对身份, prompt 点) 三元组；口袋以 **blob 为锚** |
-| **UNet（预训练化学）** | 第 1 层密度（输入）→ 第 3 层 ligand-area 内 voxel 特征（产出） | 特征按 box 落盘，PP 采样 gather |
+| **Stage1 基础 Find** | 第 1 层切片（密度 + 标签）；可 materialize 扰动 | Dataset 按比例迭代 center/bias/context，监督直接切全局 mask/原子标签；三类只表示原点来源 |
+| **Stage1 selector** | 一个 CLG 的 Group-parent voxel/P/receptor 共享表、Global Proposal membership、rank map 派生量和树关系 | 一个 CLG 是一个样本；预测每个 Global Proposal 的最大 GT IoU，反链结果写 selection addon |
+| **Stage2（Match）** | 现场 GT envelope，或 selected Global Proposal + Group-parent 共享特征/coverage | 默认不依赖 selected-final；同 PDB 已选候选为行、图级 occurrence 为列。可选读取 Refined Mask 或密度 U-Net 调制特征 |
+| **Stage3（Build）** | GT envelope 试水输入，或 selected Global Proposal 的 prompt、Group-parent 特征与受体块 | 默认可直接使用 Global Proposal；selected-final 是独立形状精修输入，不是前置条件 |
+| **轻量密度 U-Net** | 第 1 层原始 exp 密度 | 可模型内现算，或冻结后作为命名 feature source 缓存；selector/Stage2/Stage3 共享接口 |
 
-**纯受体档 Stage2 的特殊性**：无密度 → 无 blob → precision-B 无原生定义，监督走对称 O（由 box 中心到 occurrence `centroid_atom` 的**距离**定义，第 2 层 `occ_distances` 备好原料）；**"用距离还是覆盖定义标签"是配方层选择，不烤进存储**。
+**无预测 blob 训练的特殊性**：输入与监督由配置决定，GT pocket 统一由 ligand atom envelope 现场生成；它不伪造 blob，也不为样本增加额外模式身份。blob coverage、距离或其它监督是否启用，均属于训练配方，不烤进存储。
 
-### 8.2 口袋 = 以 blob 为锚的视图（Stage2/3）
+### 8.1 口袋 = 以 Global Proposal 为锚的视图（Stage2/3）
 
-Stage2/3 的"位点周围口袋" = 以 **blob**（预测 ligand-area 体素并集 / 其包络）为锚、选周围 X 埃的受体原子。它是**第 1 层受体的一个切片视图**，不单独切产物。训练用预测 blob、推理也用预测 blob——**同源、无域差**（冷启动、blob 尚未产出时可暂以 GT ligand-area 顶替）。
+有预测候选时，Stage2/3 的“位点周围口袋”默认以 selected Global Proposal Mask 的包络为锚，读取它在 Group-parent receptor 共享表中的行索引。无预测 blob 的早期试水由配置改用 GT occurrence 的 ligand atom envelope；不保留中心球备选。若显式启用 selected-final，消费方可以改用 Refined Mask 自己的独立 pocket。
 
-> 与 Stage1 的区别：Stage1 用 box+buffer（box 为锚，它还不知配体在哪）；Stage2/3 用 blob 包络（blob 为锚，位点已定）。
+> 与 Stage1 的区别：Stage1 用 box+buffer（box 为锚，它还不知配体在哪）；Stage2/3 按配置使用 blob 包络或 GT ligand atom envelope。GT envelope 由每-worker 缓存的 per-PDB receptor `cKDTree` 现场计算。
 
 ---
 
@@ -338,13 +513,15 @@ Stage2/3 的"位点周围口袋" = 以 **blob**（预测 ligand-area 体素并�
 
 | box_type | 来源 | in-box occurrence | 备注 |
 |---|---|---|---|
-| **center** | 以 occurrence `centroid_voxel` 严格居中切 80³ | 该 occurrence（+ 落在框内的邻居） | 正样本（居中 blob） |
-| **bias** | 在 center 上按配方偏移，每 instance 多个 | 同上 | 偏心 blob，模拟 Find 定心误差；偏移配方见 §9.2 |
-| **context** | **只按受体原子比率 > 阈值**的随机裁剪 | 通常无（撞上则覆盖几何如实给出） | 假阳来源；**不需 clean 旗**——真撞上配体，§4.3 覆盖会如实非零 |
-| **infered_box** | 全图划窗**两阶段**推理：pass-1 滑窗定位 blob → pass-2 以其中心重裁 box 再推、**落盘 pass-2 结果**（`Stage1 §3.2`） | 由覆盖/距离事后给出 | 自然分布（merge/split、真实假阳）；中心化重推闭合训/推域差 |
+| **center** | 以 occurrence `centroid_voxel` 严格居中切 80³ | 该 occurrence（+ 落在框内的邻居） | 只表示原点来源；不携带正负语义，不运行逐 BOX Stage1 推理 |
+| **bias** | 在 center 上按配方偏移，每 instance 多个 | 同上 | 只表示偏移采样来源；偏移配方见 §9.2；不拥有 blob 添油 |
+| **context** | **只按受体原子比率 > 阈值**的随机裁剪 | 由实际裁剪内容决定 | 只表示 context 原点来源；不拥有 blob 添油，也不需要 clean/正负旗标 |
+| **infered_box** | 全图概率组件森林及其局部物化产生 | 由 Global Proposal overlap/距离事后给出 | blob 的唯一 BOX 来源；用 `materialization_role` 区分 `clg_group_parent`、`f1_baseline`、`selected_final` |
 
-- **冻结枚举**：bias/context 的偏移/裁剪在枚举时定死、落第 2 层；blob/coverage 缓存要求 box 身份稳定（§5.2/5.3）。
+- **冻结枚举**：center/bias/context 的原点在枚举时定死、落第 2 层；每条记录独立存在，不按原点或体素内容去重。
+- **来源比例开关**：Stage1 训练 sampler 用简单权重/比例控制 center/bias/context 的输入占比，权重为 0 即关闭；`box_type` 不进入 loss，监督来自现场裁剪的真实字段。
 - **加新 box_type = 加一个枚举器**，不改 schema、不动存储布局。
+- **不为 CLG 角色加 box_type**：Group-parent、F1 baseline 和 selected-final 是同一 `infered_box` 家族中的物化角色。
 
 ### 9.2 bias 偏移配方（提前切、冻结）
 
@@ -366,14 +543,31 @@ Stage2/3 的"位点周围口袋" = 以 **blob**（预测 ligand-area 体素并�
 三层逻辑必须分开（"算子与数据输入分离"）：
 
 1. **盘上数据契约**（本文）：BOX 存按来源分开的块。
-2. **模型输入契约 / featurizer**（见 `迭代运算 §4`）：按"某模型 + 某档"的配方，把块拼成模型张量视图（含 §6 矩阵装配）。
-3. **模型算子**（见 `迭代运算`）：只看拼好的张量，不知盘上长啥样。
+2. **模型输入契约 / featurizer**（见 `文档/讨论/Stage2_Stage3_迭代运算设计_讨论.md §4`）：按“某模型 + 某档”的配方，把块拼成模型张量视图（含 §6 矩阵装配）。
+3. **模型算子**（见同一迭代运算文档）：只看拼好的张量，不知盘上长什么样。
 
 **继承的原则与可复用叶子**（代码可重写、原则/叶子保留）：
 
-- **原则**：训练侧与推理侧**共用同一个 BOX→样本 builder**，靠它强制两边契约一致。
+- **原则**：训练侧与推理侧严格共用同一个 Dataset `__getitem__` 处理路径、BOX→样本 builder 与 collate，靠同一条实际调用链强制两边契约一致。差别只在 BOX 原点来源和 sampler：训练读取 center/bias/context 的 `box_index`；整图推理按 map shape、window size、stride 和样本索引公式产生窗口原点。
 - **可直接当库用的纯叶子**（与配体种类零耦合）：`box_geometry`（选框内+buffer 原子、三套坐标、hardmask、按索引切特征）、`density_channel_builder`（在线 56 通道）。
-- **要重写的耦合层**：旧 `box_point_dataset` 按配体种类分文件夹/分 split/平衡采样那一套——推倒，改成按 §3 描述子 + `box_index` 组织。
+- **要重写的耦合层**：旧 `box_point_dataset` 按配体种类分文件夹/分 split/平衡采样那一套——推倒，改成按 §3 描述子 + `box_index` 组织；推理不得预先构造完整 `box_dicts` 列表。
+- **流水线职责**：DataLoader worker 负责整图读取、BOX 裁剪和 56 通道构造；概率 BOX 合并与完整图后处理使用独立可配置 worker/有界队列，以便与 GPU forward 或下一张图的处理重叠。不得让多个进程无协调地写同一张概率 accumulator。
+- **非依赖项**：`pin_memory` 默认不启用，不作为 CPU/GPU 重叠成立的前提；固定形状 BOX 不增加 `voxel_valid_mask` 字段；少量 voxel size 非严格等方的样本不因旋转增强增加硬门禁或抛异常。
+
+### 10.1 冷读验证不变量
+
+每个正式产物必须通过以下检查：
+
+- `proposal_run_id` 能唯一解析 proposal manifest、组件树引用和阈值表。
+- `box_start_zyx >= 0` 且 `box_start_zyx + shape_zyx <= full_grid_shape_zyx`；`origin_xyz` 与 voxel-center 坐标公式一致，不允许依赖 padding 或 clamp。
+- 一个 CLG 只有一个 `group_parent_candidate_row`，且该行 `candidate_node_id` 等于 `group_parent_node_id`。
+- 所有 candidate voxel/P/receptor row 均在共享表范围内，同一候选内部不重复。
+- 每个候选 Global Proposal Mask 都是 Group-parent Mask 的子集。
+- `threshold_rank_map` 的值只属于 `0..T-1` 或 255。
+- `lca_distance_from_i/j` 与原始组件树一致，且能正确恢复反链冲突。
+- selector score、selection 与 refinement 都通过稳定 ID 回指相同的 Global Proposal Node。
+- selected-final 缺失时，Group-parent materialization + Global Proposal + selection addon 已足够构造 Stage2/3 输入。
+- 旧字段追溯表中的每一项都能在不读取历史文件的情况下还原。
 
 ---
 
@@ -381,14 +575,13 @@ Stage2/3 的"位点周围口袋" = 以 **blob**（预测 ligand-area 体素并�
 
 **待定（实现时定）**：
 
-1. 第 3 层变长添油（blob mask / la_voxel_*）的具体 ragged 落盘格式（offset 数组 vs 稀疏 COO）。
+1. 第 3 层 ragged 逻辑字段已经固定为 offset + row-index；物理容器选 NPZ 分片、Zarr 或其它格式仍待 IO benchmark。
 2. `box_index` 的物理形式（单张 parquet/jsonl vs 按 PDB 分片再聚合）。
 3. bias 的比例与 floor 分布、context 受体比率阈值、距离-O 的 `ρ`、IoU-O 的 `τ`、覆盖条目入选阈值——先看分布再定。
 4. ~~`centroid_atom` 是否物化~~ **已定物化进 `ligand_coords.npz`**（C4 产，§2.2）。
-5. 各层级通道数 C（L1–L4 维度）与 `C_chem`（化学 UNet 通道数）。
+5. `voxel/P/receptor` feature-source 的最终字段全集、源码出口、通道数与 storage dtype。
 6. `infered_box` 是否回填某种 occurrence 锚（默认不填，靠覆盖/距离）。
-7. blob `scores` 集具体成员、over-save 的 recall-first 下限——先看分布再定（`Stage1 §4/§8`）。
-8. §4.4 `receptor_feat_L1`–`L4` 是否全部有效，以及它们的维度。
-9. 口袋描述子的 vdW 包络半径是否与数据处理 E3 的 ligand-area 半径一致（默认一致）。
+7. pocket 半径与候选—P membership 规则的最终数值；规则 ID 与实际参数必须进入 manifest。
+8. 轻量密度 U-Net 采用现算还是冻结缓存，由 profiling 与下游实验决定；两种方式共享 feature-source 接口。
 
-**维护**：实现后以代码与真实产物为准回填字段/dtype/shape。改动四层划分 / 描述子字段 / 添油机制 / 三档语义 / box_type 集合 / 对接方式时，同步更新本文与下游两份模型文档的指针。本文是 BOX 级数据契约的唯一权威，事实只写一遍。
+**维护**：实现后用真实产物验证字段、dtype、shape 和不变量；发现漂移先按 `AGENTS.md` 审计并请求用户决定，再更新本文、正式 Stage1 计划、mapping 与下游指针。本文仍是 BOX 级盘上契约的唯一权威，事实只写一遍。

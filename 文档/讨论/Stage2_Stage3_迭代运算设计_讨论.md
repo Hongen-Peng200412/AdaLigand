@@ -12,7 +12,7 @@
 >
 > **flash / eager**：无逐对 bias 的注意力走 flash-attn（已在目标老 glibc 装好）；带逐对 bias 的走 eager / torch SDPA mem-efficient（见 §2.2、§13）。两条 kernel 自动切换，并备无 flash 兜底。
 >
-> **边界（就地声明）**：本文 owns 算子 / 批维 / 块 / **featurizer 契约（§4.1：运行时标签定义、blob 选择旋钮、CPU 闸）** / **监督全清单（§12，带标签来源指针）**；不 owns 盘上数据（`BOX 契约`）、任务/损失语义（`模型总规划`）、blob 产法（`Stage1`）。
+> **边界（就地声明）**：本文 owns 算子 / 批维 / 块 / **featurizer 契约（§4.1：运行时标签、selection run 消费、CPU 闸）** / **监督全清单（§12，带标签来源指针）**；不 owns 盘上数据（`BOX 契约`）、任务/损失语义（`模型总规划`）、Global Proposal/CLG/反链选择产法（`文档/规划文档/Stage1训练与多阈值推理.md`）。
 
 ---
 
@@ -30,6 +30,8 @@
 | receptor_atom_features | [n_blobs, max_receptor_atoms, d] | 受体口袋原子（A）表示。A ~256–512（k-NN/radius 截断）。 |
 | receptor_atom_coords | [n_blobs, max_receptor_atoms, 3] | A 的 map 帧坐标。 |
 | receptor_binding_probability | [n_blobs, max_receptor_atoms] | Stage1 预测"该受体原子在配体 4Å 内"概率（F1≈0.65 > ligand-area 0.55）。作 A 节点输入特征；作 A 图消息 bias_feat（detach）。 |
+| density_context_at_PP | [n_blobs, max_density_points, d_context] | 可选轻量密度 U-Net 在 PP 坐标处的采样特征；模块关闭时不构造。 |
+| density_context_at_A | [n_blobs, max_receptor_atoms, d_context] | 同一 U-Net 在受体原子坐标处三线性插值得到的特征；模块关闭时不构造。 |
 | receptor_edge_index | [2, n_receptor_edges_total] | A 内部稀疏图边（COO 扁平，blob 间用 receptor_edge_batch 切分）。键 ∪ radius。 |
 | receptor_edge_features | [n_receptor_edges_total, d_edge] | 边特征：距离 GaussianSmearing（⊕ 两端结合概率，作消息 bias，§2.1）。 |
 | receptor_edge_batch | [n_receptor_edges_total] | 每条边归属的 blob 索引（COO 批切分）。 |
@@ -46,8 +48,8 @@
 | fine_code_precision[k] | list（k=query 实体，2 类即 PP-query / A-query），每个 [n_blobs, n_slots, d] | 细分支 precision 码（PP / A 各当 query attend 配体）。precision 走融合 readout：PP 当 query 流式累加直接出码、不材化整张逐点 probe（§11），故无 fine_probe_precision 落地张量。 |
 | coarse_match_recall[k] | list（k 同上，2/4 类一致），每个 [n_blobs, n_slots, d] | 粗分支 recall 匹配描述（CCD_repr × blob 全 (PP,A)，typed + split）。无 max_len 轴——rep 已是单向量、attend 完直接成形、无需 readout（与细分支 probe 的关键不对称）。 |
 | coarse_match_precision | [n_blobs, n_slots, d] | 粗分支 precision 匹配描述（blob_repr × 配对 ccd 全原子；4 类时再加 PP_repr/A_repr × ccd）。 |
-| coverage_recall_logit | [n_blobs, n_slots] | 预测 α̂：配体被该 blob 捕获比例。**A/B 回归头，密度档才开**（§8）。 |
-| coverage_precision_logit | [n_blobs, n_slots] | 预测 β̂：该 blob 被配体解释比例。**A/B 回归头，密度档才开**。 |
+| coverage_recall_logit / coverage_recall | 各 `[n_blobs, n_slots]` | 前者是未归一化输出；后者经 sigmoid 后位于 `[0,1]`，回归 α：配体被该候选捕获的比例。仅密度档开启。 |
+| coverage_precision_logit / coverage_precision | 各 `[n_blobs, n_slots]` | 前者是未归一化输出；后者经 sigmoid 后位于 `[0,1]`，回归 β：该候选被配体解释的比例。仅密度档开启。 |
 | coverage_O_logit | [n_blobs, n_slots] | 预测对称 Ô（跨档统一分类目标）。其打分头吃**两方向拼接**的码（§8）。 |
 | coverage_recall_target / coverage_precision_target | [n_blobs, n_occurrences] | 连续标签 α=|b∩g|/|g|、β=|b∩g|/|b|（密度量；身份内匈牙利配 slot↔occurrence）。 |
 | coverage_O_target | [n_blobs, n_occurrences] | 对称二值标签 O：密度档 = IoU(b,g)>τ；纯受体档 = dist(box 中心, occ 质心)<ρ（见 `模型总规划 §5.3`）。 |
@@ -136,6 +138,7 @@ PairFormer 组件（定义见 2.3 / AF3）。粗分支同类 rep 的 self-attn �
 ### 2.6 融合算子（同位多源 vs 空间，必须分开）
 
 - `FuseSources(main_features, aux_source_features, probability=None)`：**同位多源融合**（同一点/原子的若干来源并成一个）。默认 **FiLM**（主 = 原始手工编码，其余源 ⊕ 概率 出 (γ,β) 调制 main）；gated-sum / S-token 小自注意作消融。PP（S 轴）、A（S 轴）各一次。
+- `ModulateWithDensityContext(object_features, density_context)`：公共轻量密度 U-Net 的可选门控残差。`g=sigmoid(W_g context)`，输出 `LayerNorm(object_features + g * W_c context)`；PP 用 voxel gather，A 用坐标三线性插值。关闭模块时是恒等路径。
 - `FusePtoPP(density_point_features, stage1_P_features, probability=None)`：**空间融合**（PP 向 KNN/radius 邻近 P，同帧、几何，吸收源④⑤）。**可以考虑: Pock_Plus 分类头式截断 cross-attn + MLP(可默认) 或 SparseGraphInteraction(只更新PP)**，若是前者, 用相对坐标 + 两侧 `ligand_area` 概率进 BiasMLP（截断后材化 bias 便宜、不涉位置泄露）；**非 FiLM**。套1 全局 flash 无 bias 作消融、暂不写（§4/§14）。
 
 ### 2.7 批维契约（Stage2 网格 / Stage3 对批 / COO 切分；统一约定，落地前必须钉死）
@@ -184,17 +187,24 @@ PairFormer 组件（定义见 2.3 / AF3）。粗分支同类 rep 的 self-attn �
 ```python
 # 只做"特征构建"，不含 A 图迭代 / PairFormer 迭代（那两个在 Block 内，§5）
 
-# (1) PP：采样 + 同位多源融合 + 与 P 空间融合
-density_point_features = gather(voxel_feature_grid, sampled_pp_voxels)            # = Emap2lig select_top_k_points（体素中心、1Å、ligand_area 概率 top-k；始终保留为默认）
+# (1) PP：从 selected Global Proposal 的稀疏 parent voxel 行采样，再做多源与 P 融合
+candidate_rows = candidate_voxel_row[candidate_voxel_offset[i]:candidate_voxel_offset[i + 1]]
+sampled_rows = topk(candidate_rows, parent_voxel_global_probability,              # N_PP_i=min(K_i,N_PP_budget)
+                    k=min(len(candidate_rows), N_PP_budget))
+density_point_features = gather(parent_voxel_features, sampled_rows)              # 不读取 mask 外背景，不依赖 dense Stage1 feature grid
 density_point_features = FuseSources(density_point_features, pp_S_sources,        # 同位多源 → FiLM
                                      probability=density_point_ligand_area_probability)
 density_point_features = FusePtoPP(density_point_features, stage1_P_features,         # 截断 cross-attn+MLP（Pock_Plus 分类头式）
                                    probability=(density_point_ligand_area_probability, # 相对坐标 + 两侧 ligand_area 概率 → BiasMLP
                                                 stage1_P_ligand_area_probability))     # 吸收 P 源④⑤；套1 全局 flash 暂不写
+density_point_features = ModulateWithDensityContext(                                 # 可选；关闭时恒等
+    density_point_features, density_context_at_PP)
 
 # (2) A：同位多源融合（含结合概率）
 receptor_atom_features = FuseSources(receptor_atom_features, a_S_sources,
                                      probability=receptor_binding_probability)
+receptor_atom_features = ModulateWithDensityContext(                                 # 可选；关闭时恒等
+    receptor_atom_features, density_context_at_A)
 
 # (3) CCD：构象编码（A 图迭代与 PairFormer 迭代都在 Block 内）
 ligand_atom_features, ligand_pair_features = ConformerEmbedder(ccd)               # 复用 Emap2lig conf 路
@@ -203,17 +213,17 @@ ligand_atom_features = ligand_atom_features + slot_index_embedding              
 
 产出的三类初始特征是**共享 trunk 的起点**；Stage2 Block（§5）/ Stage3Builder（§10）在其上更新、压缩、读出。
 
-> **PP 采样粒度（`select_top_k_points`）**：Emap2lig 默认是「体素打平 `[B, D·H·W, C]` → 按 `ligand_area` 概率 top-k → gather」，坐标 = `整数体素索引 × voxel_size + origin`，即**体素中心、1Å 量化、top-k 索引天然去重**（§13 已核）。这对 Stage2 覆盖（α/β 本就是数体素的标量）无所谓，但对 Stage3 几何 cross-attn 的位置 bias 是精度地板。两个注意：(1) **可以考虑 PP 预算按真实正类体素分布定**——实测 1.7Å 包络平均 ~3000 正类体素/配体，故 `PP=4096/8192` 已越过正类、必然掺进低概率背景，盲目上 8192 多半灌背景而非加信号；(2) **始终保留 Emap2lig 默认实现可用**，更细采样（不固定体素中心 / 亚体素峰值插值 / 比 1Å 更密）只作未来钩子，不替换默认。
+> **PP 采样粒度**：第一版不复用 Emap2lig 的 dense BOX top-k，因为 BOX 契约不保存完整 dense Stage1 feature grid。对每个 selected Global Proposal，只在它的 `candidate_voxel_row` 中按 `parent_voxel_global_probability` 排序，取 `N_PP_i=min(K_i,N_PP_budget)` 行；坐标由 `parent_voxel_index_local_zyx` 与 BOX 几何精确转换。若候选体素少于预算，不灌 mask 外背景。可选密度 U-Net 只调制这些已选行；未来若确实需要背景，必须先扩展 BOX schema 并单独消融。
 
 > **`FusePtoPP` 默认实现**：Pock_Plus 分类头式的**截断 cross-attn + MLP**（对应 `stage1_atom_head` 的 radius-graph 几何 cross-attn），PP 当 query 向 KNN/radius 邻近 P，把相对坐标 + 两侧 `ligand_area` 概率送 BiasMLP（同帧、几何合法、不涉位置泄露，故 bias 可开）。截断后分数矩阵小，材化 bias 便宜。**套1（全局 flash、无 bias、不截断）暂不写**，列为消融钩子（§14）：担心截断漏掉本该用的稀疏 P 时，先调大 K/半径，而非另接全局路。
 
-### 4.1 featurizer 契约（运行时标签 / blob 选择 / CPU 预算）
+### 4.1 featurizer 契约（运行时标签 / selection run 消费 / CPU 预算）
 
-featurizer 是"盘上块 → 模型张量"的装配层（`BOX §10` 三层分离的中间层）。除上面的表示前导外，它还 **owns 三件消费侧的事**（就地声明，防这几件"落在文档之间"）：
+featurizer 是"盘上块 → 模型张量"的装配层（`BOX §10` 三层分离的中间层）。除上面的表示前导外，它还承担三件消费侧职责：
 
-- **运行时标签定义**：主通路会丢、又能从本地 BOX 级块廉价现算的辅助监督标签，**定义写在这里**（生产方 = featurizer）：`ligand_pair_features` 的**图距离**（键跳数 BFS）、`blob_repr` 的 **blob 形状**（`blob_mask` 的 PMI 形状比 + \|b\| + 伸长度）。`§12` 只指针指到本节。
-- **"用哪些 blob"选择旋钮**：blob 落盘**只存不删**、附 `scores` 套打分（`BOX §4.2`、`Stage1 §4`）；**选哪些进样本是消费侧决定**——一个选择旋钮（阈值 + 指标 F1/F_α + 可选 scorer），住在 featurizer，不进存储、不进 Stage1。打分器（含迷你网）产分数、featurizer 截取、添油只存分数（**存 / 用分离**）。
-- **CPU 预算闸**：运行时派生量必须在最大规模（PP≈8096、口袋 A≈3k 原始）下 CPU 扛得住（训推共用 builder，`Stage1 §3.1`）；扛不住的退回预计算（进 `数据处理`/`BOX` 添油）。这条闸决定一个标签走"运行时"还是"预计算"。
+- **运行时标签定义**：主通路会丢、又能从本地 BOX 级块廉价现算的辅助监督标签，定义写在这里：`ligand_pair_features` 的图距离（键跳数 BFS）；`blob_repr` 的形状标签使用 Global Proposal 体素坐标协方差矩阵的三个排序特征值、特征值比值和体素数。`§12` 只指针指到本节。
+- **候选选择结果消费**：多阈值路线由 Stage1 proposal selector 产生 `selection_run_id` 和每个 CLG 的 selected antichain（`文档/规划文档/Stage1训练与多阈值推理.md §11`）。featurizer 只选择要读取的 `selection_run_id` 并装配对应 Global Proposal，不再自行用 F1/F_alpha 或 scorer 阈值重新截取。F1 单阈值基线读取 `materialization_role=f1_baseline`。
+- **CPU 预算闸**：运行时派生量必须在最大规模（PP≈8192、口袋 A≈3k 原始）下 CPU 扛得住（训推共用 builder，见正式 Stage1 计划 §3/§4）；扛不住的退回预计算（进 `数据处理`/`BOX` 添油）。这条闸决定一个标签走“运行时”还是“预计算”。
 
 ---
 
@@ -331,19 +341,21 @@ coarse_match_precision = TypedAttention(blob_repr, keyvalue=detach(ligand_atom_f
 
 ```python
 # O 头（跨档统一分类）：吃【两方向】（recall+precision，粗+细）的码拼接
-coverage_O_logit         = sigmoid(MLP_O(concat(*fine_code_recall, *fine_code_precision,
-                                                *coarse_match_recall, coarse_match_precision)))            # [n_blobs, n_slots]
+coverage_O_logit         = MLP_O(concat(*fine_code_recall, *fine_code_precision,
+                                        *coarse_match_recall, coarse_match_precision))                     # [n_blobs, n_slots]
 # A/B 回归头（仅密度档激活；纯受体档 mask 掉 B、A 退化为距离）
 # 粗分支两方向匹配描述（*coarse_match_recall + coarse_match_precision）都拼进 A、B 两头——它是方向无关的
 # 全局 explaining-away 上下文（某 blob 被全局解释掉 → 它对本配体的 recall 与 precision 都该降），对两头都有用；
 # 细码则按方向对齐（A 拼 fine_recall、B 拼 fine_precision，不跨享）。
-coverage_recall_logit    = sigmoid(MLP_recall   (concat(*fine_code_recall,    *coarse_match_recall, coarse_match_precision)))      # [n_blobs, n_slots]
-coverage_precision_logit = sigmoid(MLP_precision (concat(*fine_code_precision, *coarse_match_recall, coarse_match_precision)))   # [n_blobs, n_slots]
+coverage_recall_logit    = MLP_recall   (concat(*fine_code_recall,    *coarse_match_recall, coarse_match_precision))              # [n_blobs, n_slots]
+coverage_precision_logit = MLP_precision(concat(*fine_code_precision, *coarse_match_recall, coarse_match_precision))              # [n_blobs, n_slots]
+coverage_recall          = sigmoid(coverage_recall_logit)                                                                         # [n_blobs, n_slots], [0,1]
+coverage_precision       = sigmoid(coverage_precision_logit)                                                                      # [n_blobs, n_slots], [0,1]
 ```
 
 - **三头分参数**；输入维随粗/细码数自由拼接（码数不必相等）。
 - **三头都吃粗分支两方向的码**：粗匹配描述（recall+precision）是方向无关的全局 explaining-away 信号，O/A/B 三头都拼；细码按方向对齐（A↔fine_recall、B↔fine_precision）。凡损失含 O 就两方向都拼（`模型总规划 §5.3/§8`）。最终（密度档）A/B/O 三头同时监督；纯受体档只开 O 头（A 用距离、B mask）。课程见 §5.1 与 `模型总规划 §6.6`。
-- **损失分工（`loss_cfg` 逐层/逐支可配权重/类型）**：**分类 = 对称 O**（focal/CE，跨档统一，`模型总规划 §5.3`）；**回归 = 连续 A/B**（smooth-L1/MSE vs α/β，**仅密度档**）。
+- **损失分工（`loss_cfg` 逐层/逐支可配权重/类型）**：对称 O 使用 `coverage_O_logit` 计算 BCE/focal-with-logits；连续 A/B 先 sigmoid 得到 `coverage_recall/precision∈[0,1]`，再对 α/β 计算 smooth-L1/MSE（仅密度档）。
   - **粗分支中间监督**：着重 **O 分类**（粗 rep 细节盲、宜判"匹不匹配"，恰是 explaining-away 处）。
   - **细分支中间监督**：着重 **A/B 回归**（逐对细节足以拟合精确覆盖值；密度档）。
   - **末端监督**：拼全源、**O 分类 + A/B 回归都做**——粗分支即使中间只挂 O 分类，也经末端 MLP 吃回归梯度，不饿死。
@@ -433,7 +445,7 @@ for t in diffusion_steps:
 | Loss_coverage（主） | coverage_O_logit（分类，跨档）+ coverage_recall/precision_logit（A/B 回归，密度档） | `BOX §4.3` coverage（α/β/O_IoU）+ `BOX §3.2` occ_distances（O_dist） | O focal/CE + A/B 软回归 + 身份内匈牙利。课程 §5.1：阶段一只 O、阶段二 A/B/O。 |
 | 粗分支块内深监督 | 粗分支专属 MLP（逐层 loss_cfg） | 同主损失（O） | 着重 O 分类（粗 rep 细节盲、宜判匹配）；末几层廉价深监督，推 rep 全局推理早对齐。 |
 | 配体全局描述子 | `CCD_repr`（粗辅助） | `数据处理 §5.2″` ligand_descriptors | 防单向量 rep 塌缩：规模（`mol_weight`/`n_heavy`）+ 拓扑（`wiener_index`）+ 谱（`graph_energy`）+ 3D 形状（`radius_gyration`），多尺度、去重摊薄。 |
-| blob 形状 | `blob_repr`（粗辅助，密度档） | **运行时** featurizer（从 `blob_mask` 算 PMI 形状比 + \|b\| + 伸长度） | 防 `blob_repr` 塌缩、记住密度块形状。本地 BOX 级、CPU 闸内（§4）。 |
+| blob 形状 | `blob_repr`（粗辅助，密度档） | **运行时** featurizer（从 Global Proposal 体素坐标算协方差三个排序特征值、特征值比值和体素数） | 防 `blob_repr` 塌缩、记住候选形状。本地 BOX 级、CPU 闸内（§4）。 |
 | 细 ligand 逐原子/键属性 | `ligand_atom_features` / `ligand_pair_features`（trunk） | `LigandObject`（元素/手性/环 + 键型/键环/键存在）+ `数据处理 §5.2″` `atom_local` + 图距离**运行时** | Emap2lig AuxiliaryModule + pair 距离 + 键跳数图距离 → 防配体表示塌缩。 |
 | 逐配体原子覆盖 | `fine_probe_recall` 读出前（细分支） | `BOX §4.3′` atom_coverage | 正则只读的细 recall 分支（防死码），细分支上线时开。**逐 PP"属于"已删**——PP 全程冻结（§3），与 Stage1 ligand_area 概率冗余；precision 走融合 readout 不材化逐点 probe（§11）。 |
 | Loss_binding（可选，受体档默认开） | binding 概率重预测头（A 上，`SparseGraphInteraction` 后） | `Stage D` `binding_atom`（GT） | **A 图的指定防塌缩目标**：Stage1 仅点特征、无边，重预测逼 A 图用上边（键 ∪ radius + gated MP）重建结合倾向——**非冗余**。也支撑"概率作 bias 已 detach"的解耦（§3）。 |
@@ -449,7 +461,7 @@ for t in diffusion_steps:
 | --- | --- | --- |
 | LigandPairFormer（配体内部） | modules/pairformer.py::PairFormer | import 复用，至多改 config |
 | 细 ligand 辅助头 | modules/pairformer.py::AuxiliaryModule | 复用（可选） |
-| PP 初始化 gather | modules/instance_seg.py::select_top_k_points | 复用 |
+| PP 初始化稀疏采样 | `candidate_voxel_row` + `parent_voxel_global_probability` | 自写轻量 gather；只借鉴 `modules/instance_seg.py::select_top_k_points` 的预算与排序写法，不复用其稠密网格输入契约 |
 | Stage3 扩散头 | modules/diffusion.py::AtomDiffusion | 复用（受体作额外条件） |
 | TypedAttention（跨/自集合） | layers/selected_attention.py::SelectedCrossAttention | 改写：借脚手架，新增 typed 双 mask + split + BiasMLP + flash/eager 分流 |
 | SparseGraphInteraction（A 图） | 无（参照 PocketXMol NodeBlock，去坐标更新、COO） | 自写小模块 |
@@ -498,8 +510,8 @@ for t in diffusion_steps:
 | PP 数目 | 4096 | 显存旋钮 + 正类体素统计（1.7Å 包络 ~3000 正类/配体） | 512 / 8192 |
 | precision readout 融合 | 开（PP 冻结、逐 PP 损失已删，§11） | precision 方向 | 关（材化逐点 probe，需大显存） |
 | 逐 PP "属于" 辅助损失 | 关（删，PP 全程冻结，§12） | — | 开（须 PP 可更新 / 不融合 readout） |
-| select_top_k_points 采样 | Emap2lig 默认（体素中心、1Å、top-k） | 始终保留可用 | 亚体素峰值插值 / 比 1Å 更密（未来钩子） |
+| PP voxel 采样 | 在 selected Global Proposal 的 `candidate_voxel_row` 内按全图概率 top-k；`N_PP_i=min(K_i,budget)` | 稀疏 parent voxel 表，不采 mask 外背景 | 扩 schema 后再测试背景或 dense grid 采样 |
 
-**钩子（非第一版）**：3D RoPE、等变坐标更新 / DiffDock 张量场（排除）；粗分支 Order A 对照；难负身份配额；全图自然假阳 vs context-box 假阳。
+**钩子（非第一版）**：3D RoPE、等变坐标更新 / DiffDock 张量场（排除）；粗分支 Order A 对照；难负 CCD 身份配额；Global Proposal 自然假阳数量。
 
 > 横向对照（AF3 / PocketXMol / DiffDock / Emap2lig 用同一套算子）见 `参照算法_迭代运算梳理_AF3_PocketXMol.md`。
