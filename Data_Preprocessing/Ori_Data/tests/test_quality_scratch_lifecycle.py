@@ -22,13 +22,14 @@ for import_dir in (CODE_DIR, TESTS_DIR):
 import quality
 from chimera import ChimeraRunner
 from density import build_experimental_density
-from failures import ExternalToolError, ToolFailureCode
+from failures import ExternalToolError, KnownSampleFailure, ToolFailureCode
 from mapq import MapQRunner
 from parse import parse_one_pdb
 from test_pipeline_smoke import _write_fake_chimera, _write_fake_mapq, _write_inputs
 
 
 _TRANSIENT_SUFFIXES = {".mrc", ".map", ".cif"}
+_TRANSIENT_ATOMIC_MARKERS = (".mrc.tmp.", ".map.tmp.", ".cif.tmp.")
 
 
 class _InjectedFailure(RuntimeError):
@@ -199,7 +200,7 @@ def _transient_files(attempt_dir: Path) -> list[Path]:
         if path.is_file()
         and (
             path.suffix.lower() in _TRANSIENT_SUFFIXES
-            or ".cif.tmp." in path.name.lower()
+            or any(marker in path.name.lower() for marker in _TRANSIENT_ATOMIC_MARKERS)
         )
     )
 
@@ -399,6 +400,39 @@ def test_build_quality_valid_trio_skip_does_not_touch_scratch(
     assert sentinel.read_bytes() == b"historical"
 
 
+def test_build_quality_known_failure_before_attempt_does_not_create_scratch(
+    quality_case: _QualityCase,
+) -> None:
+    """attempt 前可判定的 known failure 不创建 scratch，也不触碰历史目录。"""
+    historical = (
+        quality_case.scratch_root
+        / quality_case.run_id
+        / "stage_f"
+        / "1abc"
+        / "historical_attempt"
+    )
+    historical.mkdir(parents=True)
+    sentinel = historical / "must_not_be_touched.mrc"
+    sentinel.write_bytes(b"historical")
+    invalid_record = dict(quality_case.record)
+    invalid_record["resolution"] = None
+    before = _attempt_dirs(quality_case)
+
+    with pytest.raises(KnownSampleFailure):
+        quality.build_quality(
+            quality_case.root,
+            invalid_record,
+            chimera_runner=quality_case.chimera_runner,
+            mapq_runner=quality_case.mapq_runner,
+            chimera_version=quality_case.chimera_version,
+            run_id=quality_case.run_id,
+            scratch_root=quality_case.scratch_root,
+        )
+
+    assert _attempt_dirs(quality_case) == before
+    assert sentinel.read_bytes() == b"historical"
+
+
 def test_quality_attempt_scope_cleans_only_current_attempt(tmp_path: Path) -> None:
     """清理仅限当前 attempt，不得跨 PDB、旧 attempt 或 run。"""
     scratch = tmp_path / "scratch"
@@ -419,6 +453,8 @@ def test_quality_attempt_scope_cleans_only_current_attempt(tmp_path: Path) -> No
             nested = current / "nested"
             nested.mkdir()
             (nested / "partial.cif.tmp.42").write_bytes(b"partial")
+            (nested / "partial.mrc.tmp.43").write_bytes(b"partial")
+            (nested / "partial.map.tmp.44").write_bytes(b"partial")
             (current / "molmap.stdout.log").write_text("evidence", encoding="utf-8")
             raise _InjectedFailure("scope failure")
 
