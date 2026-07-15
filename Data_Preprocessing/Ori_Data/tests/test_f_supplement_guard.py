@@ -147,6 +147,7 @@ def test_preflight_guard_stops_without_launching_command(tmp_path: Path) -> None
         ids_path=ids_path,
         formal_log_path=log_path,
         stop_marker_path=marker,
+        child_pgid_path=tmp_path / "child-preflight.pgid",
         poll_seconds=0.01,
         termination_grace_seconds=0.1,
     )
@@ -175,6 +176,7 @@ def test_runtime_guard_terminates_active_supplement(tmp_path: Path) -> None:
         ids_path=ids_path,
         formal_log_path=log_path,
         stop_marker_path=marker,
+        child_pgid_path=tmp_path / "child-runtime.pgid",
         poll_seconds=0.05,
         termination_grace_seconds=1.0,
     )
@@ -215,6 +217,8 @@ def test_supervisor_sigterm_cleans_independent_child_session(tmp_path: Path) -> 
             str(formal_log),
             "--stop_marker",
             str(marker),
+            "--child_pgid_file",
+            str(tmp_path / "child-signal.pgid"),
             "--n_jobs",
             "12",
             "--poll_seconds",
@@ -244,3 +248,100 @@ def test_supervisor_sigterm_cleans_independent_child_session(tmp_path: Path) -> 
         time.sleep(0.05)
     else:
         pytest.fail("supplement child process survived supervisor SIGTERM")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group kill contract")
+def test_registered_child_group_does_not_survive_real_outer_sigkill(tmp_path: Path) -> None:
+    """模拟 core 的真实顺序：先 KILL 登记子组，再 KILL 外层组，不能留下孙进程。"""
+    plan_path, ids_path, formal_log, _plan = _guard_fixture(tmp_path)
+    child_tree_path = tmp_path / "child-tree.json"
+    child_pgid_path = tmp_path / "child-kill.pgid"
+    marker = tmp_path / "guard" / "outer-kill.json"
+    script = Path(__file__).resolve().parents[1] / "scripts" / "f_supplement_guard.py"
+    child_code = (
+        "import json,os,subprocess,sys,time; from pathlib import Path; "
+        "grand=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); "
+        f"Path({str(child_tree_path)!r}).write_text(json.dumps({{'child':os.getpid(),'grand':grand.pid}})); "
+        "time.sleep(30)"
+    )
+    supervisor = subprocess.Popen(
+        [
+            sys.executable,
+            str(script),
+            "--plan",
+            str(plan_path),
+            "--ids",
+            str(ids_path),
+            "--formal_run_id",
+            "formal",
+            "--supplement_run_id",
+            "formal_fsupp96_v1",
+            "--formal_job_id",
+            "316116",
+            "--formal_log",
+            str(formal_log),
+            "--stop_marker",
+            str(marker),
+            "--child_pgid_file",
+            str(child_pgid_path),
+            "--n_jobs",
+            "12",
+            "--poll_seconds",
+            "1",
+            "--termination_grace_seconds",
+            "1",
+            "--",
+            sys.executable,
+            "-c",
+            child_code,
+        ],
+        start_new_session=True,
+    )
+    try:
+        deadline = time.monotonic() + 5.0
+        while (
+            not child_pgid_path.exists() or not child_tree_path.exists()
+        ) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert child_pgid_path.exists()
+        assert child_tree_path.exists()
+        child_pgid = int(child_pgid_path.read_text(encoding="ascii"))
+        tree = json.loads(child_tree_path.read_text(encoding="utf-8"))
+        assert child_pgid == tree["child"]
+        assert os.getpgid(tree["grand"]) == child_pgid
+
+        # 与 opt-in core 的 KillWatcher 顺序一致，不能只杀外层 supervisor。
+        os.killpg(child_pgid, signal.SIGKILL)
+        try:
+            os.killpg(supervisor.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        supervisor.wait(timeout=5.0)
+        for process_id in (tree["child"], tree["grand"]):
+            deadline = time.monotonic() + 5.0
+            while _pid_is_running(process_id) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert not _pid_is_running(process_id)
+    finally:
+        for process_group in (
+            int(child_pgid_path.read_text(encoding="ascii"))
+            if child_pgid_path.exists()
+            else None,
+            supervisor.pid,
+        ):
+            if process_group is None:
+                continue
+            try:
+                os.killpg(process_group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        child_pgid_path.unlink(missing_ok=True)
+
+
+def _pid_is_running(process_id: int) -> bool:
+    """把 Linux zombie 视为已停止，避免等待已被 KILL 但尚待回收的进程。"""
+    stat_path = Path("/proc") / str(process_id) / "stat"
+    if not stat_path.exists():
+        return False
+    fields = stat_path.read_text(encoding="ascii").split()
+    return len(fields) > 2 and fields[2] != "Z"

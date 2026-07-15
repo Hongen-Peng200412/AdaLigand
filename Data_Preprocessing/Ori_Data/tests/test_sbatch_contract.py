@@ -58,11 +58,28 @@ def test_f_supplement_uses_independent_cpu96_tail_contract() -> None:
     assert 'if [[ "${SLURM_CPUS_PER_TASK:-}" != "96" ]]' in script
     assert "scripts/f_supplement_guard.py" in script
     assert "--stop_marker" in script
+    assert "ADALIGAND_EXTRA_KILL_PGID_FILE" in script
+    assert "--child_pgid_file" in script
     assert 'if [[ "${supplement_exit}" -eq 75 ]]' in script
     assert '--pdb_ids_file "${ADALIGAND_F_SUPPLEMENT_IDS_FILE}"' in script
     assert '--run_id "${ADALIGAND_RUN_ID}"' in script
     assert "--gate_name f_supplement_release" in script
     assert "--gate_name f_release" not in script
+
+
+def test_job_core_reaps_opt_in_child_group_before_outer_kill() -> None:
+    """补算专用 PGID 登记启用时，kill-lock 必须先收割独立子组。"""
+    core = (SBATCH_ROOT / "_adaligand_job_core.sh").read_text(encoding="utf-8")
+
+    assert 'EXTRA_KILL_PGID_FILE="${ADALIGAND_EXTRA_KILL_PGID_FILE:-}"' in core
+    assert 'expected_extra_pgid_file="/home/penghongen/child_pgid_${SLURM_JOB_ID}"' in core
+    watcher_start = core.index('if [ -f "${KILL_LOCK}" ]; then')
+    child_kill = core.index("terminate_extra_process_group 9", watcher_start)
+    outer_kill = core.index('kill -9 -"${RUN_PID}"', watcher_start)
+    assert watcher_start < child_kill < outer_kill
+    cleanup_start = core.index("cleanup()")
+    cleanup_end = core.index("\n}", cleanup_start)
+    assert "terminate_extra_process_group 9" in core[cleanup_start:cleanup_end]
 
 
 def test_de_f_g_use_cluster_unlimited_walltime_default() -> None:

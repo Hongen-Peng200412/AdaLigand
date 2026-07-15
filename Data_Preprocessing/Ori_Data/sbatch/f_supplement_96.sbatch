@@ -9,6 +9,7 @@
 #SBATCH --cpus-per-task=96
 
 set -u
+export ADALIGAND_EXTRA_KILL_PGID_FILE="/home/penghongen/child_pgid_${SLURM_JOB_ID}"
 
 write_adaligand_run_cmd() {
     local output_path="$1"
@@ -68,6 +69,7 @@ set +e
   --formal_job_id "${ADALIGAND_F_SUPPLEMENT_FORMAL_JOB_ID}" \
   --formal_log "${ADALIGAND_F_SUPPLEMENT_FORMAL_LOG}" \
   --stop_marker "${guard_marker}" \
+  --child_pgid_file "${ADALIGAND_EXTRA_KILL_PGID_FILE}" \
   --n_jobs "${supplement_n_jobs}" \
   -- \
   "${PYTHON}" scripts/f_quality.py \

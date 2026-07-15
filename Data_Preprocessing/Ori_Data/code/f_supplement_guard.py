@@ -127,6 +127,7 @@ def supervise_f_supplement(
     ids_path: Path,
     formal_log_path: Path,
     stop_marker_path: Path,
+    child_pgid_path: Path,
     poll_seconds: float,
     termination_grace_seconds: float,
 ) -> int:
@@ -138,6 +139,8 @@ def supervise_f_supplement(
     _require_regular_file(formal_log_path, "formal Stage F stderr log")
     if stop_marker_path.exists() or stop_marker_path.is_symlink():
         raise RuntimeError(f"supplement guard marker already exists: {stop_marker_path}")
+    if child_pgid_path.exists() or child_pgid_path.is_symlink():
+        raise RuntimeError(f"supplement child PGID file already exists: {child_pgid_path}")
 
     stop_at = int(plan["collision_stop_completed_tasks"])
     current_done = latest_formal_completed_tasks(formal_log_path)
@@ -160,6 +163,7 @@ def supervise_f_supplement(
         raise _SupervisorSignal(signum)
 
     try:
+        _write_child_pgid(child_pgid_path, process.pid)
         for current_signal in (signal.SIGTERM, signal.SIGINT):
             previous_handlers[current_signal] = signal.getsignal(current_signal)
             signal.signal(current_signal, _raise_supervisor_signal)
@@ -190,6 +194,7 @@ def supervise_f_supplement(
     finally:
         for current_signal, previous_handler in previous_handlers.items():
             signal.signal(current_signal, previous_handler)
+        child_pgid_path.unlink(missing_ok=True)
 
 
 def _terminate_process_group(process: subprocess.Popen[Any], *, grace_seconds: float) -> None:
@@ -247,6 +252,17 @@ def _write_stop_marker(
         json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
+    atomic_replace(temporary, path)
+
+
+def _write_child_pgid(path: Path, process_group_id: int) -> None:
+    """为 opt-in core 原子登记独立补算进程组，供真实 kill-lock 先行收割。"""
+    if process_group_id <= 1:
+        raise ValueError("unsafe supplement child process group id")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.tmp.{os.getpid()}")
+    temporary.write_text(f"{process_group_id}\n", encoding="ascii")
+    temporary.chmod(0o600)
     atomic_replace(temporary, path)
 
 

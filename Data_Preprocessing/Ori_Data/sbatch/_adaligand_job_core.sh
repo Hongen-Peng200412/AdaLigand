@@ -29,10 +29,23 @@ PRE_LOCK="/home/penghongen/pre_lock_${SLURM_JOB_ID}"
 AFTER_LOCK="/home/penghongen/after_lock_${SLURM_JOB_ID}"
 TRY_LOCK="/home/penghongen/try_lock_${SLURM_JOB_ID}"
 KILL_LOCK="/home/penghongen/kill_lock_${SLURM_JOB_ID}"
+EXTRA_KILL_PGID_FILE="${ADALIGAND_EXTRA_KILL_PGID_FILE:-}"
 RUN_PID=""
 WATCHER_PID=""
 HEARTBEAT_PID=""
 FINAL_EXIT=1
+
+if [ -n "${EXTRA_KILL_PGID_FILE}" ]; then
+    expected_extra_pgid_file="/home/penghongen/child_pgid_${SLURM_JOB_ID}"
+    if [ "${EXTRA_KILL_PGID_FILE}" != "${expected_extra_pgid_file}" ]; then
+        echo "[ConfigError] extra child PGID file must be ${expected_extra_pgid_file}"
+        exit 64
+    fi
+    if [ -L "${EXTRA_KILL_PGID_FILE}" ] || [ -e "${EXTRA_KILL_PGID_FILE}" ]; then
+        echo "[ConfigError] refusing stale extra child PGID file: ${EXTRA_KILL_PGID_FILE}"
+        exit 64
+    fi
+fi
 
 is_enabled() {
     case "${1:-0}" in
@@ -52,8 +65,46 @@ stop_background_watchers() {
     HEARTBEAT_PID=""
 }
 
+terminate_extra_process_group() {
+    local signal_number="${1:-9}"
+    if [ -z "${EXTRA_KILL_PGID_FILE}" ] || [ ! -e "${EXTRA_KILL_PGID_FILE}" ]; then
+        return 0
+    fi
+    if [ -L "${EXTRA_KILL_PGID_FILE}" ] || [ ! -f "${EXTRA_KILL_PGID_FILE}" ]; then
+        echo "[KillWatcher] refusing invalid child PGID file: ${EXTRA_KILL_PGID_FILE}"
+        return 1
+    fi
+    local candidate=""
+    IFS= read -r candidate <"${EXTRA_KILL_PGID_FILE}" || true
+    case "${candidate}" in
+        ''|*[!0-9]*)
+            echo "[KillWatcher] refusing invalid child PGID value: ${candidate}"
+            return 1
+            ;;
+    esac
+    if [ "${candidate}" -le 1 ]; then
+        echo "[KillWatcher] refusing unsafe child PGID value: ${candidate}"
+        return 1
+    fi
+    local live_pgid=""
+    live_pgid="$(ps -o pgid= -p "${candidate}" 2>/dev/null | tr -d '[:space:]')"
+    if [ -z "${live_pgid}" ]; then
+        return 0
+    fi
+    if [ "${live_pgid}" != "${candidate}" ]; then
+        echo "[KillWatcher] refusing non-leader child PGID: pid=${candidate} pgid=${live_pgid}"
+        return 1
+    fi
+    echo "[KillWatcher] signal ${signal_number} to registered child process group ${candidate}"
+    kill "-${signal_number}" "-${candidate}" 2>/dev/null || true
+}
+
 cleanup() {
     stop_background_watchers
+    terminate_extra_process_group 9 || true
+    if [ -n "${EXTRA_KILL_PGID_FILE}" ]; then
+        rm -f "${EXTRA_KILL_PGID_FILE}"
+    fi
     if [ -n "${RUN_PID}" ]; then
         kill -TERM -"${RUN_PID}" 2>/dev/null || kill -TERM "${RUN_PID}" 2>/dev/null || true
     fi
@@ -128,6 +179,10 @@ while true; do
             sleep 10
             if [ -f "${KILL_LOCK}" ]; then
                 echo "[KillWatcher] ${KILL_LOCK} detected; killing process group ${RUN_PID}"
+                terminate_extra_process_group 9 || true
+                if [ -n "${EXTRA_KILL_PGID_FILE}" ]; then
+                    rm -f "${EXTRA_KILL_PGID_FILE}"
+                fi
                 kill -9 -"${RUN_PID}" 2>/dev/null || kill -9 "${RUN_PID}" 2>/dev/null || true
                 rm -f "${KILL_LOCK}"
                 exit 0

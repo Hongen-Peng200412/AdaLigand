@@ -24,6 +24,7 @@ def main() -> None:
     parser.add_argument("--formal_job_id", type=int, required=True)
     parser.add_argument("--formal_log", type=Path, required=True)
     parser.add_argument("--stop_marker", type=Path, required=True)
+    parser.add_argument("--child_pgid_file", type=Path, required=True)
     parser.add_argument("--n_jobs", type=int, required=True)
     parser.add_argument("--poll_seconds", type=float, default=300.0)
     parser.add_argument("--termination_grace_seconds", type=float, default=60.0)
@@ -48,6 +49,7 @@ def main() -> None:
             ids_path=args.ids,
             formal_log_path=args.formal_log,
             stop_marker_path=args.stop_marker,
+            child_pgid_path=args.child_pgid_file,
             poll_seconds=args.poll_seconds,
             termination_grace_seconds=args.termination_grace_seconds,
         )
