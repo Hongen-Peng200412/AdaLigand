@@ -231,11 +231,7 @@ def test_supervisor_sigterm_cleans_independent_child_session(tmp_path: Path) -> 
             child_code,
         ]
     )
-    deadline = time.monotonic() + 5.0
-    while not child_pid_path.exists() and time.monotonic() < deadline:
-        time.sleep(0.05)
-    assert child_pid_path.exists()
-    child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+    child_pid = _wait_for_int_file(child_pid_path)
     os.kill(process.pid, signal.SIGTERM)
     assert process.wait(timeout=5.0) == 128 + signal.SIGTERM
 
@@ -298,15 +294,8 @@ def test_registered_child_group_does_not_survive_real_outer_sigkill(tmp_path: Pa
         start_new_session=True,
     )
     try:
-        deadline = time.monotonic() + 5.0
-        while (
-            not child_pgid_path.exists() or not child_tree_path.exists()
-        ) and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert child_pgid_path.exists()
-        assert child_tree_path.exists()
-        child_pgid = int(child_pgid_path.read_text(encoding="ascii"))
-        tree = json.loads(child_tree_path.read_text(encoding="utf-8"))
+        child_pgid = _wait_for_int_file(child_pgid_path)
+        tree = _wait_for_json_file(child_tree_path)
         assert child_pgid == tree["child"]
         assert os.getpgid(tree["grand"]) == child_pgid
 
@@ -345,3 +334,29 @@ def _pid_is_running(process_id: int) -> bool:
         return False
     fields = stat_path.read_text(encoding="ascii").split()
     return len(fields) > 2 and fields[2] != "Z"
+
+
+def _wait_for_int_file(path: Path, timeout_seconds: float = 5.0) -> int:
+    """等待另一个进程完成短文本原子量的写入，而不是只等待目录项出现。"""
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            return int(path.read_text(encoding="ascii").strip())
+        except (FileNotFoundError, ValueError):
+            time.sleep(0.05)
+    pytest.fail(f"timed out waiting for integer file: {path}")
+
+
+def _wait_for_json_file(path: Path, timeout_seconds: float = 5.0) -> dict:
+    """等待另一个进程写出可完整解析的 JSON。"""
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            time.sleep(0.05)
+            continue
+        if isinstance(value, dict):
+            return value
+        pytest.fail(f"expected JSON object in {path}")
+    pytest.fail(f"timed out waiting for JSON file: {path}")
