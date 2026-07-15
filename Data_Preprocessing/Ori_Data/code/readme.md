@@ -419,6 +419,16 @@ Q-score 使用 native EMDB map、首 model/规范 altloc 的完整 `ATOM+HETATM`
 
 固定 MapQ CLI 的 CIF 分支漏掉了 `mmcif.ReadMol` 结果的 `chimera.openModels.add`，会在 classic Chimera 1.19 中触发 `ValueError: unopen model`。适配器不修改安装目录，而是在每个 PDB 的 scratch 中生成 basename 仍为 `mapq_cmd.py` 的一次性兼容副本，只插入这一行；原始 CLI SHA、固定 zip SHA 和补丁标识 `mapq_cmd_cif_readmol_openmodels_v1` 均写入 provenance。任何上游源码 anchor 漂移会直接失败，不静默跳过补丁。
 
+Stage F 的每次计算使用独立 `scratch/{run_id}/stage_f/{pdb_id}/{attempt_id}/`。`full_model.cif`、canonical/native/simulated MRC、MapQ 输出 CIF 及其原子写临时文件都只是大型中间体：成功或 Python/工具异常时，`build_quality()` 都只在当前精确 attempt 内递归清理这些 MRC/MAP/CIF；不得扫描、删除兄弟 PDB、attempt 或 run。`molmap/correlation/mapq` 的 stdout、stderr、生成脚本与兼容脚本属于小型 provenance/故障证据，继续保留。默认不保留大型调试文件；若未来需要 debug retention，必须另行设计显式 opt-in、run 级硬空间上限和并发互斥，不能改变本默认值。
+
+如果清理自身失败，attempt 内写入小型 `cleanup_errors.json` 并阻断该样本成功/release；若主计算也已失败，异常链必须同时保留原始失败与清理失败，不能用清理错误静默覆盖根因。
+
+上述异常安全边界覆盖正常返回、Python 异常和已经完成子进程组回收的外部工具 timeout；`SIGKILL`、节点掉电等无法执行 Python `finally` 的情况不在其能力范围内。遇到这类中断，必须先用精确 Job ID/lock 停止对应 writer、确认没有 Chimera/MapQ/Loky 进程，再按精确 run/attempt 审计和回收大型 stale scratch；不得在作业运行中清理，也不得删除小日志或正式质量三件套。
+
+硬中断后的回收入口是 `scripts/stage_f_scratch_recovery.py`，且不是 heartbeat 的日常清理器。`audit` 只接受带 done/SHA 的原子 inventory、15 分钟内的 schema v2 跨节点零进程正文证据和精确 after+try 锁；它用 raw inventory 定位候选 attempt，再以 `quality.py` 同一 matcher 做无限深度复核，冻结 delete/nontransient/public-trio 三份 manifest 与一个全哈希 bundle，绝不删除。进程证据必须由 `scripts/stage_f_process_audit.py capture --controller_node master` 从登录节点发起：先分别进入每个保留 allocation 探测，再冻结 scheduler/四锁快照，最后探测 master；命令 argv、stdout/stderr、节点、时间窗、脚本/模块 SHA 与三类进程列表逐层闭合。任一 F/Chimera/MapQ/Loky、inventory/recovery、同 UID 裸 `python`/`python -`、scan error、非空 probe stderr、controller 错位或实现哈希漂移都阻断。audit 前和 apply 前必须分别生成新的 process-audit 文件，不能复用旧 schema 或把一次“零进程”跨步骤延长。
+
+`apply` 必须显式提供该 bundle SHA；它以 report-scoped 独占锁逐文件写入并 fsync `intent`，立即复核锁和 inode/blocks/mtime 后只 unlink manifest 中的精确路径，再 fsync `deleted`。硬杀造成的最后一条无换行 journal 尾部会先逐字节固化为独立证据，再受检截断并按 durable intent 与 live path 对账；中间坏行、manifest 漂移、symlink 越界、新增 transient 或任何正式三件套/小日志变化都 fail-closed。默认仍不删除 attempt 目录和小证据。禁止再用 SSH heredoc/`python -` 承载长时间 inventory 或 cleanup：其正文无法由 `/proc/<pid>/cmdline` 还原，也不能作为正式可追溯执行入口。
+
 口袋定义固定为：同一首 model/altloc 选择下，`group_PDB=ATOM` 的受体重原子中，到该 occurrence **任一** `present=True` 配体重原子的距离 ≤ 6.0 Å 的原子并集。它不是配体中心球，因此长条或分支配体两端的局部受体都能进入；配体自身 HETATM 不进入口袋。若某个 occurrence 的 6 Å 包络确实没有受体原子，保留该 occurrence：写 typed empty 原子/Q 数组、`pocket_n_atoms=pocket_n_valid=0`、三个 Q 聚合为 JSON `null`、`pocket_status=no_receptor_atoms_within_radius`；不得把它升级为整 PDB 失败或预先过滤。
 
 `quality_atoms/{pdb_id}.npz` 保存 `qscore_{cid} (M,) float32`；`present=False` 固定 `NaN`，成功 occurrence 必须 `n_valid == n_present`。同时保存数值升序的 `pocket_atom_site_id_{cid} (K,) int64` 与同序 `pocket_qscore_{cid} (K,) float32`，以及标量 `pocket_radius_angstrom` 和 `pocket_definition`；非空口袋必须 `pocket_n_valid == pocket_n_atoms == K > 0`，空口袋则两个 typed array 均为 `(0,)` 且聚合为 null。两种状态都保留 occurrence。不复制整份受体 Q 表，只保留每个 occurrence 实际口袋的可审计子集。四量公式、口袋规则、工具版本、输入 manifest 和日志位置另见 `quality/{pdb_id}.provenance.json`。
