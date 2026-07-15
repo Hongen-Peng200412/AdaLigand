@@ -409,6 +409,14 @@ Q-score 使用 native EMDB map、首 model/规范 altloc 的完整 `ATOM+HETATM`
 
 正式 run 可以在共享 `reports/runs/{run_id}/exclusions.jsonl` 之外提供严格的 Stage F 加法视图 `exclusions.stage_f.jsonl`。该视图只在显式存在时供 F 读取：必须逐字段保留共享 manifest 中全部适用于 F 的记录，只能追加新的 `stages=["stage_f"]` PDB，不能遮蔽已有 PDB、删改 Stage E 记录、接受孤立/损坏 symlink 或回退到空清单。共享 manifest 继续作为 Stage E 的原始 provenance；F 专用视图的 SHA 独立进入本轮状态和迁移证据。这个接口用于审计本轮阶段后置的运行策略，不改变 Q-score、CC、口袋或通用 known-failure 科学契约。
 
+### 受检的 Stage F 尾段补算
+
+`scripts/f_supplement_plan.py`、`scripts/f_supplement_guard.py` 与 `sbatch/f_supplement_96.sbatch` 提供运行级加速接口，不是第二条正式 Stage F。planner 冻结 pair list、Stage F exclusion、尾段索引和 PDB ID，并把正式/补算 run id、正式 Job ID、正式 stderr 的绝对路径及 device/inode、F12×MapQ np8 资源参数、计划/ID 文件 SHA 和碰撞阈值写入 `plan.json`。计划文件与 ID 文件必须是非空普通文件，启动时重新计算 SHA；任何路径、身份、哈希或资源漂移都 fail-closed。
+
+补算使用独立 run-scoped status 和 `f_supplement_release`，永不写正式 Stage F status/release。它与正式 F 共享的只有 schema-aware、原子提升的三件质量产物：`quality/{pdb_id}.jsonl`、`quality/{pdb_id}.provenance.json` 和 `quality_atoms/{pdb_id}.npz`。正式 F 仍是全集唯一终态 writer，并通过既有 validator 对已完成三件套执行 skip-valid-artifact；补算不能用自己的 gate 释放 Stage G。
+
+守护器默认每 300 秒重读已经绑定身份的正式日志。正式完成数达到计划阈值时，它先向补算 child session 发送 TERM，等待后再发 KILL，原子写 `f_supplement_guard/stop.json`，并跳过补算 gate。signal/异常路径使用同一回收逻辑；sbatch core 的 opt-in child-PGID 文件只服务于该补算，真实 `kill_lock` 会先杀 child PGID、再收口外层进程组，避免 Chimera/MapQ/Loky 逃逸。普通 A–G 作业未设置该文件时仍保持原四锁行为。
+
 固定 MapQ CLI 的 CIF 分支漏掉了 `mmcif.ReadMol` 结果的 `chimera.openModels.add`，会在 classic Chimera 1.19 中触发 `ValueError: unopen model`。适配器不修改安装目录，而是在每个 PDB 的 scratch 中生成 basename 仍为 `mapq_cmd.py` 的一次性兼容副本，只插入这一行；原始 CLI SHA、固定 zip SHA 和补丁标识 `mapq_cmd_cif_readmol_openmodels_v1` 均写入 provenance。任何上游源码 anchor 漂移会直接失败，不静默跳过补丁。
 
 口袋定义固定为：同一首 model/altloc 选择下，`group_PDB=ATOM` 的受体重原子中，到该 occurrence **任一** `present=True` 配体重原子的距离 ≤ 6.0 Å 的原子并集。它不是配体中心球，因此长条或分支配体两端的局部受体都能进入；配体自身 HETATM 不进入口袋。若某个 occurrence 的 6 Å 包络确实没有受体原子，保留该 occurrence：写 typed empty 原子/Q 数组、`pocket_n_atoms=pocket_n_valid=0`、三个 Q 聚合为 JSON `null`、`pocket_status=no_receptor_atoms_within_radius`；不得把它升级为整 PDB 失败或预先过滤。
@@ -530,5 +538,6 @@ for o in occ:
 - 解析失败的 occurrence 记 `resolve_failed` 入 `reports`，**不**进主产物；严格依赖 `_atom_site.label_atom_id` 与 CCD 原子名精确对齐（无图同构兜底）。
 - 当前正式 run `adaligand_ag_20260711T154658` 的 `316115` 已于 2026-07-14 01:26:42 以 `COMPLETED 0:0` 闭合 D/E：D 为 22,339 success、3 skipped、44 known；E 为 22,309 skipped-valid、77 known，unknown、duplicate、silent missing 均为 0。E status SHA-256 为 `3a0d4148…c54c`，`de_release` success marker SHA-256 为 `ab49f43c…da6`；四条 run-only exclusion 与 2zhc frame mismatch 均按既定终态和 provenance 保留，风险分层 artifact 审计通过。
 - `316116` 首轮推进到 22,363/22,386 后，现场证据将唯一活动工程长尾定位为 `6kgx` 的 post-MapQ occurrence 投影；它没有公开质量三件套。用户授权后，Stage E 共享 manifest 保持 SHA-256 `380844d0…325f`，Stage F 加法视图以 SHA-256 `3b10abb5…8ee8` 追加 `6kgx`，令它保留在状态分母并写 `known_failed:run_policy_excluded`，但不进入训练、推理或 G 候选。214 项本地/远端回归和只读重放通过后，`316116` 于 2026-07-14 22:46:44 复用 run_cmd SHA-256 `bd7edb94…5ffa`，以原 run id、F12、无 overwrite 恢复；全量 F 仍待最终审计。`316117` 继续依赖等待且只运行 analyze，不自动执行示例阈值或写 `keep_list`。
+- 2026-07-15 启动的尾段补算 `318350` 使用独立 run `adaligand_ag_20260711T154658_fsupp96_v1`，在 `cnode01` 以 CPU96/F12×MapQ np8 运行；正式 `316116` 继续在 `cnode04` 以相同单作业资源契约运行，两者合计 192 CPU。尾段 `[19386,22386)` 实际选择 2,990 个 PDB，plan/ID SHA-256 为 `1d5c1217…dff4f` / `acacde79…cea80`，正式碰撞门为完成 17,386。补算只提前形成可由正式 F 验证并复用的三件套；`316117` 仍只依赖正式 `f_release`，因此该加速不会绕过四终态或 G analyze 门禁。
 - G 的唯一 map-level schema v2 算法已经锁定；最终分辨率、selected CC、配体 Q、口袋 Q 和合格比例数值仍按“先看正式分布再显式配置”。当前 DAG 只运行 analyze，不自动消费示例配置，也不冒充最终科学筛选或写 `keep_list`。
 - 历史 A–C 见 `文档/exec_plan/数据下载与解析.md`；当前长任务日志见 `文档/exec_plan/A-G数据流水线实现与全量运行.md`；规格见 `文档/规划文档/数据处理_v2.md`。

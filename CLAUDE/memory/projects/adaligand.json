@@ -32,10 +32,11 @@
     "2026-07-13：Stage E长尾补足316415在用户授权截止点完成受检收口：8j07/9dp7/9qwt形成完整三件套，8glv/9e5c/9fqr与既有8ckb写入正式run-only exclusions；精确终止3个孤儿Chimera后，before/after/summary、release marker、resume v3与run_cmd形成SHA证据链。本地/远端全套207项测试及VALIDATE_ONLY预检通过，316115于21:04:43在原96核allocation启动正式无过滤E24，316116/316117继续依赖等待。",
     "2026-07-14：DE已闭合并由原DAG释放F：D为22,339 success+3 skipped+44 known，E为22,309 skipped-valid+77 known，二者unknown/duplicate/missing均为0；de_release成功。316116于01:26:42复用冻结run_cmd 8399d571…d13启动F12，早期874个PDB的quality JSONL、provenance JSON与quality_atoms NPZ三件套审计通过。",
     "2026-07-14：F首轮推进到22,363/22,386后，现场栈将唯一活动工程长尾定位为6kgx的post-MapQ occurrence投影；用户授权本轮超时。共享Stage E manifest SHA保持380844…325f，Stage F专用加法视图SHA为3b10ab…8ee8并仅追加6kgx。专项23项、本地/远端全套214项、release与只读零漂移验证通过；316116于22:46:44在原96核allocation以原run id、F12、无overwrite恢复，316117继续依赖等待。",
-    "2026-07-15：监控入口发现SSH三种主机密钥同时变化；旧pin已带时间戳备份。经三次稳定采样、用户显式恢复授权以及严格登录后的主机/目录/run/Slurm连续性核验，精确更新该endpoint的known_hosts并恢复只读监控；期间未触碰远端作业或锁。316116继续正常F12，316117依赖等待。"
+    "2026-07-15：监控入口发现SSH三种主机密钥同时变化；旧pin已带时间戳备份。经三次稳定采样、用户显式恢复授权以及严格登录后的主机/目录/run/Slurm连续性核验，精确更新该endpoint的known_hosts并恢复只读监控；期间未触碰远端作业或锁。316116继续正常F12，316117依赖等待。",
+    "2026-07-15：用户把主用CPU扩为192并另留48作测试/备用。只读证据确认cpu分区为4×96核、Cpu96用户上限192；正式316116保留cnode04/F12×MapQ np8，独立尾段补算318350在空闲cnode01零排队启动相同F12契约，总分配恰192。补算run为adaligand_ag_20260711T154658_fsupp96_v1，冻结尾段2990项，plan/ID SHA为1d5c1217…dff4f/acacde79…cea80，正式进度17386触发碰撞停止；补算不写正式status/release，G仍只依赖正式f_release。"
   ],
   "blockers": [
-    "当前无科学契约决策阻塞；316116正在受检恢复F12。需等待全量F完成，复核5条run_policy_excluded的F终态与全量质量契约，再由既有依赖链进入316117的G analyze。正式G数值配置/filter仍须在质量分布后另行显式执行。"
+    "当前无科学契约决策阻塞；正式316116与独立尾段补算318350正在两台CPU96节点并行运行。需等待正式F复用补算三件套并完成22,386行终态，复核5条run_policy_excluded与全量质量契约，再由既有依赖链进入316117的G analyze。正式G数值配置/filter仍须在质量分布后另行显式执行。"
   ],
   "failures": [
     "2026-07-12 Stage C gate 事件：366/22,386 为 unknown_failed，涉及 43,175 occurrences、506 object_keys；这是系统性工程/契约问题，不能按小比例忽略。",

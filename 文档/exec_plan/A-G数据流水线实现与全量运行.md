@@ -73,6 +73,7 @@
 - [ ] (2026-07-14 04:05+08:00) `316116` 已由原 afterok 链同刻启动，日志确认复用预置 run_cmd SHA-256 `8399d571…d13`、`F_N_JOBS=12`；当前完成 944 个外层任务，874 份早期完整质量三件套抽查通过 F 契约。`after_lock_316116` 存在、`try/kill` 不存在；待完成全量 F 四终态、四条 exclusion 传播与完整质量审计后，才接受 `316117` 的 analyze 结果。
 - [x] (2026-07-14 22:46+08:00) F 首轮推进到 22,363/22,386 后，现场栈和只读进程证据把唯一仍在执行的工程长尾定位为 `6kgx`：1,588 个 occurrence、1,011,574 行规范化模型原子，外部 Chimera/MapQ 已完成，Python 在 occurrence 投影中反复扫描百万行 `selected_atom_rows`，且公开质量三件套尚未形成。用户明确授权把当前长尾按本轮超时处理；只对精确 `316116` 使用 kill-lock，core 退出 137 并进入 try-lock，下游 `316117` 始终保持 Dependency。
 - [x] (2026-07-14 22:46+08:00) 为避免改写已经闭合的 Stage E，保留共享 `exclusions.jsonl` SHA-256 `380844d0…325f`，新增只供 Stage F 消费的加法视图 `exclusions.stage_f.jsonl`，SHA-256 `3b10abb5…8ee8`；其中原四条逐字段不变，仅追加 `6kgx` 的 `stage_f` run-only 记录。专项 23 tests、本地/远端全套 214 tests、脚本语法和两次独立审查通过；apply 后只读重放前后全部证据哈希逐字节一致。core 随后复用 run_cmd SHA-256 `bd7edb94…5ffa`，于 22:46:44 以原 run id、F12、无 filter、无 `--overwrite` 恢复；全量 F/G 仍未完成。
+- [x] (2026-07-15 16:29+08:00) 在不停止、不重提正式 `316116` 的前提下，按用户新增的主用 CPU192 授权启动独立尾部补算 `318350`：正式 F12 留在 `cnode04` 的 96 核，补算 F12 留在 `cnode01` 的另一整台 96 核，总分配恰为 192。补算 run `adaligand_ag_20260711T154658_fsupp96_v1` 只处理冻结尾段 `[19386,22386)` 中 2,990 个 eligible PDB；plan/ID SHA-256 分别为 `1d5c1217…dff4f` / `acacde79…cea80`，并在正式进度到 17,386 前由守护进程主动停止以避免相撞。Windows 全套为 224 passed、2 skipped，服务器 Linux 全套为 226 passed；启动后 `after_lock_318350` 与 child PGID 证据存在，正式/补算均无 try/kill，`316117` 继续只等待正式 F release。
 - [ ] 持续监控、自动诊断/修复/重提，只在科学契约变化或外部不可恢复阻塞时请求用户。
 - [ ] 完成全量验收、计划漂移收口、mapping/契约 README/项目记忆更新和最终报告。
 
@@ -200,6 +201,9 @@
 
 - Observation: 正式 E24 的无覆盖全量刷新最终没有重新计算已合格 artifact，而是把 22,309 个样本记为 skipped-valid，并把其余 77 个全部收敛为显式 known failure；因此正式状态重建与昂贵 artifact 重算可以安全解耦。
   Evidence: E status 恰为 22,386 行，unknown、duplicate、silent missing 均为 0，SHA-256 `3a0d4148…c54c`；风险分层 E1/E2/E3 artifact 审计和 `de_release` marker `ab49f43c…da6` 同时通过。
+
+- Observation: 正式 F 的 96 核 allocation 不等于外层 Python 会持续占满 96 核；F12 在 MapQ 阶段可瞬时达到约 12×8 个内层 worker，但真实采样的整作业平均活跃 CPU 约为 43–44。直接把正式 F 外层并发提高到 24 会在 MapQ 峰值过订阅，并且需要中断正式作业；更安全的加速是让另一台 96 核节点对尚未接近的尾段运行同一 F12 契约。
+  Evidence: `sstat`/节点进程采样、正式日志进度 6,248/22,386、冻结 F12×MapQ np8 资源契约，以及尾段 3,000 任务的独立关键路径核算。末 3,000 预计补算约 16.6 小时，正式流到 17,386 碰撞门约 31 小时，预期缩短关键路径约 14–16 小时；扩大到 5,000/6,000 会失去安全裕量，故未采用。
 
 ## Decision Log
 
@@ -367,9 +371,13 @@
   Rationale: Slurm 退出码只能证明调度脚本正常退出，不能独自排除 silent missing、旧 schema 复用、run-only exclusion 丢失或 2zhc 被错误降级。三路证据互相独立，既保留自动流水线，也避免把调度成功误当科学数据通过。
   Date/Author: 2026-07-14 / Codex（遵循用户既定 release-gate 与独立审计授权）
 
+- Decision: 用户把本轮主用 CPU 上限扩为 192，并另留 48 CPU 作为测试、审计或备用；Stage F 加速不改变正式 `316116` 的 F12×MapQ np8，而是以独立 run/job/status/gate 对冻结尾段补算。补算只写共享的 schema-aware 质量三件套，不写正式 Stage F status/release；正式流仍负责 22,386 行终态和 F release。守护进程绑定正式 Job ID、run id、stderr 设备/inode、plan/ID SHA 与资源契约，并在正式进度达到冻结阈值时 TERM→KILL 补算进程组。
+  Rationale: 这能复用正式 F 的 skip-valid-artifact 语义，同时避免重启正式 DAG、MapQ 峰值过订阅和两个 writer 处理同一 PDB。当前 `Cpu96` 用户 QoS 的 `MaxTRESPU cpu=192` 表示两台 96 核同时运行时，额外 48 核不能在同一 QoS 下并发启动；它是任一 96 核释放后的备用额度，或需另行验证可用分区/QoS，不能把“192+48 授权”误写成当前可同时占用 240 核。
+  Date/Author: 2026-07-15 / User + Codex
+
 ## Outcomes & Retrospective
 
-尚未完成。Stage C v4、ABC gate、MRC 放行及正式 D/E 已闭合；`316115` 于 2026-07-14 01:26:42 `COMPLETED 0:0`，D/E 四终态、风险分层 artifact、四条 Stage E run-only exclusion 与 2zhc frame mismatch 均已通过独立审计。`316116` 首轮推进到 22,363/22,386 后，`6kgx` 的 post-MapQ occurrence 投影成为唯一已取证长尾；它已按用户授权写入 Stage F 专用 run-only exclusion，并在原 96 核 allocation 上以 F12、无 overwrite 恢复。全量 F 状态、五条 Stage F exclusion 终态与总体质量分布仍待完成。Stage G 单一 map-level schema v2 已实现，`316117` 仍只安排 analyze。未完成范围是 F 全量及独立 QC、G analyze/分布、最终文档与记忆收口；显式阈值配置和 `keep_list` 仍不属于本轮无人值守终点。
+尚未完成。Stage C v4、ABC gate、MRC 放行及正式 D/E 已闭合；`316115` 于 2026-07-14 01:26:42 `COMPLETED 0:0`，D/E 四终态、风险分层 artifact、四条 Stage E run-only exclusion 与 2zhc frame mismatch 均已通过独立审计。`316116` 首轮推进到 22,363/22,386 后，`6kgx` 的 post-MapQ occurrence 投影成为唯一已取证长尾；它已按用户授权写入 Stage F 专用 run-only exclusion，并在原 96 核 allocation 上以 F12、无 overwrite 恢复。2026-07-15 又在第二台 96 核节点启动独立尾段补算 `318350`，正式 F 与补算当前共用 192 CPU，但正式 status/release 仍只有 `316116` 能写。全量 F 状态、五条 Stage F exclusion 终态与总体质量分布仍待完成。Stage G 单一 map-level schema v2 已实现，`316117` 仍只安排 analyze。未完成范围是 F 全量及独立 QC、G analyze/分布、最终文档与记忆收口；显式阈值配置和 `keep_list` 仍不属于本轮无人值守终点。
 
 ## Context and Orientation
 
@@ -411,6 +419,8 @@ F 用 Chimera 在 canonical grid 上生成全模型模拟密度并取得四种 C
 
 初始正式 DAG 为 A guard，B retry 与 C upgrade 并行，各自 QC 后进入 A–C release gate；通过后进入同一作业内并发的 D+E，再依次运行 F 和 G analyze。当前 316114 的 gate-repair 路径不再重跑 B：snapshot→独立 source audit→apply→无过滤全量 C→ABC gate。长任务使用 Slurm 持久运行，heartbeat 定期只读检查队列、日志增长、失败类型和产物计数。例行代码/批脚本/QC 修复可安全同步，并优先通过精确 run_cmd/lock 原地恢复；科学契约变化、删除数据或 clean sync 不在自主修复权限内。
 
+正式 F 运行期间如需跨节点尾部补算，必须先冻结 pair list、Stage F exclusion、正式进度区间和互不重叠的尾段 ID；补算使用独立 run/status/gate，不能写正式状态。运行期守护绑定正式日志身份并按冻结阈值轮询；碰撞前主动停止补算进程组，已经原子完成且通过既有 validator 的公共质量三件套由正式 F 自然 skip。第二个作业不改变正式 Job ID、afterok 链、F12×MapQ np8 或科学契约。
+
 ## Concrete Steps
 
 所有本地命令从仓库根执行：
@@ -447,6 +457,8 @@ E 验收必须满足：成功样本的 `exp.grid.shape == sim.grid.shape == (1,Z
 
 F 验收必须满足：四个 CC 非空值均有限且在 `[-1,1]`；contour 缺失时只允许两个 contour 值为 null；错配负对照不优于正确配对；`qscore_{cid}.shape == (M,)` 且与 LigandObject 行序严格一致；`present=False` 位置为 NaN；`n_valid` 与成功 join 数一致。每个 occurrence 还必须有数值升序的 `pocket_atom_site_id_{cid} (K,) int64` 与同序 `pocket_qscore_{cid} (K,) float32`；`K>0` 时全部原子精确满足 6 Å 包络，`K=0` 时两个数组均为空、聚合 null、状态显式且 occurrence 仍保留；不存在按输出/残基遍历顺序或坐标最近邻猜测映射。
 
+Stage F 尾部补算验收还必须满足：planner 对 plan/ID 文件、正式 run/job/log inode、pair list、exclusion 和 F12×MapQ np8 资源契约做交叉哈希；守护在子进程启动前安装 signal handler，正常阈值、TERM、异常和真实 kill-lock 路径都能回收整个补算子进程组并落盘完整 stop evidence；补算 status/gate 与正式 run 隔离。本轮实现的 Windows 全套为 224 passed、2 个 POSIX-only skipped，服务器 Linux 为 226 passed，所有 shell/sbatch 均通过 `bash -n`。
+
 本轮 G analyze 验收必须满足：每个 A 样本在每个适用阶段恰好处于 success/skipped/known_failed 之一；任何静默缺失或 unknown failure 都阻塞；`quality_distribution.json` 与 `candidates.pending.jsonl` 保存完整候选、四 CC/配体 Q/口袋 Q/分辨率分布和输入 manifest hash，且不写 `keep_list`。后续显式 schema v2 filter 还必须证明：同 PDB selected CC/resolution 唯一一致；Q 等于阈值时 pair 失败，CC/resolution/fraction 等于边界时 map 可通过；空口袋失败且计入分母；通过 map 的全部 occurrence 进入稳定排序的 `keep_list`。`map_filter_diagnostics.jsonl`、summary、配置 hash 和输入 manifest 必须闭合。
 
 ## Idempotence and Recovery
@@ -466,7 +478,7 @@ Stage B 逐文件恢复，不覆盖已验证下载；但当前 316114 repair 明
     C old contract: parse dirs=22,386, ligand_objects=3,833
     C new contract: centroid_atom/bond_index/bond_type/feat/ligand_descriptors 均未实现
 
-资源边界：原正式 DAG 保留单台 96 核节点；用户额外授权最多 48 CPU 并行执行独立测试、只读审计或依赖补足，但不能成为第二个正式 Stage C 写入者。A100 最多两张，每张配 16 CPU，仅作 CPU 分区不足时的 CPU-only 备用。Stage B 固定单节点单进程。
+资源边界：本轮主用 CPU 上限为 192，另有 48 CPU 只作测试、只读审计或备用；`cpu96` 用户 QoS 的实时只读证据为 `MaxTRESPU cpu=192`，因此两台 96 核并发时这 48 核不能在同一 QoS 下同时启动。CPU 分区由 4 台 96 核节点组成且不 oversubscribe；96 核整节点作业只有在单节点完全空闲时才能立即运行，空闲整节点存在时优先单作业占满，若整节点槽位丢失再按既有 16 核 array/已授权备用分区策略评估。A100 最多两张，每张配 16 CPU，仅作 CPU 分区不足时的 CPU-only 备用。Stage B 固定单节点单进程。
 
 2026-07-11 服务器只读补充证据：AdaLigand 环境为 Python 3.10.20，已有 NumPy 2.2.6、SciPy 1.15.2、Gemmi 0.7.5、RDKit 2026.03.3、joblib 1.5.3、requests 2.34.2、pdbeccdutils 1.0.3 与 pytest 9.1.1，仅缺 `mrcfile`；CPU 节点 96 核且约 2 TB RAM，`cnode04` 探测时 idle；`/storage` 约 106 TB 可用但整体使用率 92%。
 
@@ -496,6 +508,8 @@ Stage B 逐文件恢复，不覆盖已验证下载；但当前 316114 repair 明
 
 2026-07-14 Stage F 长尾截止证据：`316116` 首轮日志在 635.4 分钟到达 22,363/22,386，现场 py-spy 将唯一活动 worker 绑定到 `6kgx` 的 `quality.project_occurrence_qscores/_row_matches_component`；该样本有 1,588 个 occurrence、1,011,574 个规范化模型原子，外部工具 scratch 已完整但公开质量三件套均不存在。六份原始调度/日志/进程/artifact 证据位于 `/storage/penghongen/AdaLigand/Ori_Data/reports/runs/adaligand_ag_20260711T154658/stage_f_long_tail_cutoff_20260714T2213/` 并绑定固定 SHA。共享 before manifest SHA-256 `380844d0…325f` 保持不变；Stage F after/view SHA-256 为 `3b10abb5…8ee8`，summary SHA-256 为 `8b687f1a…53a3`。本地与远端全套均为 214 tests passed；resume、release marker、run_cmd SHA-256 分别为 `e6b357b2…9748`、`f59b09c8…5bc3`、`bd7edb94…5ffa`。apply 后 `VALIDATE_ONLY=1` 的前后全量哈希完全一致；22:46:44 删除精确 try-lock 后，core 记录该 run_cmd SHA 并以原 run id/F12/无 overwrite 重启，`after_lock_316116` 保留，G 仍依赖等待。
 
+2026-07-15 Stage F CPU192 尾部补算证据：正式日志在规划时已完成 6,248 个任务；冻结正式 pair list SHA-256 `6c736180…35f8`、Stage F exclusion SHA-256 `3b10abb5…8ee8`，从索引 `[19386,22386)` 选出 2,990 个 eligible PDB，剔除 2 条 exclusion 与 8 条 Stage E ineligible。证据目录为 `/storage/penghongen/AdaLigand/Ori_Data/reports/runs/adaligand_ag_20260711T154658/stage_f_tail_supplement_20260715_v1/`；plan/ID SHA-256 为 `1d5c12172629bcba2af65a379c2c78d9bf7141fdcdd505e699add8b58b1dff4f` / `acacde79c2a5a8727949cdc0a986930aa8404419a8edaabfb264f4f05dacea80`，碰撞门为正式完成 17,386。Git `7bdf1e1/60a1d53/5d2342e/6a3b3b0/bd579c3` 依次冻结补算入口、绑定与清理、真实 kill-lock 子进程组回收、守护证据等待和 signal-handler race 修复；本地 224 passed+2 POSIX skipped、服务器 226 passed及 `bash -n` 通过。job `318350` 于 16:23:59 零等待在 `cnode01` 启动，正式 `316116` 保持 `cnode04`；两者各 96 CPU、F12×MapQ np8，总计恰 192 CPU。补算 `after_lock`/child PGID 存在、try/kill 不存在，日志已进入 `Parallel(n_jobs=12)`；G 仍只依赖正式 F。
+
 ## Interfaces and Dependencies
 
 公共 CLI 必须保留 `--root`、`--part_id`、`--total_parts`、`--n_jobs` 与显式 overwrite/repair 语义。stage 函数返回结构化状态，不用跨模块散落自由文本错误。稳定失败枚举、artifact validators、Chimera runner、MRC geometry 和 quality schema 必须各有单一实现位置。
@@ -524,6 +538,7 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 - A–C 从“阶段文件存在即跳过”改为组件级 schema-aware 增量迁移；目标样本宇宙和旧基础数组语义不变。
 - 运行资源和分片数由真实基准与服务限流决定，不固化旧 4/6 分片模板。
 - Stage E 长尾在本次 run 的明确截止点转为 run-scoped exclusion；完整样本继续复用，partial 样本保留失败与迁移证据。这只改变一次性运行策略，不改变通用 Stage E 成功条件、样本宇宙或科学阈值。
+- Stage F 在正式 F12 作业之外增加受检的独立 CPU96 尾段补算；它只改变本轮关键路径和资源调度，不改变 F 算法、schema、正式状态 writer、release gate 或 G 候选语义。
 
 ### Harmful drift
 
@@ -569,3 +584,5 @@ Revision note 2026-07-13 21:04+08:00: 回填 Stage E 长尾绝对截止的实际
 Revision note 2026-07-14 04:05+08:00: 回填 `316115 COMPLETED 0:0`、D/E 最终四终态、E status 与 `de_release` 哈希，以及 status/gate、风险分层 artifact、exclusion/frame-mismatch 三路独立审计。记录 `316116` 复用预置 F12 命令、早期 944 tasks/874 份完整质量三件套抽查和当前锁；仅更新执行日志、契约/服务器 README 与 mapping，未改 clean spec，且不把 F 早期抽查冒充全量验收。
 
 Revision note 2026-07-14 22:46+08:00: 回填 `6kgx` 的 Stage F post-MapQ occurrence 投影工程长尾、用户明确超时授权、精确 kill→try→受检 retry 状态机和六份冻结证据。记录 Stage E shared manifest 不变、Stage F 加法视图、214 项本地/远端回归、release/run_cmd 哈希和只读重放零漂移；不把单次运行决策改写进 clean spec，也不把尚未完成的 F/G 冒充验收完成。
+
+Revision note 2026-07-15 16:29+08:00: 记录用户把主用 CPU 扩为 192、48 CPU 保持测试/备用的资源边界；回填 CPU96 节点/QoS 事实、正式 F 实际利用率、尾部 3,000 关键路径核算、独立补算实现与五轮审查修复、本地/远端全套测试、plan/ID 哈希及 job `318350` 零排队启动证据。正式 `316116`、其锁和 `316117` afterok 均未改动；A–G 尚未完成。

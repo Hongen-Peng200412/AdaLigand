@@ -139,3 +139,15 @@ cutoff 实现 `code/long_tail_cutoff.py`、CLI `scripts/stage_e_long_tail_cutoff
 用户明确要求按此前长尾策略把当前样本记为超时。操作只针对精确 job `316116`：冻结六份原始证据后创建 `kill_lock_316116`，core 记录退出 137、创建 `try_lock_316116`；`after_lock_316116` 全程保留，`316117` 始终为 `PENDING (Dependency)`。共享 `exclusions.jsonl` 保持 Stage E 已绑定的 SHA-256 `380844d0…325f`，另建只供 F 消费的加法视图 `exclusions.stage_f.jsonl`，SHA-256 `3b10abb5…8ee8`；原 `8ckb/8glv/9e5c/9fqr` 四条逐字段不变，仅追加 `6kgx` 的 `stages=["stage_f"]` run-only 记录。样本仍留在 22,386 宇宙和 F 状态分母，由 F 写 `known_failed:run_policy_excluded`，不得伪造质量三件套或删除上游条目。
 
 恢复实现分别由 Git `bf60084` 与 `e44b933` 冻结；专项 23 tests、本地/远端全套 214 tests、`bash -n` 和两次独立审查通过。六份原始证据和 before/after/pre/post/summary 位于 `/storage/penghongen/AdaLigand/Ori_Data/reports/runs/adaligand_ag_20260711T154658/stage_f_long_tail_cutoff_20260714T2213/`；before/after/summary SHA-256 为 `380844d0…325f` / `3b10abb5…8ee8` / `8b687f1a…53a3`。resume、release marker、最终 run_cmd SHA-256 为 `e6b357b2…9748` / `f59b09c8…5bc3` / `bd7edb94…5ffa`。先在 try-lock 内执行 apply-only，再执行真正只读的 `VALIDATE_ONLY=1`；前后全部 manifest、证据、测试日志、release 和 run_cmd 哈希完全一致，且无 F/Loky/Chimera/MapQ 残留进程后，才删除精确 try-lock。core 于 `2026-07-14T22:46:44+08:00` 复用受检 run_cmd，以原 run id、F12、无 filter、无 `--overwrite` 恢复；不得取消/重提原 job，也未运行 clean sync。
+
+## CPU96 调度事实与 318350 Stage F 尾段补算
+
+2026-07-15 的只读调度复核确认：`cpu` 分区有 `cnode01/02/04/05` 四台 96 CPU 节点，不 oversubscribe；用户 `Cpu96` QoS 的 `MaxTRESPU cpu=192`、`GrpTRES cpu=576`。96 核作业必须等待一台完整空闲节点；本轮提交前 `cnode01` 全空闲，因此单个 CPU96 补算是零排队方案。若完整节点槽位不存在，必须先读实时队列再评估 16 核 array 或已经授权的备用分区，不能取消/重提正式 DAG 来“抢”节点。
+
+用户授权的本轮主用 CPU 是 192，另有 48 CPU 用于测试、审计或备用。这个授权不覆盖服务器 QoS：正式与补算各占 96 后，`Cpu96` 已达到用户 192 CPU 上限，额外 48 不能在同一 QoS 下同时启动；只能等待一个 96 核 allocation 释放，或先验证另一个 partition/QoS。任何后续 Agent 都不得把它误读为“当前可同时申请 240 CPU”。
+
+正式 `316116` 保持原 run、F12×MapQ np8、状态、release、锁和 `afterok:316117` 不变。实测其平均活跃 CPU 约 43–44，但 MapQ 峰值仍可能达到 96；因此不能凭平均值把正式 F_N_JOBS 翻倍。独立补算 `318350` 使用 run `adaligand_ag_20260711T154658_fsupp96_v1`，在 `cnode01` 运行第二份 F12×MapQ np8，只处理尾段 `[19386,22386)` 的 2,990 个 eligible PDB。plan/ID SHA-256 为 `1d5c12172629bcba2af65a379c2c78d9bf7141fdcdd505e699add8b58b1dff4f` / `acacde79c2a5a8727949cdc0a986930aa8404419a8edaabfb264f4f05dacea80`；正式 pair list 与 Stage F exclusion SHA-256 为 `6c736180…35f8` / `3b10abb5…8ee8`。
+
+planner 冻结了正式进度 6,248、碰撞停止阈值 17,386 和 2,000-task guard。守护器绑定正式 job/run/stderr device+inode 与资源契约，每 300 秒检查正式进度；阈值到达后 TERM→KILL 补算 child PGID、写 stop marker，并且不跑补算 gate。真实 kill-lock 也先收口 child PGID，再处理外层进程组。`318350` 于 `2026-07-15T16:23:59+08:00` 零等待启动，`after_lock_318350` 和 child PGID 文件存在，try/kill 不存在；正式 `316116` 同时继续在 `cnode04` 运行，两项总分配恰为 192 CPU。补算三件套只能由正式 F 的 validator 复用；Stage G 仍只由正式 `f_release` 释放。
+
+以后设计 repair/补算时必须先查 ExecPlan、sbatch 和项目记忆中的冻结实测并发；不得用代码默认值或“保守”直觉把正式并发静默降级。确需偏离时，在启动前记录原/新参数、样本分层、CPU/内存/I/O、关键路径、互斥边界和用户授权。当前 2,990 尾段预计约 16.6 小时、正式流到 guard 约 31 小时、净节省约 14–16 小时；这些是本轮估算，不是未来 F 的通用吞吐保证。
