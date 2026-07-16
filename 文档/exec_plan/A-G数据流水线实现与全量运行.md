@@ -610,7 +610,7 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 
 - C source repair、全量 C、ABC gate 与正式 D/E 已完成；D–G 代码已实现。DE→F 的 status/gate、E artifact 风险分层和 exclusion/frame-mismatch 三路审计均通过。Stage F scratch v4 inventory、双新鲜进程门、零删除 audit、journal/fsync apply、独立定向验收以及 `318350→316116` 顺序恢复均已闭合；正式与补算当前各占一台 CPU96，补算 v2 计划为 5,984 个 ID、尾段 `[16386,22386)`、stop=14,386、guard=2,000。未完成范围是 F 全量四终态及质量审计、五条 Stage F exclusion 传播复核、F→G release gate、G analyze 分布和最终独立 QC。
 - G 的 map-level 算法、比较边界、空口袋分母和整 map 保留规则已冻结；最终分辨率、选定 CC、配体 Q、口袋 Q 与比例数值仍须先看正式分布后以 schema v2 配置显式给出。当前示例不写入默认值，正式 filter/`keep_list` 尚未执行。
-- E3 代码、独立 runner、source-aware validator、本地/远端全套与多图 Pocket oracle 已通过；尚待祖传 `make_model_grid` ZYX/XYZ shift 风险的 48 CPU 全量影响率审计、22,309-ID 冻结迁移和独立 release gate。77 个旧 known failure、旧 E status/de_release/exclusion 始终只读，不属于迁移目标；祖传文件在用户审批前绝不修改，未使用的 `mrc.py::grid_world_bounds` 是 P2 维护项。
+- E3 代码、独立 runner、source-aware validator、本地/远端全套与多图 Pocket oracle 已通过。独立 48 CPU 全量 origin 风险审计覆盖 22,274 个唯一 EMDB：22,269 个 header 可读，5 个不可读者全部是旧 `missing_map` known failure，正式 E 合格集合没有 header 缺口；严格 Z/X padding-shift 风险条件命中 181 个 EMDB、185 个 PDB，其中 182/22,309 个属于正式 E 合格集合（约 0.816%）。该比例按用户规则判为小范围风险而非广泛硬伤，因此祖传实现与生产适配保持不变，182 个候选只作为独立风险清单保留。尚待 22,309-ID 冻结迁移和独立 release gate；77 个旧 known failure、旧 E status/de_release/exclusion 始终只读，不属于迁移目标，未使用的 `mrc.py::grid_world_bounds` 是 P2 维护项。
 
 Revision note 2026-07-10 14:38+08:00: 创建本 ExecPlan，记录已确认边界、旧产物证据、科学语义、资源/许可纪律和从实现到服务器全量验收的恢复路径。
 
@@ -660,3 +660,5 @@ Revision note 2026-07-16 18:05+08:00: 回填用户冻结的 E3 半体素修复�
 Revision note 2026-07-16 19:07+08:00: scratch v4 journaled apply 与独立验收闭合后，先受检发布 `318350` 的 v1→v2 run_cmd（SHA-256 `ca04f4f…25f3e`），确认 guard、child PGID、12 个 Loky worker 和 MapQ `np=8` 后，再删除精确 `try_lock_316116`。正式 `316116` 随后复用 `bd7edb94…5ffa` 恢复 12 个 worker；两台 CPU96 总计 192 CPU，`316117` 仍等待正式 F。v2 冻结 5,984 个 eligible ID，plan/ID SHA-256 为 `116084c3…64fc` / `7f427993…7c6c`，正式初始间隔 7,565、stop=14,386、guard=2,000；该变更只优化本轮吞吐，不改变 F 科学契约或正式 writer。
 
 Revision note 2026-07-16 19:10+08:00: 三个独立审计分别核验 E3 上下游轴序、Pocket 中心 oracle 与 v2→v3 真实产物差异；几何/内容均通过，source-aware validator 的 P1 缺口由 `97a9c07` 修复。审计还发现祖传 `make_model_grid` 的 `shift_zyx`/`origin_xyz` 轴序风险，严格条件为 Z/X padding shift 不同，当前严格证据下界为 `7nll` 一例。遵照用户边界，祖传与生产逻辑均未改；先用独立 48 CPU 输出全量受影响 EMD/PDB、SHA 和正式 E 状态 join，再由用户决定是否接受、run-only 排除或批准窄兼容。
+
+Revision note 2026-07-16 19:48+08:00: 独立 48 CPU origin 风险量化以 run `adaligand_e3_origin_shift_audit_20260716T192000` 闭合。22,274 个唯一 EMDB 中 22,269 个 header 可读；5 个失败全部是既有 `missing_map`，正式 E 合格集合 header coverage 完整。严格风险谓词命中 181 个 EMDB、185 个 PDB、182/22,309 个正式 E 合格 PDB（约 0.816%）；summary SHA-256 为 `7450b95a…410c`，eligible-ID 清单 SHA-256 为 `707c7c40…cb6`。三项独立审计因此形成同一结论：上下游没有新增 Ada 轴序补偿，祖传方法存在可枚举的小范围风险机制，v2→v3 产物差异则与冻结的半体素修复相符。按用户“只有明显广泛硬伤才请求批准修改”的边界，祖传函数和生产适配均不改，182 个候选不排除、不伪造成功，只作为迁移/release 的附属风险证据；E3 按祖传语义继续全量迁移。

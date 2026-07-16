@@ -21,7 +21,9 @@ Pocket Plus 已经过训练、验证与测试，其祖传数值实现是当前�
 - Git checkpoint：`75d8f42 fix(stage-e3): align ligand masks with Pocket voxel centers`。
 - vendored 函数源码与 Pocket 祖先逐字节/AST 对照测试已加入；LF 行尾由 `.gitattributes` 固定。
 - 300 组随机各向异性、非零及极大 origin 的完整 Pocket 网格 oracle 对照为零差异。
-- 本地专项测试与全套测试通过；截至该 checkpoint，全套为 `309 passed, 10 skipped`，跳过项均为 Windows 平台条件项。
+- source-aware validator、上下游对齐、祖传方法本身和 v2→v3 产物差异已经分别独立审计；当前本地全套为 `335 passed, 10 skipped`，远端 Linux 全套为 `345 passed`。
+- 全量 origin 风险审计 run `adaligand_e3_origin_shift_audit_20260716T192000` 覆盖 22,274 个唯一 EMDB：22,269 个 header 可读，5 个失败全部属于旧 `missing_map`，正式 E 合格集合没有 coverage 缺口。严格 Z/X padding-shift 风险谓词命中 181 个 EMDB、185 个 PDB、182/22,309 个正式 E 合格 PDB（约 0.816%）；summary SHA-256 为 `7450b95a…410c`，eligible-ID 清单 SHA-256 为 `707c7c40…cb6`。
+- 上述比例属于用户定义的“小范围瑕疵”，不是允许 Agent 改写祖传实现的广泛硬伤。182 个候选继续按祖传语义迁移，只保留独立风险清单；不得静默排除、修正坐标或声称风险不存在。
 
 ## 后续 Agent 的操作纪律
 
