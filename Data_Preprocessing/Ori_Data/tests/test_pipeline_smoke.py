@@ -277,7 +277,11 @@ def test_synthetic_pipeline_smoke_reaches_g_analysis_and_explicit_filter(tmp_pat
     correlation_script = (scratch / f_result["scratch"] / "correlation.py").read_text(
         encoding="utf-8"
     )
-    assert f"volume #0 level {contour_canonical:.9g}" in correlation_script
+    assert (
+        f"experimental_map.set_parameters(surface_levels=[{contour_canonical:.9g}])"
+        in correlation_script
+    )
+    assert "volume #0 level" not in correlation_script
 
     # 单独破坏人类可读 provenance 后，F 必须拒绝复用并从当前 E1 重新生成。
     provenance["contour"]["scale_to_canonical"] = contour_scale * 2.0

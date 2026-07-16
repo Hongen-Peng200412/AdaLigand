@@ -233,7 +233,10 @@ def project_occurrence_qscores(
     原始 ``atom_site.id``。禁止按输出行序、残基遍历顺序、坐标最近邻或图同构猜测。
     """
     output: dict[str, np.ndarray] = {}
-    globally_used_atom_ids: set[str] = set()
+    cross_occurrence_uses: dict[
+        str,
+        tuple[tuple[str, ...], str, np.ndarray],
+    ] = {}
     for occurrence in occurrences:
         candidate_id = int(occurrence["candidate_id"])
         object_key = str(occurrence["object_key"])
@@ -274,10 +277,11 @@ def project_occurrence_qscores(
                 )
             row = matching_rows[0]
             atom_site_id = clean_value(row.get("id", ""))
-            if atom_site_id in used_in_occurrence or atom_site_id in globally_used_atom_ids:
+            if atom_site_id in used_in_occurrence:
                 raise ExternalToolError(
                     ToolFailureCode.ATOM_MAPPING,
-                    f"atom_site.id {atom_site_id} maps to multiple LigandObject slots",
+                    f"atom_site.id {atom_site_id} maps to multiple slots within candidate "
+                    f"{candidate_id}",
                 )
             try:
                 row_coord = np.asarray(
@@ -299,9 +303,24 @@ def project_occurrence_qscores(
                     ToolFailureCode.ATOM_MAPPING,
                     f"MapQ has no value for atom_site.id {atom_site_id}",
                 )
+            use_signature = (
+                _component_projection_identity(component),
+                atom_name,
+                np.asarray(coords[atom_index], dtype=np.float32),
+            )
+            prior_use = cross_occurrence_uses.get(atom_site_id)
+            if prior_use is not None and (
+                prior_use[0] != use_signature[0]
+                or prior_use[1] != use_signature[1]
+                or not np.array_equal(prior_use[2], use_signature[2])
+            ):
+                raise ExternalToolError(
+                    ToolFailureCode.ATOM_MAPPING,
+                    f"atom_site.id {atom_site_id} has inconsistent cross-occurrence identity",
+                )
+            cross_occurrence_uses.setdefault(atom_site_id, use_signature)
             q_scores[atom_index] = np.float32(q_by_atom_site_id[atom_site_id])
             used_in_occurrence.add(atom_site_id)
-            globally_used_atom_ids.add(atom_site_id)
         if int(np.count_nonzero(np.isfinite(q_scores))) != int(np.count_nonzero(present)):
             raise ExternalToolError(
                 ToolFailureCode.ATOM_MAPPING,
@@ -309,6 +328,18 @@ def project_occurrence_qscores(
             )
         output[f"qscore_{candidate_id}"] = q_scores
     return output
+
+
+def _component_projection_identity(component: dict[str, Any]) -> tuple[str, ...]:
+    """冻结跨 occurrence 复用同一沉积原子时必须相同的 component 身份。"""
+    return (
+        str(component.get("ccd_id", "")).upper(),
+        str(component.get("label_asym_id", "")),
+        str(component.get("label_seq_id", "")),
+        str(component.get("auth_asym_id", "")),
+        str(component.get("auth_seq_id", "")),
+        str(component.get("icode", "") or ""),
+    )
 
 
 def occurrence_pocket_atom_site_ids(

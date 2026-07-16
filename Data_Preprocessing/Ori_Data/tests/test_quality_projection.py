@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import sys
 from pathlib import Path
 
@@ -122,6 +123,50 @@ def test_project_qscore_rejects_coordinate_or_identity_mismatch() -> None:
     """present 原子的沉积坐标不一致时，禁止用最近邻猜回。"""
     occurrences, coords, objects, rows, q_by_id = _branched_fixture()
     rows[1]["Cartn_x"] = "100.0"
+    with pytest.raises(ExternalToolError) as captured:
+        project_occurrence_qscores(occurrences, coords, objects, rows, q_by_id)
+    assert captured.value.code is ToolFailureCode.ATOM_MAPPING
+
+
+def test_project_qscore_allows_same_atom_site_id_in_distinct_occurrences() -> None:
+    """两个 occurrence 可独立引用同一沉积原子，且各自保存相同的原子 Q。"""
+    occurrences, coords, objects, rows, q_by_id = _branched_fixture()
+    repeated = dict(occurrences[0])
+    repeated["candidate_id"] = 6
+    occurrences.append(repeated)
+    coords["coords_6"] = coords["coords_5"].copy()
+    coords["present_6"] = np.asarray([True, False, False])
+
+    arrays = project_occurrence_qscores(occurrences, coords, objects, rows, q_by_id)
+
+    assert arrays["qscore_6"][0] == arrays["qscore_5"][0]
+    assert np.isnan(arrays["qscore_6"][1:]).all()
+
+
+def test_project_qscore_rejects_cross_occurrence_component_identity_drift() -> None:
+    """跨 occurrence 复用不得借空 label_seq 将同一原子投到不同 component。"""
+    occurrences, coords, objects, rows, q_by_id = _branched_fixture()
+    repeated = copy.deepcopy(occurrences[0])
+    repeated["candidate_id"] = 6
+    repeated["components"][0]["label_seq_id"] = 999
+    occurrences.append(repeated)
+    coords["coords_6"] = coords["coords_5"].copy()
+    coords["present_6"] = coords["present_5"].copy()
+
+    with pytest.raises(ExternalToolError) as captured:
+        project_occurrence_qscores(occurrences, coords, objects, rows, q_by_id)
+    assert captured.value.code is ToolFailureCode.ATOM_MAPPING
+
+
+def test_project_qscore_rejects_duplicate_atom_site_id_within_one_occurrence() -> None:
+    """同一 occurrence 内两个 LigandObject 槽位仍不得复用一个沉积原子。"""
+    occurrences, coords, objects, rows, q_by_id = _branched_fixture()
+    atom_dtype = np.dtype([("residue_id", np.int32)])
+    objects["BRANCHED:NAG-NAG:test"]["atoms"] = np.asarray([(1,), (1,)], dtype=atom_dtype)
+    objects["BRANCHED:NAG-NAG:test"]["atom_names"] = np.asarray(["C1", "C1"], dtype=object)
+    coords["coords_5"] = np.asarray([[1, 2, 3], [1, 2, 3]], dtype=np.float32)
+    coords["present_5"] = np.asarray([True, True])
+
     with pytest.raises(ExternalToolError) as captured:
         project_occurrence_qscores(occurrences, coords, objects, rows, q_by_id)
     assert captured.value.code is ToolFailureCode.ATOM_MAPPING

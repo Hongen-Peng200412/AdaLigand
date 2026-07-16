@@ -120,6 +120,8 @@ def test_measure_correlations_parses_scientific_notation_and_contour_semantics(t
     assert "FitMap.map_overlap_and_correlation" in script
     assert "experimental_map, simulated_map, True" in script
     assert "experimental_map, simulated_map, False" in script
+    assert "experimental_map.set_parameters(surface_levels=[0.025])" in script
+    assert "volume #0 level" not in script
 
 
 def test_missing_contour_skips_only_two_contour_values(tmp_path: Path) -> None:
@@ -141,6 +143,8 @@ def test_missing_contour_skips_only_two_contour_values(tmp_path: Path) -> None:
     assert values["cc_contour_about_mean"] is None
     assert values["cc_all"] == 0.51
     assert values["cc_all_about_mean"] == -0.12
+    script = (tmp_path / "cc_none" / "correlation.py").read_text(encoding="utf-8")
+    assert "surface_levels" not in script
 
 
 @pytest.mark.parametrize(

@@ -248,7 +248,12 @@ class ChimeraRunner:
         if contour is not None:
             commands.extend(
                 [
-                    f"rc('volume #0 level {float(contour):.9g}')",
+                    # ``volume level`` 对 solid 表示要求额外 brightness 参数；直接设置
+                    # surface_levels 才与 FitMap 的 aboveThreshold 读取契约一致。
+                    (
+                        "experimental_map.set_parameters("
+                        f"surface_levels=[{float(contour):.9g}])"
+                    ),
                     "print('ADALIGAND_CC_CONTOUR_BEGIN')",
                     (
                         "_, cc, cc_about_mean = FitMap.map_overlap_and_correlation("

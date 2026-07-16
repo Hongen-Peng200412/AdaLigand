@@ -211,10 +211,16 @@ def parse_mapq_output(input_cif: Path, output_cif: Path) -> dict[str, float]:
                 )
                 if before != after
             ]
-            raise ExternalToolError(
-                ToolFailureCode.ATOM_MAPPING,
-                f"MapQ identity changed for atom_site.id={atom_id}: {changed_fields}",
-            )
+            if not _is_expected_mapq_identity_normalization(
+                input_rows,
+                input_row,
+                output_row,
+                changed_fields,
+            ):
+                raise ExternalToolError(
+                    ToolFailureCode.ATOM_MAPPING,
+                    f"MapQ identity changed for atom_site.id={atom_id}: {changed_fields}",
+                )
         try:
             input_coord = np.asarray([float(input_row[key]) for key in _COORD_FIELDS])
             output_coord = np.asarray([float(output_row[key]) for key in _COORD_FIELDS])
@@ -223,10 +229,12 @@ def parse_mapq_output(input_cif: Path, output_cif: Path) -> dict[str, float]:
                 ToolFailureCode.OUTPUT_SCHEMA,
                 f"MapQ coordinate schema is invalid for atom_site.id={atom_id}",
             ) from exc
-        if not np.allclose(input_coord, output_coord, rtol=0, atol=1e-4):
+        expected_output_coord = _mapq_serialized_coordinates(input_coord)
+        if not np.array_equal(output_coord, expected_output_coord):
             raise ExternalToolError(
                 ToolFailureCode.ATOM_MAPPING,
-                f"MapQ coordinates changed for atom_site.id={atom_id}",
+                "MapQ coordinates changed beyond its documented three-decimal "
+                f"mmCIF serialization for atom_site.id={atom_id}",
             )
         if "Q-score" not in output_row:
             raise ExternalToolError(ToolFailureCode.OUTPUT_SCHEMA, "missing _atom_site.Q-score")
@@ -244,6 +252,73 @@ def parse_mapq_output(input_cif: Path, output_cif: Path) -> dict[str, float]:
             )
         q_by_id[atom_id] = q_score
     return q_by_id
+
+
+def _mapq_serialized_coordinates(coordinates: np.ndarray) -> np.ndarray:
+    """按 MapQ 祖传 ``%.3f`` 写出规则构造唯一允许的输出坐标。"""
+    if coordinates.shape != (3,) or not np.all(np.isfinite(coordinates)):
+        raise ExternalToolError(
+            ToolFailureCode.OUTPUT_SCHEMA,
+            "MapQ input coordinates must be three finite values",
+        )
+    return np.asarray([float("%.3f" % value) for value in coordinates], dtype=np.float64)
+
+
+def _is_expected_mapq_identity_normalization(
+    input_rows: list[dict[str, Any]],
+    input_row: dict[str, Any],
+    output_row: dict[str, Any],
+    changed_fields: list[str],
+) -> bool:
+    """仅接受 MapQ 祖传 ReadMol/WriteMol 可由输入唯一推导的身份规范化。"""
+    if changed_fields == ["type_symbol"]:
+        return (
+            _identity_value(input_row, "group_PDB") == "HETATM"
+            and _identity_value(input_row, "type_symbol") == "X"
+            and _identity_value(input_row, "label_atom_id") == "UNK"
+            and _identity_value(input_row, "auth_atom_id") == "UNK"
+            and _identity_value(input_row, "label_comp_id") == "UNX"
+            and _identity_value(input_row, "auth_comp_id") == "UNX"
+            # Chimera 1.19 将未知元素 X 确定写回为其 lone-pair 名称 LP。
+            and _identity_value(output_row, "type_symbol") == "LP"
+        )
+
+    if changed_fields != ["label_comp_id", "auth_comp_id"]:
+        return False
+    input_label_comp = _identity_value(input_row, "label_comp_id")
+    input_auth_comp = _identity_value(input_row, "auth_comp_id")
+    output_label_comp = _identity_value(output_row, "label_comp_id")
+    output_auth_comp = _identity_value(output_row, "auth_comp_id")
+    if not input_label_comp or input_label_comp != input_auth_comp:
+        return False
+    if not output_label_comp or output_label_comp != output_auth_comp:
+        return False
+
+    author_key = _mapq_author_residue_key(input_row)
+    collision_rows = [row for row in input_rows if _mapq_author_residue_key(row) == author_key]
+    collision_components = {
+        _identity_value(row, "auth_comp_id") for row in collision_rows
+    }
+    if author_key is None or len(collision_components) < 2:
+        return False
+    # ReadMol 按输入顺序首次创建 author residue；WriteMol 随后把该首个
+    # auth_comp_id 同时写到 label/auth comp 字段。
+    expected_component = _identity_value(collision_rows[0], "auth_comp_id")
+    return bool(expected_component) and output_label_comp == expected_component
+
+
+def _mapq_author_residue_key(row: dict[str, Any]) -> tuple[str, str, int, str] | None:
+    """复现 MapQ ReadMol 的 model 内 author residue 合并主键。"""
+    try:
+        auth_seq_id = int(_identity_value(row, "auth_seq_id"))
+    except ValueError:
+        return None
+    return (
+        _identity_value(row, "pdbx_PDB_model_num"),
+        _identity_value(row, "auth_asym_id"),
+        auth_seq_id,
+        _identity_value(row, "pdbx_PDB_ins_code"),
+    )
 
 
 def _identity_value(row: dict[str, Any], key: str) -> str:

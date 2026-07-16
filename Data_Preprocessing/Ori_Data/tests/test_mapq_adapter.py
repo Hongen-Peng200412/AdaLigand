@@ -153,6 +153,142 @@ def test_parse_mapq_accepts_equivalent_element_symbol_case(tmp_path: Path) -> No
     assert parse_mapq_output(source, output)["10"] == 0.25
 
 
+def test_parse_mapq_accepts_deterministic_unknown_element_normalization(tmp_path: Path) -> None:
+    """Chimera 1.19 将严格 UNX/UNK 的未知元素 X 确定写回为 LP。"""
+    source = tmp_path / "model.cif"
+    output = tmp_path / "q.cif"
+    _write_model(source)
+    document = gemmi.cif.read(str(source))
+    block = document.sole_block()
+    category = block.get_mmcif_category("_atom_site.")
+    category["type_symbol"][0] = "X"
+    category["label_atom_id"][0] = "UNK"
+    category["auth_atom_id"][0] = "UNK"
+    category["label_comp_id"][0] = "UNX"
+    category["auth_comp_id"][0] = "UNX"
+    block.set_mmcif_category("_atom_site.", category)
+    source.write_text(document.as_string(), encoding="utf-8")
+    _write_q_output(source, output)
+    output_document = gemmi.cif.read(str(output))
+    output_block = output_document.sole_block()
+    output_category = output_block.get_mmcif_category("_atom_site.")
+    output_category["type_symbol"][0] = "LP"
+    output_block.set_mmcif_category("_atom_site.", output_category)
+    output.write_text(output_document.as_string(), encoding="utf-8")
+
+    assert parse_mapq_output(source, output)["10"] == 0.25
+
+    output_category["type_symbol"][0] = "N"
+    output_block.set_mmcif_category("_atom_site.", output_category)
+    output.write_text(output_document.as_string(), encoding="utf-8")
+    with pytest.raises(ExternalToolError) as captured:
+        parse_mapq_output(source, output)
+    assert captured.value.code is ToolFailureCode.ATOM_MAPPING
+
+
+def test_parse_mapq_accepts_only_first_author_residue_component_normalization(
+    tmp_path: Path,
+) -> None:
+    """同一 author residue 的 altloc 异构体只接受祖传首行残基类型写回。"""
+    source = tmp_path / "model.cif"
+    output = tmp_path / "q.cif"
+    _write_model(source)
+    document = gemmi.cif.read(str(source))
+    block = document.sole_block()
+    category = block.get_mmcif_category("_atom_site.")
+    category["group_PDB"] = ["ATOM", "ATOM"]
+    category["label_atom_id"] = ["N", "N"]
+    category["auth_atom_id"] = ["N", "N"]
+    category["label_alt_id"] = ["A", "B"]
+    category["label_comp_id"] = ["GLN", "LYS"]
+    category["auth_comp_id"] = ["GLN", "LYS"]
+    block.set_mmcif_category("_atom_site.", category)
+    source.write_text(document.as_string(), encoding="utf-8")
+    _write_q_output(source, output)
+    output_document = gemmi.cif.read(str(output))
+    output_block = output_document.sole_block()
+    output_category = output_block.get_mmcif_category("_atom_site.")
+    output_category["label_comp_id"][1] = "GLN"
+    output_category["auth_comp_id"][1] = "GLN"
+    output_block.set_mmcif_category("_atom_site.", output_category)
+    output.write_text(output_document.as_string(), encoding="utf-8")
+
+    assert parse_mapq_output(source, output)["20"] == 0.75
+
+    output_category["label_comp_id"][1] = "ALA"
+    output_category["auth_comp_id"][1] = "ALA"
+    output_block.set_mmcif_category("_atom_site.", output_category)
+    output.write_text(output_document.as_string(), encoding="utf-8")
+    with pytest.raises(ExternalToolError) as captured:
+        parse_mapq_output(source, output)
+    assert captured.value.code is ToolFailureCode.ATOM_MAPPING
+
+
+def test_parse_mapq_rejects_component_rewrite_without_author_residue_collision(
+    tmp_path: Path,
+) -> None:
+    """没有两个输入 comp 共享 author residue 时，任意 comp 改名仍是身份交换。"""
+    source = tmp_path / "model.cif"
+    output = tmp_path / "q.cif"
+    _write_model(source)
+    _write_q_output(source, output)
+    document = gemmi.cif.read(str(output))
+    block = document.sole_block()
+    category = block.get_mmcif_category("_atom_site.")
+    category["label_comp_id"][1] = "ALA"
+    category["auth_comp_id"][1] = "ALA"
+    block.set_mmcif_category("_atom_site.", category)
+    output.write_text(document.as_string(), encoding="utf-8")
+
+    with pytest.raises(ExternalToolError) as captured:
+        parse_mapq_output(source, output)
+    assert captured.value.code is ToolFailureCode.ATOM_MAPPING
+
+
+def test_parse_mapq_accepts_exact_three_decimal_upstream_serialization(tmp_path: Path) -> None:
+    """MapQ 固定 ``%.3f`` 写出不得把高精度源坐标误判为坐标变换。"""
+    source = tmp_path / "model.cif"
+    output = tmp_path / "q.cif"
+    _write_model(source)
+    document = gemmi.cif.read(str(source))
+    block = document.sole_block()
+    category = block.get_mmcif_category("_atom_site.")
+    category["Cartn_x"][0] = "94.8641604"
+    category["Cartn_y"][0] = "69.5258841"
+    category["Cartn_z"][0] = "131.287248"
+    block.set_mmcif_category("_atom_site.", category)
+    source.write_text(document.as_string(), encoding="utf-8")
+    _write_q_output(source, output)
+    output_document = gemmi.cif.read(str(output))
+    output_block = output_document.sole_block()
+    output_category = output_block.get_mmcif_category("_atom_site.")
+    output_category["Cartn_x"][0] = "94.864"
+    output_category["Cartn_y"][0] = "69.526"
+    output_category["Cartn_z"][0] = "131.287"
+    output_block.set_mmcif_category("_atom_site.", output_category)
+    output.write_text(output_document.as_string(), encoding="utf-8")
+
+    assert parse_mapq_output(source, output)["10"] == 0.25
+
+
+def test_parse_mapq_rejects_coordinate_beyond_three_decimal_serialization(tmp_path: Path) -> None:
+    """容许的是祖传序列化结果，而不是放宽成任意毫埃级坐标漂移。"""
+    source = tmp_path / "model.cif"
+    output = tmp_path / "q.cif"
+    _write_model(source)
+    _write_q_output(source, output)
+    document = gemmi.cif.read(str(output))
+    block = document.sole_block()
+    category = block.get_mmcif_category("_atom_site.")
+    category["Cartn_x"][0] = "1.001"
+    block.set_mmcif_category("_atom_site.", category)
+    output.write_text(document.as_string(), encoding="utf-8")
+
+    with pytest.raises(ExternalToolError) as captured:
+        parse_mapq_output(source, output)
+    assert captured.value.code is ToolFailureCode.ATOM_MAPPING
+
+
 @pytest.mark.parametrize("mutation", ["duplicate_id", "missing_q", "bad_q"])
 def test_parse_mapq_rejects_schema_corruption(tmp_path: Path, mutation: str) -> None:
     """重复 id、缺 Q tag 和非有限 Q 都是硬输出失败。"""
