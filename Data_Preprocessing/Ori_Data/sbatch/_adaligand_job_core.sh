@@ -86,25 +86,67 @@ terminate_extra_process_group() {
         echo "[KillWatcher] refusing unsafe child PGID value: ${candidate}"
         return 1
     fi
-    local live_pgid=""
-    live_pgid="$(ps -o pgid= -p "${candidate}" 2>/dev/null | tr -d '[:space:]')"
-    if [ -z "${live_pgid}" ]; then
+    # leader 可能已经退出，但 Loky/Chimera/MapQ 孙进程仍属于原 PGID；不能再以 pid 存活判定。
+    if ! kill -0 -- "-${candidate}" 2>/dev/null; then
         return 0
     fi
-    if [ "${live_pgid}" != "${candidate}" ]; then
-        echo "[KillWatcher] refusing non-leader child PGID: pid=${candidate} pgid=${live_pgid}"
+    echo "[KillWatcher] signal ${signal_number} to registered child process group ${candidate}"
+    if ! kill "-${signal_number}" -- "-${candidate}" 2>/dev/null; then
+        if kill -0 -- "-${candidate}" 2>/dev/null; then
+            echo "[KillWatcher] failed to signal live child process group ${candidate}"
+            return 1
+        fi
+    fi
+}
+
+reap_extra_process_group() {
+    local term_grace_seconds="${1:-10}"
+    local kill_grace_seconds="${2:-5}"
+    if [ -z "${EXTRA_KILL_PGID_FILE}" ] || [ ! -e "${EXTRA_KILL_PGID_FILE}" ]; then
+        return 0
+    fi
+    if [ -L "${EXTRA_KILL_PGID_FILE}" ] || [ ! -f "${EXTRA_KILL_PGID_FILE}" ]; then
+        echo "[KillWatcher] refusing invalid child PGID file: ${EXTRA_KILL_PGID_FILE}"
         return 1
     fi
-    echo "[KillWatcher] signal ${signal_number} to registered child process group ${candidate}"
-    kill "-${signal_number}" "-${candidate}" 2>/dev/null || true
+    local candidate=""
+    IFS= read -r candidate <"${EXTRA_KILL_PGID_FILE}" || true
+    case "${candidate}" in
+        ''|*[!0-9]*)
+            echo "[KillWatcher] refusing invalid child PGID value: ${candidate}"
+            return 1
+            ;;
+    esac
+    if [ "${candidate}" -le 1 ]; then
+        echo "[KillWatcher] refusing unsafe child PGID value: ${candidate}"
+        return 1
+    fi
+
+    terminate_extra_process_group 15 || return 1
+    local elapsed=0
+    while kill -0 -- "-${candidate}" 2>/dev/null && [ "${elapsed}" -lt "${term_grace_seconds}" ]; do
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+    if kill -0 -- "-${candidate}" 2>/dev/null; then
+        terminate_extra_process_group 9 || return 1
+        elapsed=0
+        while kill -0 -- "-${candidate}" 2>/dev/null && [ "${elapsed}" -lt "${kill_grace_seconds}" ]; do
+            sleep 1
+            elapsed=$((elapsed + 1))
+        done
+    fi
+    if kill -0 -- "-${candidate}" 2>/dev/null; then
+        echo "[KillWatcher] child process group ${candidate} survived SIGKILL"
+        return 1
+    fi
+    rm -f "${EXTRA_KILL_PGID_FILE}"
+    echo "[KillWatcher] verified child process group ${candidate} is gone"
 }
 
 cleanup() {
     stop_background_watchers
-    terminate_extra_process_group 9 || true
-    if [ -n "${EXTRA_KILL_PGID_FILE}" ]; then
-        rm -f "${EXTRA_KILL_PGID_FILE}"
-    fi
+    reap_extra_process_group 0 5 || true
     if [ -n "${RUN_PID}" ]; then
         kill -TERM -"${RUN_PID}" 2>/dev/null || kill -TERM "${RUN_PID}" 2>/dev/null || true
     fi
@@ -179,10 +221,7 @@ while true; do
             sleep 10
             if [ -f "${KILL_LOCK}" ]; then
                 echo "[KillWatcher] ${KILL_LOCK} detected; killing process group ${RUN_PID}"
-                terminate_extra_process_group 9 || true
-                if [ -n "${EXTRA_KILL_PGID_FILE}" ]; then
-                    rm -f "${EXTRA_KILL_PGID_FILE}"
-                fi
+                reap_extra_process_group 0 5 || true
                 kill -9 -"${RUN_PID}" 2>/dev/null || kill -9 "${RUN_PID}" 2>/dev/null || true
                 rm -f "${KILL_LOCK}"
                 exit 0
@@ -199,8 +238,12 @@ while true; do
     HEARTBEAT_PID=$!
 
     wait "${RUN_PID}" && attempt_exit=0 || attempt_exit=$?
-    RUN_PID=""
     stop_background_watchers
+    if ! reap_extra_process_group 10 5; then
+        echo '[SafetyError] registered supplement child process group was not fully reaped'
+        attempt_exit=70
+    fi
+    RUN_PID=""
     if [ "${attempt_exit}" -eq 0 ]; then
         FINAL_EXIT=0
         rm -f "${AFTER_LOCK}" "${TRY_LOCK}"

@@ -18,6 +18,7 @@ write_adaligand_run_cmd() {
 set -euo pipefail
 cd "${CODE_ROOT}"
 
+: "${ADALIGAND_RUN_ID:?supplement run id is required}"
 : "${ADALIGAND_F_SUPPLEMENT_FORMAL_RUN_ID:?formal run id is required}"
 : "${ADALIGAND_F_SUPPLEMENT_IDS_FILE:?frozen PDB id file is required}"
 : "${ADALIGAND_F_SUPPLEMENT_IDS_SHA256:?frozen PDB id SHA-256 is required}"
@@ -25,80 +26,47 @@ cd "${CODE_ROOT}"
 : "${ADALIGAND_F_SUPPLEMENT_PLAN_SHA256:?frozen plan SHA-256 is required}"
 : "${ADALIGAND_F_SUPPLEMENT_FORMAL_JOB_ID:?formal Slurm Job ID is required}"
 : "${ADALIGAND_F_SUPPLEMENT_FORMAL_LOG:?formal Stage F stderr log is required}"
+: "${ADALIGAND_EXTRA_KILL_PGID_FILE:?child PGID file is required}"
 
 supplement_n_jobs="${F_N_JOBS:-12}"
-if [[ "${supplement_n_jobs}" != "12" ]]; then
-    echo "[ConfigError] CPU96 supplement requires F_N_JOBS=12"
+readonly expected_supplement_helper_sha256="c9cc8b590c6564c7a45da770959359cc1f5754bf7c7e616a28bbafd148887f50"
+readonly supplement_helper_path="${CODE_ROOT}/sbatch/_f_supplement_stage.sh"
+if [[ -L "${supplement_helper_path}" || ! -f "${supplement_helper_path}" ]]; then
+    echo "[ConfigError] supplement helper must be a regular non-symlink file"
     exit 64
 fi
-if [[ "${SLURM_CPUS_PER_TASK:-}" != "96" ]]; then
-    echo "[ConfigError] supplement allocation must expose exactly 96 CPUs"
-    exit 64
+helper_digest_line=""
+if ! helper_digest_line="$(sha256sum -- "${supplement_helper_path}")"; then
+    echo "[SafetyError] failed to hash supplement helper"
+    exit 70
 fi
-
-if [[ "${ADALIGAND_RUN_ID}" == "${ADALIGAND_F_SUPPLEMENT_FORMAL_RUN_ID}" ]]; then
-    echo "[ConfigError] supplement run id must differ from formal run id"
-    exit 64
+actual_supplement_helper_sha256="${helper_digest_line%% *}"
+if [[ "${actual_supplement_helper_sha256}" != "${expected_supplement_helper_sha256}" ]]; then
+    echo "[SafetyError] supplement helper SHA-256 drift"
+    exit 70
 fi
-for path in "${ADALIGAND_F_SUPPLEMENT_IDS_FILE}" "${ADALIGAND_F_SUPPLEMENT_PLAN_FILE}"; do
-    if [[ -L "${path}" || ! -f "${path}" || ! -s "${path}" ]]; then
-        echo "[ConfigError] frozen supplement input must be a non-empty regular file: ${path}"
-        exit 64
-    fi
-done
-actual_ids_sha256="$(sha256sum "${ADALIGAND_F_SUPPLEMENT_IDS_FILE}" | awk '{print $1}')"
-actual_plan_sha256="$(sha256sum "${ADALIGAND_F_SUPPLEMENT_PLAN_FILE}" | awk '{print $1}')"
-if [[ "${actual_ids_sha256}" != "${ADALIGAND_F_SUPPLEMENT_IDS_SHA256}" ]]; then
-    echo "[ConfigError] supplement PDB id SHA-256 drift"
-    exit 64
+source "${supplement_helper_path}"
+supplement_exit=0
+if run_adaligand_f_supplement_stage \
+  "${ADALIGAND_RUN_ID}" \
+  "${ADALIGAND_F_SUPPLEMENT_IDS_FILE}" \
+  "${ADALIGAND_F_SUPPLEMENT_IDS_SHA256}" \
+  "${ADALIGAND_F_SUPPLEMENT_PLAN_FILE}" \
+  "${ADALIGAND_F_SUPPLEMENT_PLAN_SHA256}" \
+  "${ADALIGAND_F_SUPPLEMENT_FORMAL_RUN_ID}" \
+  "${ADALIGAND_F_SUPPLEMENT_FORMAL_JOB_ID}" \
+  "${ADALIGAND_F_SUPPLEMENT_FORMAL_LOG}" \
+  "${supplement_n_jobs}" \
+  "${ADALIGAND_EXTRA_KILL_PGID_FILE}"; then
+    supplement_exit=0
+else
+    supplement_exit="$?"
 fi
-if [[ "${actual_plan_sha256}" != "${ADALIGAND_F_SUPPLEMENT_PLAN_SHA256}" ]]; then
-    echo "[ConfigError] supplement plan SHA-256 drift"
-    exit 64
-fi
-echo "[Supplement] formal_run=${ADALIGAND_F_SUPPLEMENT_FORMAL_RUN_ID} supplement_run=${ADALIGAND_RUN_ID}"
-echo "[Supplement] ids_sha256=${actual_ids_sha256} plan_sha256=${actual_plan_sha256}"
-
-guard_marker="${DATA_ROOT}/reports/runs/${ADALIGAND_RUN_ID}/f_supplement_guard/stop.json"
-set +e
-"${PYTHON}" scripts/f_supplement_guard.py \
-  --plan "${ADALIGAND_F_SUPPLEMENT_PLAN_FILE}" \
-  --ids "${ADALIGAND_F_SUPPLEMENT_IDS_FILE}" \
-  --formal_run_id "${ADALIGAND_F_SUPPLEMENT_FORMAL_RUN_ID}" \
-  --supplement_run_id "${ADALIGAND_RUN_ID}" \
-  --formal_job_id "${ADALIGAND_F_SUPPLEMENT_FORMAL_JOB_ID}" \
-  --formal_log "${ADALIGAND_F_SUPPLEMENT_FORMAL_LOG}" \
-  --stop_marker "${guard_marker}" \
-  --child_pgid_file "${ADALIGAND_EXTRA_KILL_PGID_FILE}" \
-  --n_jobs "${supplement_n_jobs}" \
-  -- \
-  "${PYTHON}" scripts/f_quality.py \
-    --root "${DATA_ROOT}" \
-    --chimera "${CHIMERA}" \
-    --chimera_root "${CHIMERA_ROOT}" \
-    --mapq_python "${PYTHON}" \
-    --mapq_cmd "${MAPQ_CMD}" \
-    --mapq_zip "${MAPQ_ZIP}" \
-    --scratch_root "${SCRATCH_ROOT}" \
-    --n_jobs "${supplement_n_jobs}" \
-    --pdb_ids_file "${ADALIGAND_F_SUPPLEMENT_IDS_FILE}" \
-    --run_id "${ADALIGAND_RUN_ID}"
-supplement_exit="$?"
-set -e
 if [[ "${supplement_exit}" -eq 75 ]]; then
-    echo "[SupplementGuard] stopped before collision; marker=${guard_marker}"
+    echo "[Supplement] collision guard is a successful no-op for the single-stage entry"
     exit 0
 fi
-if [[ "${supplement_exit}" -ne 0 ]]; then
-    exit "${supplement_exit}"
-fi
-
-"${PYTHON}" scripts/stage_release_gate.py \
-  --root "${DATA_ROOT}" \
-  --run_id "${ADALIGAND_RUN_ID}" \
-  --stages stage_f \
-  --gate_name f_supplement_release \
-  --pdb_ids_file "${ADALIGAND_F_SUPPLEMENT_IDS_FILE}"
+exit "${supplement_exit}"
 EOF
 }
 

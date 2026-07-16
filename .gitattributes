@@ -1,1 +1,7 @@
 Data_Preprocessing/Ori_Data/code/mrc_pocket_legacy.py text eol=lf
+Data_Preprocessing/Ori_Data/code/f_supplement_guard.py text eol=lf
+Data_Preprocessing/Ori_Data/scripts/f_supplement_guard.py text eol=lf
+Data_Preprocessing/Ori_Data/sbatch/_adaligand_job_core.sh text eol=lf
+Data_Preprocessing/Ori_Data/sbatch/_f_supplement_stage.sh text eol=lf
+Data_Preprocessing/Ori_Data/sbatch/f_supplement_96.sbatch text eol=lf
+Data_Preprocessing/Ori_Data/sbatch/resume_f_supplement_318350_accel_v2.sh text eol=lf
