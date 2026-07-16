@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "policy": "Pocket_Plus ancestor voxel-center function is vendored without function-level changes; every module-level deviation is enumerated below.",
+  "portable_ast_policy": "Serialize node names and fields as JSON while omitting Python 3.12+ empty type_params, so Python 3.10 and newer interpreters produce one semantic hash.",
+  "ancestor": {
+    "logical_path": "Pocket_Plus/src/inference/voxel_gt.py",
+    "repository_head_at_vendoring": "f4c3e5ce3c706f8d52fed7fa3cc40570cfb5b4b5",
+    "last_file_commit": "61e85a7ceec1fb9200fd62392e582d511bdba36b",
+    "function_origin_commit": "7563d3ad",
+    "sha256": "ae023d14021385280e6d39a7dda356080f5c80b43e91878e9071f58611424416",
+    "size_bytes": 16028
+  },
+  "vendored": {
+    "logical_path": "AdaLigand/Data_Preprocessing/Ori_Data/code/voxel_gt_pocket_legacy.py",
+    "sha256": "242e02230d3b3d396bfffcf0070ebe2879eadb9e060bbdebf64bbe3e189a71c1",
+    "size_bytes": 1474
+  },
+  "function_body_deviations": [],
+  "module_level_deviations": [
+    {
+      "kind": "selection",
+      "ancestor": "The ancestor module contains full voxel-GT construction, class mapping and other inference helpers.",
+      "vendored": "Only _build_voxel_center_coords_xyz is present.",
+      "reason": "Keep the trusted coordinate primitive isolated from unrelated inference dependencies and label semantics."
+    },
+    {
+      "kind": "imports",
+      "ancestor": "Imports typing.Any, numpy and scipy.spatial.cKDTree.",
+      "vendored": "Imports only numpy.",
+      "reason": "The selected function references only numpy."
+    },
+    {
+      "kind": "provenance",
+      "ancestor": "No vendoring provenance header.",
+      "vendored": "Adds one module docstring pointing to this manifest.",
+      "reason": "Make source lineage and future drift machine-visible."
+    }
+  ],
+  "functions": {
+    "_build_voxel_center_coords_xyz": {
+      "ancestor_lines": [287, 315],
+      "exact_source_sha256": "fea19038de78d2527e0cc70ddd9a3895d6a6a93f9a5d40d5018dce8f2a42282c",
+      "portable_ast_sha256": "03d089ba79428bae5fb8d951dbaf1e6bb091f190942168ec9de318b023ac0fe7"
+    }
+  }
+}

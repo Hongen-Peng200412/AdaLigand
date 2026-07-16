@@ -1,4 +1,5 @@
 Data_Preprocessing/Ori_Data/code/mrc_pocket_legacy.py text eol=lf
+Data_Preprocessing/Ori_Data/code/voxel_gt_pocket_legacy.py text eol=lf
 Data_Preprocessing/Ori_Data/code/f_supplement_guard.py text eol=lf
 Data_Preprocessing/Ori_Data/scripts/f_supplement_guard.py text eol=lf
 Data_Preprocessing/Ori_Data/sbatch/_adaligand_job_core.sh text eol=lf

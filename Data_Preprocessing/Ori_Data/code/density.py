@@ -7,19 +7,20 @@
 from __future__ import annotations
 
 import json
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import numpy as np
 from rdkit import Chem
 
-from chimera import ChimeraRunner
 from contracts import CArtifactState, inspect_stage_c, load_npz_arrays
 from failures import KnownFailureCode, KnownSampleFailure
 from io_utils import (
     atomic_save_npz,
+    atomic_save_npz_compressed,
     safe_object_filename,
     sha256_file,
     sha256_manifest,
@@ -45,10 +46,16 @@ from qc import (
     density_pair_errors,
     model_map_frame_errors,
 )
+from voxel_gt_pocket_legacy import (
+    _build_voxel_center_coords_xyz as _pocket_build_voxel_center_coords_xyz,
+)
+
+if TYPE_CHECKING:
+    from chimera import ChimeraRunner
 
 
 EXP_SCHEMA_VERSION = 2
-LIGAND_AREA_SCHEMA_VERSION = 2
+LIGAND_AREA_SCHEMA_VERSION = 3
 SIM_SCHEMA_VERSION = 2
 MRC_TARGET_VOXEL_SIZE = 1.0
 MRC_SOURCE_ORIGIN_MODE = "pocket_plus_multiply_global_origin_true"
@@ -61,6 +68,16 @@ VDW_RADIUS_OVERRIDES = {
     16: 1.80,  # S
 }
 VDW_RADIUS_SOURCE = "plan_locked_C_N_O_P_S;RDKit_PeriodicTable_GetRvdw_fallback"
+LIGAND_AREA_ORIGIN_SEMANTICS = "pocket_plus_corner"
+LIGAND_AREA_VOXEL_CENTER_OFFSET_XYZ = (0.5, 0.5, 0.5)
+LIGAND_AREA_VOXEL_CENTER_FORMULA = (
+    "origin_xyz+(index_xyz+0.5)*voxel_size_xyz"
+)
+LIGAND_AREA_VOXEL_CENTER_DTYPE = "float32_after_pocket_plus_expression"
+LIGAND_AREA_DISTANCE_PREDICATE = (
+    "sum((center_f32-atom_f32)^2)_float64<=vdw_radius^2+1e-8"
+)
+LIGAND_AREA_STORAGE_ENCODING = "numpy_savez_compressed_zip_deflated"
 _PERIODIC_TABLE = Chem.GetPeriodicTable()
 
 
@@ -740,6 +757,25 @@ def build_simulated_density(
     }
 
 
+def _pocket_voxel_center_axes_xyz(
+    grid_shape_zyx: tuple[int, int, int],
+    origin_xyz: np.ndarray,
+    voxel_size_xyz: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """直接用祖传整图函数的退化网格生成 X/Y/Z 单轴中心。"""
+    depth, height, width = tuple(int(value) for value in grid_shape_zyx)
+    center_x = _pocket_build_voxel_center_coords_xyz(
+        (1, 1, width), origin_xyz, voxel_size_xyz
+    )[:, 0]
+    center_y = _pocket_build_voxel_center_coords_xyz(
+        (1, height, 1), origin_xyz, voxel_size_xyz
+    )[:, 1]
+    center_z = _pocket_build_voxel_center_coords_xyz(
+        (depth, 1, 1), origin_xyz, voxel_size_xyz
+    )[:, 2]
+    return center_x, center_y, center_z
+
+
 def build_ligand_area_arrays(
     grid_shape_zyx: tuple[int, int, int],
     voxel_size_xyz: np.ndarray,
@@ -748,25 +784,44 @@ def build_ligand_area_arrays(
     atomic_numbers_by_candidate: dict[int, np.ndarray],
 ) -> dict[str, np.ndarray]:
     """
-    用逐原子局部 voxel stencil 生成稀疏 occurrence mask 和全局 union。
+    用逐原子局部 voxel-center stencil 生成稀疏 occurrence mask 和全局 union。
 
     ``mask_{cid}`` 是唯一、字典序排序的 ``(K,3) int32`` ZYX 索引；
     ``centroid_voxel_{cid}`` 虽沿用既定字段名，数值是 mask 体素中心的世界 XYZ Å。
+
+    ``origin_xyz`` 采用 Pocket Plus 的网格下角点语义，因此索引 ``(x,y,z)``
+    对应的体素中心必须是 ``origin + (index + 0.5) * voxel``。Stage C 原子坐标
+    与体素中心都遵循 Pocket 的 float32 数值行为，再以 float64 累加 distance²；
+    最终判据仍是既有 ``distance² <= radius² + 1e-8``，半径语义不变。
     """
     shape = tuple(int(value) for value in grid_shape_zyx)
     if len(shape) != 3 or any(value <= 1 for value in shape):
         raise ValueError("grid_shape_zyx must contain three dimensions > 1")
-    voxel = np.asarray(voxel_size_xyz, dtype=np.float64)
-    origin = np.asarray(origin_xyz, dtype=np.float64)
-    if voxel.shape != (3,) or origin.shape != (3,) or np.any(voxel <= 0):
+    voxel_f32 = np.asarray(voxel_size_xyz, dtype=np.float32)
+    origin_f32 = np.asarray(origin_xyz, dtype=np.float32)
+    if (
+        voxel_f32.shape != (3,)
+        or origin_f32.shape != (3,)
+        or not np.isfinite(voxel_f32).all()
+        or not np.isfinite(origin_f32).all()
+        or np.any(voxel_f32 <= 0)
+    ):
         raise ValueError("voxel_size_xyz/origin_xyz must be valid XYZ vectors")
     if set(ligand_coords_by_candidate) != set(atomic_numbers_by_candidate):
         raise ValueError("coordinate and element candidate ids differ")
 
     union_flat = np.zeros((int(np.prod(shape)),), dtype=bool)
     arrays: dict[str, np.ndarray] = {}
+    shape_xyz = np.asarray(shape[::-1], dtype=np.int64)
+    axis_centers_f32 = _pocket_voxel_center_axes_xyz(
+        shape,
+        origin_f32,
+        voxel_f32,
+    )
+    axis_centers = tuple(values.astype(np.float64) for values in axis_centers_f32)
     for candidate_id in sorted(ligand_coords_by_candidate):
-        coords = np.asarray(ligand_coords_by_candidate[candidate_id], dtype=np.float64)
+        coords_f32 = np.asarray(ligand_coords_by_candidate[candidate_id], dtype=np.float32)
+        coords = coords_f32.astype(np.float64)
         atomic_numbers = np.asarray(atomic_numbers_by_candidate[candidate_id])
         if coords.ndim != 2 or coords.shape[1:] != (3,) or not np.isfinite(coords).all():
             raise ValueError(f"candidate {candidate_id} coords must be finite (M,3)")
@@ -776,18 +831,45 @@ def build_ligand_area_arrays(
         chunks: list[np.ndarray] = []
         for coord, atomic_number in zip(coords, atomic_numbers, strict=True):
             radius = vdw_radius(int(atomic_number))
-            lower_xyz = np.floor((coord - radius - origin) / voxel).astype(np.int64)
-            upper_xyz = np.ceil((coord + radius - origin) / voxel).astype(np.int64)
-            lower_xyz = np.maximum(lower_xyz, 0)
-            upper_xyz = np.minimum(upper_xyz, np.asarray(shape[::-1]) - 1)
+            # float, Å；只用于构造与最终 ``distance² <= radius² + 1e-8``
+            # 完全闭合的保守 bbox，不改变范德华半径或最终球内判据。
+            effective_radius = float(np.sqrt(radius * radius + 1e-8))
+            # 在祖传 float32 轴中心上找候选闭区间；最终仍由 Ada 已冻结的
+            # 逐元素球内谓词筛选，searchsorted 不定义或改写 Pocket 坐标语义。
+            lower_xyz = np.asarray(
+                [
+                    np.searchsorted(
+                        axis_centers[axis],
+                        coord[axis] - effective_radius,
+                        side="left",
+                    )
+                    for axis in range(3)
+                ],
+                dtype=np.int64,
+            )
+            upper_xyz = np.asarray(
+                [
+                    np.searchsorted(
+                        axis_centers[axis],
+                        coord[axis] + effective_radius,
+                        side="right",
+                    )
+                    - 1
+                    for axis in range(3)
+                ],
+                dtype=np.int64,
+            )
             if np.any(lower_xyz > upper_xyz):
                 continue
             x_indices = np.arange(lower_xyz[0], upper_xyz[0] + 1, dtype=np.int64)
             y_indices = np.arange(lower_xyz[1], upper_xyz[1] + 1, dtype=np.int64)
             z_indices = np.arange(lower_xyz[2], upper_xyz[2] + 1, dtype=np.int64)
-            dx2 = (origin[0] + x_indices * voxel[0] - coord[0]) ** 2
-            dy2 = (origin[1] + y_indices * voxel[1] - coord[1]) ** 2
-            dz2 = (origin[2] + z_indices * voxel[2] - coord[2]) ** 2
+            center_x = axis_centers_f32[0][x_indices]
+            center_y = axis_centers_f32[1][y_indices]
+            center_z = axis_centers_f32[2][z_indices]
+            dx2 = (center_x.astype(np.float64) - coord[0]) ** 2
+            dy2 = (center_y.astype(np.float64) - coord[1]) ** 2
+            dz2 = (center_z.astype(np.float64) - coord[2]) ** 2
             local = (
                 dz2[:, None, None]
                 + dy2[None, :, None]
@@ -814,15 +896,40 @@ def build_ligand_area_arrays(
         linear_indices = np.unique(np.concatenate(chunks))
         z_index, y_index, x_index = np.unravel_index(linear_indices, shape)
         mask_indices = np.column_stack((z_index, y_index, x_index)).astype(np.int32)
-        centroid_xyz = origin + np.asarray(
-            [x_index.mean(), y_index.mean(), z_index.mean()],
+        centroid_xyz = np.asarray(
+            [
+                axis_centers_f32[0][x_index].astype(np.float64).mean(),
+                axis_centers_f32[1][y_index].astype(np.float64).mean(),
+                axis_centers_f32[2][z_index].astype(np.float64).mean(),
+            ],
             dtype=np.float64,
-        ) * voxel
+        )
         arrays[f"mask_{candidate_id}"] = mask_indices
         arrays[f"centroid_voxel_{candidate_id}"] = centroid_xyz.astype(np.float32)
         union_flat[linear_indices] = True
     arrays["union_mask"] = union_flat.reshape(shape)[None]
     return arrays
+
+
+def _ligand_area_zip_errors(
+    artifact_path: Path,
+    array_keys: set[str],
+) -> list[str]:
+    """验证 E3 文件的 ZIP 成员集合与真实 DEFLATED 编码。"""
+    try:
+        with zipfile.ZipFile(artifact_path, "r") as archive:
+            members = [member for member in archive.infolist() if not member.is_dir()]
+    except (OSError, zipfile.BadZipFile, RuntimeError):
+        return ["ligand_area_storage:invalid_zip"]
+
+    errors: list[str] = []
+    expected_names = {f"{key}.npy" for key in array_keys}
+    actual_names = {member.filename for member in members}
+    if actual_names != expected_names or len(actual_names) != len(members):
+        errors.append("ligand_area_storage:member_set")
+    if any(member.compress_type != zipfile.ZIP_DEFLATED for member in members):
+        errors.append("ligand_area_storage:not_zip_deflated")
+    return errors
 
 
 def ligand_area_errors(
@@ -832,16 +939,120 @@ def ligand_area_errors(
     voxel_size_xyz: np.ndarray,
     origin_xyz: np.ndarray,
     candidate_ids: list[int],
+    source_manifest_sha256: str,
+    artifact_path: Path | None = None,
 ) -> list[str]:
-    """验证 E3 稀疏 mask、世界质心和 union 的精确一致性。"""
+    """验证 E3 v3 几何、稀疏 mask、世界质心、union 与压缩编码。"""
     errors: list[str] = []
     shape = tuple(int(value) for value in grid_shape_zyx)
+    origin_f32 = np.asarray(origin_xyz, dtype=np.float32)
+    voxel_f32 = np.asarray(voxel_size_xyz, dtype=np.float32)
+    axis_centers_f32 = _pocket_voxel_center_axes_xyz(
+        shape,
+        origin_f32,
+        voxel_f32,
+    )
+
+    required_keys = {
+        "union_mask",
+        "schema_version",
+        "source_manifest_sha256",
+        "centroid_coordinate_system",
+        "mask_index_order",
+        "vdw_radius_source",
+        "grid_shape_zyx",
+        "voxel_size_xyz",
+        "origin_xyz",
+        "origin_semantics",
+        "voxel_center_offset_xyz",
+        "voxel_center_formula",
+        "voxel_center_dtype",
+        "distance_predicate",
+        "storage_encoding",
+    }
+    for key in sorted(required_keys.difference(arrays)):
+        errors.append(f"ligand_area_missing:{key}")
+
+    if "schema_version" in arrays:
+        schema = np.asarray(arrays["schema_version"])
+        if (
+            schema.dtype != np.uint16
+            or schema.shape != ()
+            or int(schema) != LIGAND_AREA_SCHEMA_VERSION
+        ):
+            errors.append("ligand_area_contract:schema_version")
+    if "source_manifest_sha256" in arrays:
+        source_manifest = np.asarray(arrays["source_manifest_sha256"])
+        stored_source_manifest = (
+            str(source_manifest.item()) if source_manifest.shape == () else ""
+        )
+        if (
+            source_manifest.shape != ()
+            or len(stored_source_manifest) != 64
+            or stored_source_manifest != source_manifest_sha256
+        ):
+            errors.append("ligand_area_provenance:source_manifest")
+
+    expected_text = {
+        "centroid_coordinate_system": "world_xyz_angstrom",
+        "mask_index_order": "zyx",
+        "vdw_radius_source": VDW_RADIUS_SOURCE,
+        "origin_semantics": LIGAND_AREA_ORIGIN_SEMANTICS,
+        "voxel_center_formula": LIGAND_AREA_VOXEL_CENTER_FORMULA,
+        "voxel_center_dtype": LIGAND_AREA_VOXEL_CENTER_DTYPE,
+        "distance_predicate": LIGAND_AREA_DISTANCE_PREDICATE,
+        "storage_encoding": LIGAND_AREA_STORAGE_ENCODING,
+    }
+    for key, expected in expected_text.items():
+        if key not in arrays:
+            continue
+        value = np.asarray(arrays[key])
+        if value.shape != () or str(value.item()) != expected:
+            errors.append(f"ligand_area_contract:{key}")
+
+    expected_vectors = {
+        "grid_shape_zyx": np.asarray(shape, dtype=np.int64),
+        "voxel_size_xyz": voxel_f32,
+        "origin_xyz": origin_f32,
+        "voxel_center_offset_xyz": np.asarray(
+            LIGAND_AREA_VOXEL_CENTER_OFFSET_XYZ,
+            dtype=np.float32,
+        ),
+    }
+    for key, expected in expected_vectors.items():
+        if key not in arrays:
+            continue
+        value = np.asarray(arrays[key])
+        if value.dtype != expected.dtype or not np.array_equal(value, expected):
+            errors.append(f"ligand_area_contract:{key}")
+
+    expected_candidate_ids = {int(candidate_id) for candidate_id in candidate_ids}
+    if len(expected_candidate_ids) != len(candidate_ids):
+        errors.append("ligand_area_contract:duplicate_candidate_ids")
+    dynamic_keys = {
+        key
+        for candidate_id in expected_candidate_ids
+        for key in (
+            f"mask_{candidate_id}",
+            f"centroid_voxel_{candidate_id}",
+        )
+    }
+    unexpected_keys = set(arrays).difference(required_keys | dynamic_keys)
+    if unexpected_keys:
+        errors.append(
+            "ligand_area_contract:unexpected_keys:"
+            + ",".join(sorted(unexpected_keys))
+        )
+
     union = arrays.get("union_mask")
-    if union is None or union.dtype != np.dtype(bool) or union.shape != (1, *shape):
-        return ["ligand_area_contract:union_mask"]
+    union_valid = (
+        union is not None
+        and np.asarray(union).dtype == np.dtype(bool)
+        and np.asarray(union).shape == (1, *shape)
+    )
+    if not union_valid:
+        errors.append("ligand_area_contract:union_mask")
     reconstructed = np.zeros(shape, dtype=bool)
-    origin = np.asarray(origin_xyz, dtype=np.float64)
-    voxel = np.asarray(voxel_size_xyz, dtype=np.float64)
     for candidate_id in candidate_ids:
         mask_key = f"mask_{candidate_id}"
         centroid_key = f"centroid_voxel_{candidate_id}"
@@ -850,7 +1061,12 @@ def ligand_area_errors(
             continue
         indices = np.asarray(arrays[mask_key])
         centroid = np.asarray(arrays[centroid_key])
-        if indices.dtype != np.int32 or indices.ndim != 2 or indices.shape[1:] != (3,) or len(indices) == 0:
+        if (
+            indices.dtype != np.int32
+            or indices.ndim != 2
+            or indices.shape[1:] != (3,)
+            or len(indices) == 0
+        ):
             errors.append(f"ligand_area_contract:mask:{candidate_id}")
             continue
         if np.any(indices < 0) or np.any(indices >= np.asarray(shape, dtype=np.int32)):
@@ -860,9 +1076,14 @@ def ligand_area_errors(
         if len(np.unique(linear)) != len(linear) or np.any(np.diff(linear) <= 0):
             errors.append(f"ligand_area_value:mask_order:{candidate_id}")
         reconstructed[tuple(indices.T)] = True
-        expected_centroid = origin + np.asarray(
-            [indices[:, 2].mean(), indices[:, 1].mean(), indices[:, 0].mean()]
-        ) * voxel
+        expected_centroid = np.asarray(
+            [
+                axis_centers_f32[0][indices[:, 2]].astype(np.float64).mean(),
+                axis_centers_f32[1][indices[:, 1]].astype(np.float64).mean(),
+                axis_centers_f32[2][indices[:, 0]].astype(np.float64).mean(),
+            ],
+            dtype=np.float64,
+        )
         expected_centroid_f32 = expected_centroid.astype(np.float32)
         if (
             centroid.dtype != np.float32
@@ -870,8 +1091,10 @@ def ligand_area_errors(
             or not np.array_equal(centroid, expected_centroid_f32)
         ):
             errors.append(f"ligand_area_value:centroid:{candidate_id}")
-    if not np.array_equal(union[0], reconstructed):
+    if union_valid and not np.array_equal(np.asarray(union)[0], reconstructed):
         errors.append("ligand_area_value:union")
+    if artifact_path is not None:
+        errors.extend(_ligand_area_zip_errors(artifact_path, set(arrays)))
     return errors
 
 
@@ -931,20 +1154,22 @@ def build_ligand_area(
         }
     )
     output_path = root / "density" / normalized_id / "ligand_area.npz"
+    shape = tuple(int(value) for value in exp["grid"].shape[1:])
+    validation_kwargs = {
+        "grid_shape_zyx": shape,
+        "voxel_size_xyz": exp["voxel_size"],
+        "origin_xyz": exp["origin"],
+        "candidate_ids": candidate_ids,
+        "source_manifest_sha256": source_manifest,
+    }
     if output_path.exists() and not overwrite:
         try:
             existing = load_npz_arrays(output_path, allow_pickle=False)
             errors = ligand_area_errors(
                 existing,
-                grid_shape_zyx=tuple(int(value) for value in exp["grid"].shape[1:]),
-                voxel_size_xyz=exp["voxel_size"],
-                origin_xyz=exp["origin"],
-                candidate_ids=candidate_ids,
+                artifact_path=output_path,
+                **validation_kwargs,
             )
-            if str(existing["source_manifest_sha256"].item()) != source_manifest:
-                errors.append("ligand_area_provenance:source_manifest")
-            if int(existing["schema_version"]) != LIGAND_AREA_SCHEMA_VERSION:
-                errors.append("ligand_area_contract:schema_version")
         except (OSError, ValueError, KeyError):
             errors = ["ligand_area_unreadable"]
         if not errors:
@@ -955,7 +1180,7 @@ def build_ligand_area(
             }
 
     arrays = build_ligand_area_arrays(
-        tuple(int(value) for value in exp["grid"].shape[1:]),
+        shape,
         exp["voxel_size"],
         exp["origin"],
         coords_by_candidate,
@@ -968,18 +1193,43 @@ def build_ligand_area(
             "centroid_coordinate_system": np.asarray("world_xyz_angstrom"),
             "mask_index_order": np.asarray("zyx"),
             "vdw_radius_source": np.asarray(VDW_RADIUS_SOURCE),
+            "grid_shape_zyx": np.asarray(shape, dtype=np.int64),
+            "voxel_size_xyz": np.asarray(exp["voxel_size"], dtype=np.float32),
+            "origin_xyz": np.asarray(exp["origin"], dtype=np.float32),
+            "origin_semantics": np.asarray(LIGAND_AREA_ORIGIN_SEMANTICS),
+            "voxel_center_offset_xyz": np.asarray(
+                LIGAND_AREA_VOXEL_CENTER_OFFSET_XYZ,
+                dtype=np.float32,
+            ),
+            "voxel_center_formula": np.asarray(LIGAND_AREA_VOXEL_CENTER_FORMULA),
+            "voxel_center_dtype": np.asarray(LIGAND_AREA_VOXEL_CENTER_DTYPE),
+            "distance_predicate": np.asarray(LIGAND_AREA_DISTANCE_PREDICATE),
+            "storage_encoding": np.asarray(LIGAND_AREA_STORAGE_ENCODING),
         }
     )
-    errors = ligand_area_errors(
-        arrays,
-        grid_shape_zyx=tuple(int(value) for value in exp["grid"].shape[1:]),
-        voxel_size_xyz=exp["voxel_size"],
-        origin_xyz=exp["origin"],
-        candidate_ids=candidate_ids,
-    )
+    errors = ligand_area_errors(arrays, **validation_kwargs)
     if errors:
         raise RuntimeError(f"Stage E3 contract failed for {normalized_id}: {errors}")
-    atomic_save_npz(output_path, **arrays)
+
+    def _validate_temporary_artifact(tmp_path: Path) -> None:
+        """在原子替换前重读压缩临时文件并执行完整 E3 validator。"""
+        written = load_npz_arrays(tmp_path, allow_pickle=False)
+        written_errors = ligand_area_errors(
+            written,
+            artifact_path=tmp_path,
+            **validation_kwargs,
+        )
+        if written_errors:
+            raise RuntimeError(
+                f"Stage E3 written artifact failed for {normalized_id}: "
+                f"{written_errors}"
+            )
+
+    atomic_save_npz_compressed(
+        output_path,
+        validator=_validate_temporary_artifact,
+        **arrays,
+    )
     return {
         "status": "success",
         "artifact": str(output_path.relative_to(root)),

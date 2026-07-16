@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -13,13 +16,23 @@ CODE_DIR = Path(__file__).resolve().parents[1] / "code"
 if str(CODE_DIR) not in sys.path:
     sys.path.insert(0, str(CODE_DIR))
 
+import density as density_module
+import io_utils as io_utils_module
 from density import (
     EXP_SCHEMA_VERSION,
     LIGAND_AREA_SCHEMA_VERSION,
+    LIGAND_AREA_DISTANCE_PREDICATE,
+    LIGAND_AREA_ORIGIN_SEMANTICS,
+    LIGAND_AREA_STORAGE_ENCODING,
+    LIGAND_AREA_VOXEL_CENTER_FORMULA,
+    LIGAND_AREA_VOXEL_CENTER_DTYPE,
+    LIGAND_AREA_VOXEL_CENTER_OFFSET_XYZ,
     MRC_GENERATED_ORIGIN_MODE,
     MRC_SOURCE_ORIGIN_MODE,
     MRC_TARGET_VOXEL_SIZE,
     SIM_SCHEMA_VERSION,
+    VDW_RADIUS_SOURCE,
+    build_ligand_area,
     build_ligand_area_arrays,
     experimental_density_errors,
     experimental_density_identity,
@@ -29,7 +42,9 @@ from density import (
     simulated_density_errors,
     vdw_radius,
 )
+from contracts import CArtifactState, CInspection
 from failures import KnownFailureCode, KnownSampleFailure
+from io_utils import atomic_save_npz, atomic_save_npz_compressed, sha256_file, write_jsonl
 from mrc import (
     POCKET_MRC_ALGORITHM,
     POCKET_MRC_ANCESTOR_SHA256,
@@ -37,6 +52,100 @@ from mrc import (
     POCKET_RESAMPLE_ALL_DIFF,
 )
 from reports import ensure_filtered_stage_run_is_isolated
+from voxel_gt_pocket_legacy import _build_voxel_center_coords_xyz
+
+
+_E3_SOURCE_MANIFEST = "c" * 64
+
+
+def _add_e3_metadata(
+    arrays: dict[str, np.ndarray],
+    *,
+    shape: tuple[int, int, int],
+    voxel: np.ndarray,
+    origin: np.ndarray,
+    source_manifest_sha256: str = _E3_SOURCE_MANIFEST,
+) -> dict[str, np.ndarray]:
+    """为纯 mask 数组补齐 E3 v3 自描述几何与 provenance。"""
+    complete = dict(arrays)
+    complete.update(
+        {
+            "schema_version": np.asarray(LIGAND_AREA_SCHEMA_VERSION, dtype=np.uint16),
+            "source_manifest_sha256": np.asarray(source_manifest_sha256),
+            "centroid_coordinate_system": np.asarray("world_xyz_angstrom"),
+            "mask_index_order": np.asarray("zyx"),
+            "vdw_radius_source": np.asarray(VDW_RADIUS_SOURCE),
+            "grid_shape_zyx": np.asarray(shape, dtype=np.int64),
+            "voxel_size_xyz": np.asarray(voxel, dtype=np.float32),
+            "origin_xyz": np.asarray(origin, dtype=np.float32),
+            "origin_semantics": np.asarray(LIGAND_AREA_ORIGIN_SEMANTICS),
+            "voxel_center_offset_xyz": np.asarray(
+                LIGAND_AREA_VOXEL_CENTER_OFFSET_XYZ,
+                dtype=np.float32,
+            ),
+            "voxel_center_formula": np.asarray(LIGAND_AREA_VOXEL_CENTER_FORMULA),
+            "voxel_center_dtype": np.asarray(LIGAND_AREA_VOXEL_CENTER_DTYPE),
+            "distance_predicate": np.asarray(LIGAND_AREA_DISTANCE_PREDICATE),
+            "storage_encoding": np.asarray(LIGAND_AREA_STORAGE_ENCODING),
+        }
+    )
+    return complete
+
+
+def _ligand_area_validation_kwargs(
+    *,
+    shape: tuple[int, int, int],
+    voxel: np.ndarray,
+    origin: np.ndarray,
+    candidate_ids: list[int],
+    source_manifest_sha256: str = _E3_SOURCE_MANIFEST,
+) -> dict[str, object]:
+    """集中构造 E3 validator 的固定参数，避免测试遗漏几何身份。"""
+    return {
+        "grid_shape_zyx": shape,
+        "voxel_size_xyz": voxel,
+        "origin_xyz": origin,
+        "candidate_ids": candidate_ids,
+        "source_manifest_sha256": source_manifest_sha256,
+    }
+
+
+def _pocket_centers_xyz_for_indices(
+    indices_zyx: np.ndarray,
+    *,
+    voxel: np.ndarray,
+    origin: np.ndarray,
+) -> np.ndarray:
+    """直接调用祖传整图函数并抽取给定 ZYX 索引的中心。"""
+    indices = np.asarray(indices_zyx, dtype=np.int64)
+    voxel_f32 = np.asarray(voxel, dtype=np.float32)
+    origin_f32 = np.asarray(origin, dtype=np.float32)
+    shape = tuple(int(value) for value in (indices.max(axis=0) + 1))
+    centers = _build_voxel_center_coords_xyz(shape, origin_f32, voxel_f32)
+    return centers.reshape(*shape, 3)[tuple(indices.T)]
+
+
+def _full_grid_reference_indices(
+    shape: tuple[int, int, int],
+    *,
+    voxel: np.ndarray,
+    origin: np.ndarray,
+    coord: np.ndarray,
+    radius: float,
+) -> np.ndarray:
+    """以 Pocket float32 中心和 atom 坐标做不裁 bbox 的独立全图 membership。"""
+    indices = np.argwhere(np.ones(shape, dtype=bool)).astype(np.int32)
+    centers = _build_voxel_center_coords_xyz(
+        shape,
+        np.asarray(origin, dtype=np.float32),
+        np.asarray(voxel, dtype=np.float32),
+    )
+    coord_f32 = np.asarray(coord, dtype=np.float32).reshape(3)
+    distance2 = np.sum(
+        (centers.astype(np.float64) - coord_f32.astype(np.float64)) ** 2,
+        axis=1,
+    )
+    return indices[distance2 <= radius * radius + 1e-8]
 
 
 def _valid_experimental_density() -> dict[str, np.ndarray]:
@@ -78,6 +187,41 @@ def _valid_experimental_density() -> dict[str, np.ndarray]:
     }
 
 
+def _write_ligand_area_build_inputs(
+    root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Path, Path, Path]:
+    """写入一个最小但完整的 E3 构建输入，并冻结 Stage C inspection。"""
+    pdb_id = "1abc"
+    density_dir = root / "density" / pdb_id
+    parse_dir = root / "parse" / pdb_id
+    object_dir = root / "ligand_objects"
+    density_dir.mkdir(parents=True)
+    parse_dir.mkdir(parents=True)
+    object_dir.mkdir(parents=True)
+
+    exp_path = density_dir / "exp.npz"
+    sim_path = density_dir / "sim.npz"
+    output_path = density_dir / "ligand_area.npz"
+    atomic_save_npz(exp_path, **_valid_experimental_density())
+    atomic_save_npz(sim_path, sentinel=np.arange(8, dtype=np.float32))
+
+    occurrence = {"candidate_id": 0, "object_key": "CCD:LIG"}
+    write_jsonl(parse_dir / "occurrences.jsonl", [occurrence])
+    atomic_save_npz(
+        parse_dir / "ligand_coords.npz",
+        coords_0=np.asarray([[3.5, 3.5, 3.5]], dtype=np.float32),
+        present_0=np.asarray([True], dtype=bool),
+    )
+    atoms = np.zeros((1,), dtype=[("element", np.int16)])
+    atoms["element"] = 6
+    atomic_save_npz(object_dir / "CCD_LIG.npz", atoms=atoms)
+
+    inspection = CInspection(CArtifactState.COMPLETE, (), (occurrence,))
+    monkeypatch.setattr(density_module, "inspect_stage_c", lambda *_: inspection)
+    return exp_path, sim_path, output_path
+
+
 def test_experimental_density_v2_accepts_actual_voxel_and_rejects_v1() -> None:
     """E1 v2 接受 Pocket 返回的实际 voxel，并阻断旧重采样 schema/algorithm。"""
     arrays = _valid_experimental_density()
@@ -101,7 +245,8 @@ def test_experimental_density_v2_accepts_actual_voxel_and_rejects_v1() -> None:
     )
     assert "exp_contract:schema_version" in errors
     assert "exp_contract:mrc_algorithm" in errors
-    assert EXP_SCHEMA_VERSION == SIM_SCHEMA_VERSION == LIGAND_AREA_SCHEMA_VERSION == 2
+    assert EXP_SCHEMA_VERSION == SIM_SCHEMA_VERSION == 2
+    assert LIGAND_AREA_SCHEMA_VERSION == 3
 
     wrong_contour = dict(arrays)
     wrong_contour["contour_canonical"] = wrong_contour["contour_native"].copy()
@@ -187,36 +332,45 @@ def test_ligand_area_local_stencil_sparse_order_union_and_world_centroid() -> No
     shape = (8, 9, 10)
     voxel = np.ones((3,), dtype=np.float32)
     origin = np.asarray([10.0, 20.0, 30.0], dtype=np.float32)
-    arrays = build_ligand_area_arrays(
-        shape,
-        voxel,
-        origin,
-        {
-            2: np.asarray([[13.0, 24.0, 35.0]], dtype=np.float32),
-            7: np.asarray([[14.0, 24.0, 35.0]], dtype=np.float32),
-        },
-        {
-            2: np.asarray([6], dtype=np.int16),
-            7: np.asarray([8], dtype=np.int16),
-        },
+    arrays = _add_e3_metadata(
+        build_ligand_area_arrays(
+            shape,
+            voxel,
+            origin,
+            {
+                2: np.asarray([[13.0, 24.0, 35.0]], dtype=np.float32),
+                7: np.asarray([[14.0, 24.0, 35.0]], dtype=np.float32),
+            },
+            {
+                2: np.asarray([6], dtype=np.int16),
+                7: np.asarray([8], dtype=np.int16),
+            },
+        ),
+        shape=shape,
+        voxel=voxel,
+        origin=origin,
     )
     errors = ligand_area_errors(
         arrays,
-        grid_shape_zyx=shape,
-        voxel_size_xyz=voxel,
-        origin_xyz=origin,
-        candidate_ids=[2, 7],
+        **_ligand_area_validation_kwargs(
+            shape=shape,
+            voxel=voxel,
+            origin=origin,
+            candidate_ids=[2, 7],
+        ),
     )
     assert errors == []
     for candidate_id in (2, 7):
         indices = arrays[f"mask_{candidate_id}"]
         linear = np.ravel_multi_index(indices.T, shape)
         assert np.all(np.diff(linear) > 0)
-        expected_xyz = origin + np.asarray(
-            [indices[:, 2].mean(), indices[:, 1].mean(), indices[:, 0].mean()],
-            dtype=np.float32,
+        centers_xyz = _pocket_centers_xyz_for_indices(
+            indices,
+            voxel=voxel,
+            origin=origin,
         )
-        np.testing.assert_allclose(arrays[f"centroid_voxel_{candidate_id}"], expected_xyz)
+        expected_xyz = centers_xyz.astype(np.float64).mean(axis=0).astype(np.float32)
+        np.testing.assert_array_equal(arrays[f"centroid_voxel_{candidate_id}"], expected_xyz)
     reconstructed = np.zeros(shape, dtype=bool)
     for candidate_id in (2, 7):
         reconstructed[tuple(arrays[f"mask_{candidate_id}"].T)] = True
@@ -238,41 +392,367 @@ def test_ligand_area_handles_boundary_clipping_without_duplicate_indices() -> No
     assert len(indices) == len(np.unique(indices, axis=0))
 
 
+def test_ligand_area_uses_corner_origin_and_anisotropic_voxel_centers() -> None:
+    """反例必须只选中 +0.5 中心；旧 ``origin+index*voxel`` 会得到空 mask。"""
+    shape = (3, 3, 3)
+    voxel = np.asarray([4.0, 5.0, 6.0], dtype=np.float32)
+    origin = np.asarray([10.0, -20.0, 30.0], dtype=np.float32)
+    atom_xyz = origin + 0.5 * voxel
+    arrays = build_ligand_area_arrays(
+        shape,
+        voxel,
+        origin,
+        {0: atom_xyz[None]},
+        {0: np.asarray([6], dtype=np.int16)},
+    )
+
+    np.testing.assert_array_equal(
+        arrays["mask_0"],
+        np.asarray([[0, 0, 0]], dtype=np.int32),
+    )
+    np.testing.assert_array_equal(arrays["centroid_voxel_0"], atom_xyz)
+    old_formula_distance = float(np.linalg.norm(origin.astype(np.float64) - atom_xyz))
+    assert old_formula_distance > vdw_radius(6)
+
+
+def test_ligand_area_bbox_covers_pocket_float32_center_rounding() -> None:
+    """实际中心 searchsorted 必须与 Pocket-f32 全图 reference 完全一致。"""
+    shape = (3, 3, 4)
+    voxel = np.asarray([0.30897918, 1.0, 1.0], dtype=np.float32)
+    origin = np.asarray([0.02594091, 0.0, 0.0], dtype=np.float32)
+    coord = np.asarray([[-0.90161115, 0.5, 0.5]], dtype=np.float32)
+    arrays = build_ligand_area_arrays(
+        shape,
+        voxel,
+        origin,
+        {0: coord},
+        {0: np.asarray([6], dtype=np.int16)},
+    )
+
+    expected_indices = _full_grid_reference_indices(
+        shape,
+        voxel=voxel,
+        origin=origin,
+        coord=coord[0],
+        radius=vdw_radius(6),
+    )
+    np.testing.assert_array_equal(arrays["mask_0"], expected_indices)
+    assert any(
+        np.array_equal(row, np.asarray([0, 0, 2], dtype=np.int32))
+        for row in arrays["mask_0"]
+    )
+
+    effective_radius = float(np.sqrt(vdw_radius(6) ** 2 + 1e-8))
+    upper_without_float32_guard = int(
+        np.floor(
+            (float(coord[0, 0]) + effective_radius - float(origin[0]))
+            / float(voxel[0])
+            - 0.5
+            + 1e-12
+        )
+    )
+    assert upper_without_float32_guard == 1
+
+
+def test_sparse_axis_adapter_matches_ancestor_full_grid_with_repeated_centers() -> None:
+    """退化轴调用必须与祖传整图中心逐位一致，包括重复 float32 中心。"""
+    shape = (3, 3, 20)
+    voxel = np.ones((3,), dtype=np.float32)
+    origin = np.asarray([1.0e9, 0.0, 0.0], dtype=np.float32)
+    coord = np.asarray([[1.0e9, 0.5, 0.5]], dtype=np.float32)
+    arrays = build_ligand_area_arrays(
+        shape,
+        voxel,
+        origin,
+        {0: coord},
+        {0: np.asarray([6], dtype=np.int16)},
+    )
+
+    expected_indices = _full_grid_reference_indices(
+        shape,
+        voxel=voxel,
+        origin=origin,
+        coord=coord[0],
+        radius=vdw_radius(6),
+    )
+    np.testing.assert_array_equal(arrays["mask_0"], expected_indices)
+    assert len(np.unique(expected_indices[:, 2])) == shape[2]
+
+
+def test_ligand_area_rejects_noncanonical_or_extra_dynamic_keys() -> None:
+    """schema v3 不得把非法动态后缀或未知额外数组当成合法可跳过产物。"""
+    shape = (3, 3, 3)
+    voxel = np.ones((3,), dtype=np.float32)
+    origin = np.zeros((3,), dtype=np.float32)
+    arrays = _add_e3_metadata(
+        build_ligand_area_arrays(
+            shape,
+            voxel,
+            origin,
+            {0: np.asarray([[0.5, 0.5, 0.5]], dtype=np.float32)},
+            {0: np.asarray([6], dtype=np.int16)},
+        ),
+        shape=shape,
+        voxel=voxel,
+        origin=origin,
+    )
+    validation_kwargs = _ligand_area_validation_kwargs(
+        shape=shape,
+        voxel=voxel,
+        origin=origin,
+        candidate_ids=[0],
+    )
+
+    for extra_key in ("mask_00", "mask_bad", "centroid_voxel_00", "unexpected"):
+        corrupted = dict(arrays)
+        corrupted[extra_key] = np.asarray([1], dtype=np.int8)
+        errors = ligand_area_errors(corrupted, **validation_kwargs)
+        assert any(
+            error.startswith("ligand_area_contract:unexpected_keys:")
+            for error in errors
+        )
+
+
+def test_ligand_area_far_boundary_uses_last_voxel_center() -> None:
+    """靠近远端边界的原子按角点 box 语义落到最后一个体素，且不越界。"""
+    shape = (4, 5, 6)
+    voxel = np.asarray([2.0, 3.0, 4.0], dtype=np.float32)
+    origin = np.asarray([-10.0, 20.0, 100.0], dtype=np.float32)
+    last_center = origin + (np.asarray(shape[::-1], dtype=np.float32) - 0.5) * voxel
+    arrays = build_ligand_area_arrays(
+        shape,
+        voxel,
+        origin,
+        {9: last_center[None]},
+        {9: np.asarray([8], dtype=np.int16)},
+    )
+
+    np.testing.assert_array_equal(
+        arrays["mask_9"],
+        np.asarray([[3, 4, 5]], dtype=np.int32),
+    )
+    np.testing.assert_array_equal(arrays["centroid_voxel_9"], last_center)
+
+
+def test_ligand_area_v3_metadata_and_actual_zip_encoding_are_required(tmp_path: Path) -> None:
+    """schema/几何元数据与真实 ZIP_DEFLATED 必须同时成立，不能只信 metadata。"""
+    shape = (3, 3, 3)
+    voxel = np.asarray([1.2, 1.4, 1.6], dtype=np.float32)
+    origin = np.asarray([2.0, 3.0, 4.0], dtype=np.float32)
+    arrays = _add_e3_metadata(
+        build_ligand_area_arrays(
+            shape,
+            voxel,
+            origin,
+            {0: np.asarray([[2.6, 3.7, 4.8]], dtype=np.float32)},
+            {0: np.asarray([6], dtype=np.int16)},
+        ),
+        shape=shape,
+        voxel=voxel,
+        origin=origin,
+    )
+    validation_kwargs = _ligand_area_validation_kwargs(
+        shape=shape,
+        voxel=voxel,
+        origin=origin,
+        candidate_ids=[0],
+    )
+
+    legacy = dict(arrays)
+    legacy["schema_version"] = np.asarray(2, dtype=np.uint16)
+    assert "ligand_area_contract:schema_version" in ligand_area_errors(
+        legacy,
+        **validation_kwargs,
+    )
+
+    wrong_geometry = dict(arrays)
+    wrong_geometry["voxel_center_offset_xyz"] = np.zeros((3,), dtype=np.float32)
+    wrong_geometry["voxel_center_formula"] = np.asarray("origin_xyz+index_xyz*voxel")
+    geometry_errors = ligand_area_errors(wrong_geometry, **validation_kwargs)
+    assert "ligand_area_contract:voxel_center_offset_xyz" in geometry_errors
+    assert "ligand_area_contract:voxel_center_formula" in geometry_errors
+
+    uncompressed_path = tmp_path / "uncompressed.npz"
+    atomic_save_npz(uncompressed_path, **arrays)
+    assert "ligand_area_storage:not_zip_deflated" in ligand_area_errors(
+        arrays,
+        artifact_path=uncompressed_path,
+        **validation_kwargs,
+    )
+
+    compressed_path = tmp_path / "compressed.npz"
+
+    def _validate(path: Path) -> None:
+        with np.load(path, allow_pickle=False) as archive:
+            loaded = {key: archive[key] for key in archive.files}
+        assert ligand_area_errors(
+            loaded,
+            artifact_path=path,
+            **validation_kwargs,
+        ) == []
+
+    atomic_save_npz_compressed(compressed_path, validator=_validate, **arrays)
+    with np.load(compressed_path, allow_pickle=False) as archive:
+        assert set(archive.files) == set(arrays)
+        for key, expected in arrays.items():
+            np.testing.assert_array_equal(archive[key], expected)
+            assert archive[key].dtype == expected.dtype
+            assert archive[key].shape == expected.shape
+    with zipfile.ZipFile(compressed_path, "r") as archive:
+        assert archive.infolist()
+        assert all(info.compress_type == zipfile.ZIP_DEFLATED for info in archive.infolist())
+
+
+def test_compressed_atomic_write_failure_preserves_target_and_siblings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """写入中断只清理本次唯一临时文件；旧正式文件和兄弟 PDB 逐字节不变。"""
+    target = tmp_path / "density" / "1abc" / "ligand_area.npz"
+    sibling = tmp_path / "density" / "2def" / "ligand_area.npz"
+    target.parent.mkdir(parents=True)
+    sibling.parent.mkdir(parents=True)
+    target.write_bytes(b"old-target")
+    sibling.write_bytes(b"old-sibling")
+
+    def _partial_write_then_fail(path: Path, **_: object) -> None:
+        Path(path).write_bytes(b"partial-new-file")
+        raise RuntimeError("injected compressed writer failure")
+
+    monkeypatch.setattr(io_utils_module.np, "savez_compressed", _partial_write_then_fail)
+    with pytest.raises(RuntimeError, match="injected compressed writer failure"):
+        atomic_save_npz_compressed(
+            target,
+            validator=lambda _: None,
+            value=np.arange(4, dtype=np.int32),
+        )
+
+    assert target.read_bytes() == b"old-target"
+    assert sibling.read_bytes() == b"old-sibling"
+    assert list(target.parent.glob(f".{target.name}.tmp.*.npz")) == []
+
+
+def test_compressed_atomic_validation_failure_preserves_old_target(tmp_path: Path) -> None:
+    """完整临时 NPZ 若未通过重读 validator，也不得覆盖旧正式文件。"""
+    target = tmp_path / "ligand_area.npz"
+    target.write_bytes(b"old-artifact")
+
+    def _reject(_: Path) -> None:
+        raise RuntimeError("injected validator failure")
+
+    with pytest.raises(RuntimeError, match="injected validator failure"):
+        atomic_save_npz_compressed(
+            target,
+            validator=_reject,
+            value=np.arange(4, dtype=np.int32),
+        )
+    assert target.read_bytes() == b"old-artifact"
+    assert list(tmp_path.glob(f".{target.name}.tmp.*.npz")) == []
+
+
 def test_ligand_area_centroid_qc_compares_the_declared_float32_value() -> None:
     """大坐标下先量化期望值再精确比较，不能把合法 float32 舍入误判为失败。"""
     shape = (2, 2, 2)
     indices = np.asarray([[0, 0, 0], [0, 1, 0], [1, 0, 1]], dtype=np.int32)
     origin = np.asarray([277.0, 300.0, 500.0], dtype=np.float32)
     voxel = np.ones((3,), dtype=np.float32)
-    expected = (
-        origin.astype(np.float64)
-        + np.asarray([1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0], dtype=np.float64)
-    ).astype(np.float32)
+    expected = _pocket_centers_xyz_for_indices(
+        indices,
+        voxel=voxel,
+        origin=origin,
+    ).astype(np.float64).mean(axis=0).astype(np.float32)
     union = np.zeros((1, *shape), dtype=bool)
     union[0][tuple(indices.T)] = True
-    arrays = {
-        "mask_0": indices,
-        "centroid_voxel_0": expected,
-        "union_mask": union,
-    }
+    arrays = _add_e3_metadata(
+        {
+            "mask_0": indices,
+            "centroid_voxel_0": expected,
+            "union_mask": union,
+        },
+        shape=shape,
+        voxel=voxel,
+        origin=origin,
+    )
 
     assert ligand_area_errors(
         arrays,
-        grid_shape_zyx=shape,
-        voxel_size_xyz=voxel,
-        origin_xyz=origin,
-        candidate_ids=[0],
+        **_ligand_area_validation_kwargs(
+            shape=shape,
+            voxel=voxel,
+            origin=origin,
+            candidate_ids=[0],
+        ),
     ) == []
 
     arrays["centroid_voxel_0"] = expected.copy()
     arrays["centroid_voxel_0"][0] = np.nextafter(expected[0], np.float32(np.inf))
     assert "ligand_area_value:centroid:0" in ligand_area_errors(
         arrays,
-        grid_shape_zyx=shape,
-        voxel_size_xyz=voxel,
-        origin_xyz=origin,
-        candidate_ids=[0],
+        **_ligand_area_validation_kwargs(
+            shape=shape,
+            voxel=voxel,
+            origin=origin,
+            candidate_ids=[0],
+        ),
     )
+
+
+def test_build_ligand_area_rebuilds_v2_then_skips_valid_v3_without_touching_exp_sim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """旧 v2 即使 overwrite=False 也重建；合法压缩 v3 幂等 skip，E1/E2 不漂移。"""
+    exp_path, sim_path, output_path = _write_ligand_area_build_inputs(tmp_path, monkeypatch)
+    exp_sha_before = sha256_file(exp_path)
+    sim_sha_before = sha256_file(sim_path)
+
+    atomic_save_npz(
+        output_path,
+        schema_version=np.asarray(2, dtype=np.uint16),
+        source_manifest_sha256=np.asarray("legacy"),
+        union_mask=np.zeros((1, 6, 8, 10), dtype=bool),
+        mask_0=np.asarray([[0, 0, 0]], dtype=np.int32),
+        centroid_voxel_0=np.zeros((3,), dtype=np.float32),
+    )
+    rebuilt = build_ligand_area(tmp_path, "1ABC", overwrite=False)
+    assert rebuilt["status"] == "success"
+    assert sha256_file(exp_path) == exp_sha_before
+    assert sha256_file(sim_path) == sim_sha_before
+
+    with np.load(output_path, allow_pickle=False) as archive:
+        assert int(archive["schema_version"]) == 3
+        assert str(archive["origin_semantics"].item()) == LIGAND_AREA_ORIGIN_SEMANTICS
+        assert str(archive["storage_encoding"].item()) == LIGAND_AREA_STORAGE_ENCODING
+    with zipfile.ZipFile(output_path, "r") as archive:
+        assert all(info.compress_type == zipfile.ZIP_DEFLATED for info in archive.infolist())
+
+    artifact_sha = sha256_file(output_path)
+    skipped = build_ligand_area(tmp_path, "1abc", overwrite=False)
+    assert skipped["status"] == "skipped"
+    assert sha256_file(output_path) == artifact_sha
+    assert sha256_file(exp_path) == exp_sha_before
+    assert sha256_file(sim_path) == sim_sha_before
+
+
+def test_density_import_for_e3_does_not_import_chimera_or_mapq() -> None:
+    """E3 专用入口可只导入 density；类型注解不能触发 Chimera/MapQ 运行时导入。"""
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(CODE_DIR), env.get("PYTHONPATH", "")]
+    ).rstrip(os.pathsep)
+    command = (
+        "import sys; import density; "
+        "assert 'chimera' not in sys.modules; "
+        "assert 'mapq' not in sys.modules"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", command],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_simulated_density_validator_rejects_plane_and_geometry_mismatch() -> None:

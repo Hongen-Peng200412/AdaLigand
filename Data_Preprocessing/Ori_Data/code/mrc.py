@@ -44,7 +44,8 @@ class MapGrid:
     输入参数:
         - grid: np.ndarray, (Z,Y,X), float32, 密度值
         - voxel_size: np.ndarray, (3,), float32, XYZ 每体素 Å
-        - origin: np.ndarray, (3,), float32, `grid[0,0,0]` 的世界 XYZ 坐标 Å
+        - origin: np.ndarray, (3,), float32, 网格下角点的世界 XYZ 坐标 Å；
+          `grid[0,0,0]` 的体素中心为 `origin + 0.5 * voxel_size`
     """
 
     grid: np.ndarray
