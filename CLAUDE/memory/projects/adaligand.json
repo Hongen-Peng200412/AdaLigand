@@ -43,10 +43,11 @@
     "2026-07-16：Stage E3 半体素修复冻结为 Pocket Plus 祖传数值实现优先。MRC 的 load_map/make_model_grid 继续零差异；E3 体素中心函数也改为直接 vendoring Pocket `_build_voxel_center_coords_xyz`，Ada 仅保留稀疏存储与已冻结标签契约所需薄适配。Git checkpoint 75d8f42；300组完整Pocket网格oracle零差异，本地全套309 passed、10个Windows条件项skipped。后续不得用Agent自研等价实现替代已有祖传函数。",
     "2026-07-16：Stage F scratch v4回收、journal/fsync apply和独立验收闭合；318350于19:03:41恢复v1→v2尾段补算，316116于19:06:58恢复正式F，两台CPU96合计192核。只读复核显示锁、PGID、碰撞guard、日志与heartbeat均正常，当前A–G预计约27–40小时完成（保守44小时）。",
     "2026-07-16：E3三项独立审计闭合。上下游没有新增Ada轴序补偿，E3稀疏结果与Pocket中心oracle一致，v2→v3真实产物差异符合半体素修复。全量origin风险审计覆盖22,274个唯一EMDB，正式E合格集合命中182/22,309（约0.816%）；5个header失败均为既有missing_map。该结果不是广泛硬伤，祖传函数保持不变，182个候选只记录不排除。",
-    "2026-07-16：独立E3迁移run adaligand_ag_20260711T154658_e3v3_v1已冻结22,309个旧E合格目标；target IDs SHA为35108a7a…a10b，target manifest SHA为18313414…1f10。旧E status/de_release/exclusion/pair_list继续按原SHA只读绑定；待跨run writer锁、launch manifest和单分片pilot通过后，使用独立48 CPU执行其余迁移。"
+    "2026-07-16：独立E3迁移run adaligand_ag_20260711T154658_e3v3_v1已冻结22,309个旧E合格目标；target IDs SHA为35108a7a…a10b，target manifest SHA为18313414…1f10。旧E status/de_release/exclusion/pair_list继续按原SHA只读绑定。",
+    "2026-07-16：E3跨run writer锁、launch manifest与authorization seal闭合。318882_0 pilot用16 CPU在16分20秒完成465/465 success，状态SHA为072f66a5…6cbc4；465份schema3/几何身份与28,115个ZIP成员检查通过，pilot audit SHA为880f1f8d…13f93。三项独立终验均PASS，未发现广泛硬伤；其余318882_[1-47%3]已按最多3并发运行，318883只等待afterok全量source-aware gate。"
   ],
   "blockers": [
-    "当前无科学契约决策阻塞。Stage F两路CPU96已恢复并正常推进，正式G仍只等待316116的f_release。E3全量风险审计判为小范围记录项，不修改祖传函数；当前工程门只剩跨run writer锁、launch manifest、pilot和22,309-ID迁移/release。正式G数值配置/filter仍须在质量分布后另行显式执行。"
+    "当前无科学契约决策阻塞。Stage F两路CPU96正常推进，正式G仍只等待316116的f_release。E3 pilot与三项独立终验已通过，318882余下47分片和318883全量gate正在执行；182个origin-risk候选只记录、不修改祖传函数。正式G数值配置/filter仍须在质量分布后另行显式执行。"
   ],
   "failures": [
     "2026-07-12 Stage C gate 事件：366/22,386 为 unknown_failed，涉及 43,175 occurrences、506 object_keys；这是系统性工程/契约问题，不能按小比例忽略。",
