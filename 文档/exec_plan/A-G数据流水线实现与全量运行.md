@@ -393,6 +393,8 @@
 
 - Decision: Stage F attempt 中的 MRC/MAP/CIF（包括原子写临时文件和 MapQ 返回前输出）全部视为可重建大型中间体；成功或 Python/外部工具异常都在当前 UUID attempt 的异常安全边界内清理。小型 stdout/stderr、生成脚本、MapQ 兼容脚本和结构化 stage failure 保留；默认不保留大型 debug 文件，也不把一次性 scratch manifest 提升为科学契约。
   Rationale: 四 CC、MapQ、配体/口袋 Q 和正式三件套不依赖 scratch 大文件长期存在；日志与 run-scoped status 已提供可复现入口。精确 attempt 范围、越界 fail-closed 和兄弟 run/PDB/attempt 隔离可避免清理扩大。`SIGKILL`/节点掉电不能执行 Python `finally`，此类 stale scratch 必须先精确停 writer、冻结 before manifest，再单独回收；不得在运行中全树删除。
+- Decision: 本项目所有为单次 repair、migration、cutoff、supplement、recovery、审计或资源覆盖而增加的脚手架，都必须在任务闭合前接受一次项目级依赖审阅。审阅将文件分为生产主线、可复用运维、本次 run 专用和过时/危险四类；仍被活动作业、恢复入口或迁移 gate 引用的文件先保留，依赖闭合后再以精确 Git 路径、回归测试和可追溯提交完成删除、归档或重构。最终生产路径必须在移除一次性脚手架后仍生成相同科学产物。
+  Rationale: 运行中临时授权和故障恢复会持续累积辅助入口；若不在收口时反向审计，它们会与长期科学实现混杂，降低可读性并诱导后续 Agent 误用。该规则只约束维护与收口方式，不改变任何科学契约或当前运行状态。
   Date/Author: 2026-07-16 / User + Codex
 
 - Decision: 硬中断回收的零进程门必须覆盖 `master` 和所有保留 allocation，并把同 UID 裸 Python/stdin Python 视为不透明活动进程；由 canonical 脚本生成 argv/stdout/stderr/节点/时间/实现 SHA 全闭合的 schema v2 证据。audit 与 apply 各自重新 capture，controller probe 在 scheduler 快照之后最后执行。
@@ -622,3 +624,5 @@ Revision note 2026-07-16 13:22+08:00: 回填 Stage F scratch 生命周期事故�
 Revision note 2026-07-16 13:30+08:00: 记录用户为避免非科学证据加固继续阻塞主线，放宽普通 nontransient 大文件的逐字节哈希要求；公开质量三件套仍完整哈希，其他保留证据以元数据和已有/必要哈希证明实质内容未变。未修改 clean spec、F 计算或 G 分析契约。
 
 Revision note 2026-07-16 13:32+08:00: 记录用户明确决定不归属容量扫描 PID `54412` 不应阻塞 A–G。schema v3 仅以一次性精确进程指纹从 blocking 计数扣除该 raw 行，不信号该进程，也不放宽任何其他 opaque/F/recovery/scan-error 门；audit/apply 必须复用同一指纹。该变更只影响本轮 scratch 工程门，不修改科学契约。
+
+Revision note 2026-07-16 17:20+08:00: 用户把“临时脚手架最终收口”提升为整个项目的维护规则，并要求追溯审阅此前已经加入代码库的同类文件。已启动全项目只读盘点；在 `316116/318350` scratch 恢复和 E3 迁移仍依赖相应入口期间不提前删除，最终按依赖和风险分类完成测试后收口。该新增项不改变 A–G 或 E3 科学契约。
