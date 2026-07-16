@@ -79,7 +79,10 @@
 - [x] (2026-07-16 13:32+08:00) 两个 F writer 继续停在各自精确 `after+try`。只读复核确认 PID `54412` 是不归属本任务、扫描其他数据根的容量探针；用户明确决定它不应阻塞 A–G，且不得发信号。commit `cdcf031` 将 process gate 升级为 schema v3：最多允许 controller 上一个 `node+PID+PPID+start_ticks+argv SHA` 完全匹配的一次性例外，raw opaque 行完整保留；第二个 opaque、任一身份漂移、F/recovery、scan error 或 audit/apply 例外漂移仍 fail-closed。本地专项 43 passed+2 skipped、全套 284 passed+4 skipped，compileall 与 diff check 通过。
 - [ ] 以当前真实指纹生成 `process_audit.before_audit.json`；完成零删除 audit 和独立 bundle 验收后，apply 前生成另一份 fresh `process_audit.before_apply.json`。两个证据必须复用同一例外指纹，随后才允许 journaled apply。
 - [x] (2026-07-16 13:30+08:00) 用户为优先恢复 A–G 明确放宽 scratch 验收：公开质量三件套仍须完整 SHA-256 逐字节不变；普通 nontransient 日志/证据只须以路径、类型、大小、mtime 和已有或必要哈希证明实质内容未变，不要求为全部大于 16 MiB 的保留文件追加全量哈希。该决定只降低回收工具的非科学证据成本，不改变四 CC、配体/口袋 Q、质量三件套或任何 F/G 科学契约。
+- [x] (2026-07-16 17:41+08:00) 唯一有效 v4 bundle 已完成 journal/fsync apply 并通过独立定向验收：删除 manifest 恰含 4,341 个 transient，journal 恰含 4,341 条 intent 与 4,341 条 deleted；923 个受影响 attempt 的 10,260 个普通 nontransient 与 2,568 个公开质量三件套路径均通过冻结身份复核。预计回收 1,028,652,285,952 B（约 958.01 GiB），quota 约下降 1008.73 GiB 只作旁证。delete manifest/bundle/progress/apply-summary SHA-256 分别为 `fd4b6ec3…5993`、`0966e35c…f92`、`6071109a…f0fc`、`4dfd0853…f649`；v1/v3 永久作废且未被 apply。两个 F writer 仍由各自 `after+try` 精确停写，等待代码同步、远端全套和顺序恢复，不再受 scratch 回收门阻断。
 - [x] (2026-07-16) 用户冻结本次正式 run 的巨大长尾运行策略：当前 `8ckb/8glv/9e5c/9fqr/6kgx` 共 5 个 run-only exclusion；后续只有在客观证明样本正在形成活动长尾、缺少本阶段完整公开 artifact 且存在明确运行时/资源证据时，才可自治追加，最多再追加 4 个，使累计始终不超过 9（严格少于 10）。样本继续留在 22,386 分母，以 `known_failed:run_policy_excluded` 终态审计并排除训练、推理和 G 候选，不伪造 success；累计将达到 10，或同类失败开始聚集/呈系统性趋势时，必须停止个例化、诊断根因并询问用户。
+- [x] (2026-07-16 18:10+08:00) 用户冻结 E3 半体素修复契约后完成本地实现：MRC 六函数继续零差异，E3 直接原样 vendoring Pocket `_build_voxel_center_coords_xyz`，以网格下角点 `origin` 和 `origin+(index+0.5)*voxel` 从 Stage C 原子重新生成 schema v3 稀疏 mask；仅 `ligand_area.npz` 使用 `np.savez_compressed`、写后完整 validator 和原子覆盖。核心 Git checkpoint `75d8f42` 与信任边界/记忆 checkpoint `92fc2e8` 的本地全套为 309 passed、10 个 Windows 条件项 skipped。后续 `e90fccc` 又彻底删除解析 bbox/`searchsorted`/索引反推，只直接筛选祖传函数实际生成的 float32 中心，300/300 完整 Pocket 网格 oracle 零差异；`1780942` 把 E/F frame preflight 窄修为 Pocket 物理 BOX `[origin, origin+shape*voxel]`，专项 9 passed，不改 MRC、molmap、CC 或 Q 数值内核。
+- [ ] E3 尚未完成服务器放行：待 scratch v4 回收闭合后的无删除安全同步、远端 Linux 全套测试、真实多图 Pocket 端到端 smoke 与差异报告；随后冻结旧正式 E 合格集合 22,309，使用独立 `stage_e3_repair` 账本分片原子迁移，不复活 77 个 known failure，不覆盖旧 Stage E status、`de_release` 或 exclusion 证据。该支线与 F/G 主线可并行，但 Stage1 训练就绪必须同时满足 E3 新 gate 与 A–G 最终 gate。
 - [ ] 持续监控、自动诊断/修复/重提，只在科学契约变化或外部不可恢复阻塞时请求用户。
 - [ ] 完成全量验收、计划漂移收口、mapping/契约 README/项目记忆更新和最终报告。
 
@@ -217,6 +220,12 @@
 - Observation: “allocation 内零进程”不足以证明 scratch 可安全回收。旧 process-audit schema v1 没有检查 master，也只按脚本 token 匹配；一个命令行为 `python -` 的旧 SSH/stdin 脚本可在登录节点长时间扫描后进入删除阶段，同时让两台 compute probe 都报告零。quota 下降也不能精确反演 unlink：Lustre 的空间回收和计账存在明显延迟。
   Evidence: PID 52523/PPID 52118 的父链、stdin 命令、v1 manifest/summary mtime 与 v3 audit 结束时间构成闭合时间线；v1 无 journal/apply/stop marker。精确存在性重放显示删除前沿停在 1,497 个 transient，而小证据/公开三件套未漂移。终止该进程后 quota 仍缓慢下降，但 controller/compute 均无 cleanup，说明后续下降不能解释为继续删除。新 schema v2 的首次真实 probe 又正确识别了另一个只读 `python3 -` 容量扫描，证明 opaque-stdin guard 有效且会保守阻断。
 
+- Observation: E3 旧 schema v2 把 Pocket Plus 的下角点 `origin` 直接当作索引中心，造成确定性的半体素错位；这不是 `load_map` 或 `make_model_grid` 的祖传缺陷。修复时一度考虑自写等价中心轴和解析候选边界，用户明确拒绝后全部删除；当前代码直接 vendoring Pocket `_build_voxel_center_coords_xyz`，并只对祖传函数实际生成的各轴 float32 中心做范围筛选。
+  Evidence: Git `75d8f42` 保持 MRC 六函数零差异，新增 `voxel_gt_pocket_legacy.py/.source.json` 与直接源码/AST parity；`e90fccc` 删除解析 bbox、`searchsorted` 与索引反推。300/300 组完整 Pocket 网格 oracle 对照零差异；`75d8f42/92fc2e8` 基线本地全套为 309 passed、10 skipped。旧 mask 不参与迁移计算。
+
+- Observation: 用户冻结下角点/半体素语义后，只读审阅发现 E2/F 的 model-map frame preflight 和未使用的 `grid_world_bounds` 仍使用旧端点公式 `origin` 到 `origin+(shape-1)*voxel`。生产前置门已由 `1780942` 窄修为 Pocket 物理 BOX `[origin, origin+shape*voxel]`，专项 9 passed；该修复不参与 MRC 重采样、molmap、CC 或 Q-score 数值。`mrc.py::grid_world_bounds` 当前只有测试引用，保留为 P2 维护项，不能误称为生产阻塞。
+  Evidence: `code/qc.py::model_map_frame_errors`、`code/density.py::ensure_model_map_frame_compatible`、`code/quality.py` 与 `code/mrc.py::grid_world_bounds` 的调用审计；Git `1780942` 及对应 9 项 frame-preflight 回归。
+
 ## Decision Log
 
 - Decision: MRC 加载/重采样以 Pocket Plus 祖传实现为当前可信参考，不再由 AdaLigand 重新设计一套“更正确”的替代实现。相关函数先以独立 vendored 模块逐函数原样复制，AdaLigand 仅保留 `Path`、`MapGrid`、gzip/落盘 schema、dtype 与调用接口所必需的薄适配。
@@ -279,8 +288,8 @@
   Rationale: molmap resolution 会直接改变模拟密度，猜测值会污染 CC、sim 和下游训练输入。
   Date/Author: 2026-07-10 / Codex（落实用户“机器检查优先、禁止静默兜底”的边界）
 
-- Decision: E1 重采样除几何正确外还必须保持常数/DC 幅值；E3 使用局部 voxel stencil，禁止构造全图坐标 KD-tree。
-  Rationale: recommended contour 只有在幅值语义保留时才能迁移到 canonical map；局部 stencil 在数学上等价且避免多 GiB 临时内存。
+- Decision: E1 重采样除几何正确外还必须保持常数/DC 幅值；早期 E3 使用局部 voxel stencil 的实现决定已于 2026-07-16 被用户冻结的 Pocket-first 规则取代。当前 E3 必须直接筛选 Pocket 祖传函数实际生成的 float32 中心，禁止解析 bbox、`searchsorted`、索引反推、自写等价中心或全图坐标 KD-tree。
+  Rationale: recommended contour 只有在幅值语义保留时才能迁移到 canonical map；E3 的中心数值则以经过项目训练/验证/测试的 Pocket 实现为唯一权威，不能再用“数学等价”主张替代可逐项直比的祖传行为。
   Date/Author: 2026-07-10 / Codex
 
 - Decision: 服务器安装官方 Chimera 1.19 headless/OSMesa 与 MapQ 到用户目录，不写系统目录；用户确认项目符合非商业许可并授权安装。
@@ -401,9 +410,23 @@
   Rationale: 旧 schema v1 已被真实孤儿进程反例推翻；脚本 token 无法还原 `python -` 正文。显式 `--controller_node master`、controller/allocation 分离、scan-error fail-closed 和最老 probe 15 分钟时限可防止在错误节点、自报节点或过期证据下删除。该门只改变工程回收授权，不改变质量科学契约。
   Date/Author: 2026-07-16 / Codex（基于事故取证与用户“严谨完成 A–G”授权）
 
+- Decision: Pocket Plus 对体素中心的稳定数值行为是 E3 权威：`origin` 是网格/BOX 下角点，索引 `(x,y,z)` 的中心为 `origin_xyz+(index_xyz+0.5)*voxel_size_xyz`。E3 直接原样 vendoring `_build_voxel_center_coords_xyz`，不得以 Agent 自写的“等价/更稳健”实现替代；Ada 只可直接筛选祖传函数实际生成的 float32 中心，再执行逐元素半径、独立 occurrence mask、重叠允许和稀疏排序等已冻结科学契约。
+  Rationale: 用户无法重新人工核验大幅改写的几何实现，而 Pocket Plus 已经过训练、验证和测试。直接 vendoring、来源哈希和完整网格 oracle 能把几何数值与 Ada 的标签科学差异清楚分开；合成极端输入不构成修改祖传实现的授权。
+  Date/Author: 2026-07-16 / User + Codex
+
+- Decision: `ligand_area.npz` 升为 schema v3，并成为全局“不压缩 NPZ”规则的唯一窄例外。它必须从当前 Stage C present 原子重新生成，保存下角点/半体素公式、中心 dtype、距离谓词、稀疏轴序、来源和 `storage_encoding`，以 `np.savez_compressed` 写同目录独占临时文件，重读完整验证并确认所有 ZIP 成员为 DEFLATED 后才原子覆盖原路径。旧 schema v2 即使 `overwrite=False` 也必须重建；严禁 roll/平移旧 mask，且不得改变 `atomic_save_npz()` 的全局默认。
+  Rationale: 算法与存储身份必须让半体素旧产物可靠失效，同时避免 E3 的大 boolean union 继续浪费空间或把压缩行为扩散到 exp/sim/LigandObject。临时文件验证与原子替换保证失败时旧正式件、兄弟 PDB 和其他 run 不受影响。
+  Date/Author: 2026-07-16 / User + Codex
+
+- Decision: 本次 E3 全量迁移的目标集合冻结为旧正式 Stage E 的 22,309 个合格 PDB；77 个 known failure 不因本次修复复活。旧 Stage E status SHA `3a0d4148…c54c`、`de_release` SHA `ab49f43c…da6` 和 exclusion manifest SHA `380844d0…325f` 只读保留，迁移写独立 `stage_e3_repair` status/gate/账本。F/G 不消费 E3，可继续并行推进；Stage1 训练就绪则必须等待 E3 新 gate。
+  Rationale: 这是既有科学产物的确定性几何修复，不是扩张样本宇宙或改写历史放行证据。独立账本可证明 22,309 个原路径被受检原子替换，同时避免把旧 release 伪造成新算法证明。
+  Date/Author: 2026-07-16 / User + Codex
+
 ## Outcomes & Retrospective
 
 尚未完成。Stage C v4、ABC gate、MRC 放行及正式 D/E 已闭合；`316115` 于 2026-07-14 01:26:42 `COMPLETED 0:0`，D/E 四终态、风险分层 artifact、四条 Stage E run-only exclusion 与 2zhc frame mismatch 均已通过独立审计。Stage F 的正式 `316116` 和尾段补算 `318350` 已因 scratch 生命周期事故安全收口到各自 `after+try`，原两台 CPU96 allocation、正式 status writer 与 afterok 链均保留。异常安全实现、硬中断回收工具和跨节点真实进程门已经测试；唯一有效的 v4 inventory 已闭合并通过哈希验证，但不归属 PID `54412` 尚未自然退出，因此零删除 audit、journaled apply 和顺序恢复尚未开始。全量 F 状态、五条 Stage F exclusion 终态与总体质量分布仍待完成。Stage G 单一 map-level schema v2 已实现，`316117` 仍只安排 analyze。未完成范围是受检 scratch 回收、F 顺序恢复与全量独立 QC、G analyze/分布、最终文档与记忆收口；显式阈值配置和 `keep_list` 仍不属于本轮无人值守终点。
+
+E3 的 Pocket 祖传半体素修复已经在本地实现：`75d8f42/92fc2e8` 基线全套为 309 passed、10 skipped；`e90fccc` 删除全部解析候选边界，只直接筛选祖传 float32 中心并取得 300/300 完整网格 oracle 零差异；`1780942` 将 E/F frame preflight 窄修为 Pocket 物理 BOX，专项 9 passed。它尚未完成最新 HEAD 本地全套、远端 Linux 全套、真实多图 Pocket smoke、22,309 冻结集合原子迁移和独立 E3 gate，因此不能把本地 checkpoint 冒充服务器科学产物已修复。未使用的 `mrc.py::grid_world_bounds` 仅列为 P2 维护项，不阻断生产迁移。F/G 不消费 E3，可继续推进；Stage1 训练就绪必须等待 E3 gate 与 A–G gate 同时闭合。
 
 当前正式 run 的 run-only exclusion 计数为 5，受检巨大长尾的自治追加余额为 4；只有活动长尾、完整 artifact 缺失和资源证据三项同时成立才可使用。计数将达到 10，或出现同类聚集/系统性趋势时，不得继续个例化，必须转入根因诊断并询问用户。
 
@@ -435,7 +458,7 @@ C 把旧文件拆成可独立补算的组件。`ligand_coords.npz` 在保留旧�
 
 ### Milestone 3: 实现 D–G 和外部工具适配层
 
-D 读取 C 受体/配体坐标，生成 `binding_atom`、`instance_id`、`nearest_dist`。E 的实验图加载和 target=1 Å/actual-voxel 重采样由零差异 `code/mrc_pocket_legacy.py` 与 `code/mrc.py` 薄适配共同提供；receptor-only CIF 只在 E2 临时目录生成并删除全部 `HETATM`；Chimera 调用集中在 `code/chimera.py`，命令、版本、输入 hash、退出码和日志都进入 provenance。ligand-area 使用逐元素 vdW 半径。
+D 读取 C 受体/配体坐标，生成 `binding_atom`、`instance_id`、`nearest_dist`。E 的实验图加载和 target=1 Å/actual-voxel 重采样由零差异 `code/mrc_pocket_legacy.py` 与 `code/mrc.py` 薄适配共同提供；receptor-only CIF 只在 E2 临时目录生成并删除全部 `HETATM`；Chimera 调用集中在 `code/chimera.py`，命令、版本、输入 hash、退出码和日志都进入 provenance。E3 直接复用 `code/voxel_gt_pocket_legacy.py` 的祖传体素中心，从 present 原子与逐元素 vdW 半径重新生成 schema v3 稀疏 mask，并只通过 E3 专用压缩原子 writer 覆盖原 `ligand_area.npz`。
 
 F 用 Chimera 在 canonical grid 上生成全模型模拟密度并取得四种 CC；contour 缺失时 contour 两项为 `null`，不得猜阈值。MapQ 读取 native map 和完整模型，输出逐原子 Q；适配层用 mmCIF 原子身份与 C component/atom_name 做严格 join，再投影到 LigandObject 行序，并按 6 Å 原子包络聚合 occurrence 受体口袋 Q。G 汇总完整度、resolution、CC、配体/口袋 Q 和所有阶段状态，先输出质量分布；正式 filter 只接受 schema v2，按 PDB/map 聚合 occurrence pair pass，空口袋计入分母，通过 map 后保留其全部 occurrence。
 
@@ -482,6 +505,8 @@ A–C release gate 必须满足：A snapshot 指纹固定；每个 PDB 的 mmCIF
 source-dirty 验收必须满足：mtime 清单恰为预期数量且 SHA 固定；ID 与 audit records 均从同一份已哈希字节解析，records 数/ID 集一致、自身 SHA 被 summary 冻结，summary 的实现哈希在 apply 前不变。通用记录只能是 exact/atom_name_only；本轮 14 条可在同一 pre-apply gate 中以 `delegated_full_rebuild_ready` 表示，但必须逐条绑定冻结的 rebuild record、ID/SHA、输入/依赖/staging/manifest 哈希，联合 2,156 条的 blocked/failed 均为 0 后才允许任何 canonical 写入。专用 manifest 必须精确证明新增 20、删除 0、reassigned 1,995，所有匹配 occurrence 的身份及 coords/present/centroid 逐位不变；14 个 PDB 的所有 candidate-indexed C 文件来自同一 source snapshot，before backup、二次全局 CAS、durable transaction receipt 与中断 rollback/recovery 全部通过。旧完整 receptor 的 exact 还要求 `bond_index/bond_type/feat` 与当前 source 重建逐位一致；atom_name_only apply 后六个其余受体基础数组、occurrences、ligand_coords 和额外 provenance key 不变，严格 CCD 身份/name/元素覆盖只作用于实际改名 residue，bond_type 只允许 0–6。post-apply 2,156 audit 必须全部 exact；任何 blocked/failed 都继续阻断 316114 release。
 
 E 验收必须满足：成功样本的 `exp.grid.shape == sim.grid.shape == (1,Z,Y,X)`；`sim.mrc` 为严格三维，读取后的 `sim.shape == exp.shape[1:]`；E1 记录 target=1.0 与 Pocket 返回的实际 XYZ voxel，E2 与 E1 的实际 voxel/origin 逐轴一致；数组有限、非零、有方差，并在 X/Y/Z 多个切片上存在内容；受体坐标包围盒与网格世界范围相交。合法但完全分离的包围盒必须在 E/F 都精确产生 `known_failed:model_map_frame_mismatch`，且外部工具零调用；其他输入、数值和工具失败仍是 unknown。真实 Chimera smoke 还必须证明 generated MRC 的 `nstart=0`、header.origin 按 Å 保留，不能只用 unit-voxel/zero-origin fixture 放行。
+
+E3 schema v3 验收还必须满足：Pocket `_build_voxel_center_coords_xyz` 的 vendored 源码/AST 与祖先零差异；非零 origin、各向异性 voxel、边界原子和能击败旧 `origin+index*voxel` 的反例均按 `+0.5` 中心通过；mask 唯一/字典序/范围、union 与世界质心逐项闭合。旧 v2 必重建、合法 v3 幂等 skip；临时压缩文件经 `allow_pickle=False` 重读后 dtype/shape/值不变，全部成员确为 `ZIP_DEFLATED`；任一写入/validator/替换异常保持旧正式文件逐字节不变且不触碰兄弟 PDB/exp/sim。专用迁移入口不得导入 Chimera/MapQ，分片不能重复写同一 PDB。真实放行必须用多张当前密度图分别运行 Pocket 祖传中心/标签 oracle 与 Ada E3；任何中心几何差异阻断，因统一半径/严格小于/first-writer-wins 与 Ada 逐元素半径/独立重叠 mask 造成的标签科学差异则必须逐条报告，不能隐藏为兼容。
 
 F 验收必须满足：四个 CC 非空值均有限且在 `[-1,1]`；contour 缺失时只允许两个 contour 值为 null；错配负对照不优于正确配对；`qscore_{cid}.shape == (M,)` 且与 LigandObject 行序严格一致；`present=False` 位置为 NaN；`n_valid` 与成功 join 数一致。每个 occurrence 还必须有数值升序的 `pocket_atom_site_id_{cid} (K,) int64` 与同序 `pocket_qscore_{cid} (K,) float32`；`K>0` 时全部原子精确满足 6 Å 包络，`K=0` 时两个数组均为空、聚合 null、状态显式且 occurrence 仍保留；不存在按输出/残基遍历顺序或坐标最近邻猜测映射。
 
@@ -542,11 +567,13 @@ Stage B 逐文件恢复，不覆盖已验证下载；但当前 316114 repair 明
 
 2026-07-15 Stage F CPU192 尾部补算证据：正式日志在规划时已完成 6,248 个任务；冻结正式 pair list SHA-256 `6c736180…35f8`、Stage F exclusion SHA-256 `3b10abb5…8ee8`，从索引 `[19386,22386)` 选出 2,990 个 eligible PDB，剔除 2 条 exclusion 与 8 条 Stage E ineligible。证据目录为 `/storage/penghongen/AdaLigand/Ori_Data/reports/runs/adaligand_ag_20260711T154658/stage_f_tail_supplement_20260715_v1/`；plan/ID SHA-256 为 `1d5c12172629bcba2af65a379c2c78d9bf7141fdcdd505e699add8b58b1dff4f` / `acacde79c2a5a8727949cdc0a986930aa8404419a8edaabfb264f4f05dacea80`，碰撞门为正式完成 17,386。Git `7bdf1e1/60a1d53/5d2342e/6a3b3b0/bd579c3` 依次冻结补算入口、绑定与清理、真实 kill-lock 子进程组回收、守护证据等待和 signal-handler race 修复；本地 224 passed+2 POSIX skipped、服务器 226 passed及 `bash -n` 通过。job `318350` 于 16:23:59 零等待在 `cnode01` 启动，正式 `316116` 保持 `cnode04`；两者各 96 CPU、F12×MapQ np8，总计恰 192 CPU。补算 `after_lock`/child PGID 存在、try/kill 不存在，日志已进入 `Parallel(n_jobs=12)`；G 仍只依赖正式 F。
 
+2026-07-16 Stage E3 本地修复证据：核心 checkpoint `75d8f42 fix(stage-e3): align ligand masks with Pocket voxel centers` 保持 MRC 六函数零差异，新增原样 vendored `voxel_gt_pocket_legacy.py`、机器来源 manifest、schema v3 几何/压缩字段、E3 专用 `atomic_save_npz_compressed()` 与完整回归；信任边界和 durable memory checkpoint 为 `92fc2e8 docs(memory): freeze Pocket-first E3 implementation rule`。该基线本地隔离全套为 309 passed、10 个 Windows 条件项 skipped，`compileall`、JSON/source diff 检查通过。随后 `e90fccc` 删除解析 bbox、`searchsorted` 和索引反推，只直接筛选祖传函数实际生成的 float32 中心；300/300 组随机各向异性、非零/极大 origin 的完整 Pocket 网格 oracle 零差异。`1780942` 将生产 E/F frame preflight 窄修为 Pocket 物理 BOX `[origin, origin+shape*voxel]`，专项 9 passed且数值内核不变。该证据尚不等于服务器放行：最新 HEAD 本地全套、远端 Linux 全套、真实多图 Pocket 端到端 smoke、22,309-ID 冻结 manifest/分片迁移与 E3 release gate 仍待执行。
+
 ## Interfaces and Dependencies
 
 公共 CLI 必须保留 `--root`、`--part_id`、`--total_parts`、`--n_jobs` 与显式 overwrite/repair 语义。stage 函数返回结构化状态，不用跨模块散落自由文本错误。稳定失败枚举、artifact validators、Chimera runner、MRC geometry 和 quality schema 必须各有单一实现位置。
 
-Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib`、`mrcfile`；配体解析继续使用现有 CCD/RDKit 路径。外部依赖是官方 UCSF Chimera 1.19 headless/OSMesa 与 MapQ。AdaLigand 只负责选择、输入构造、调度、严格映射和 QC；CC、molmap 与 Q-score 数值算法调用 Chimera/MapQ，不自研替代实现。
+Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib`、`mrcfile`；配体解析继续使用现有 CCD/RDKit 路径。外部依赖是官方 UCSF Chimera 1.19 headless/OSMesa 与 MapQ。AdaLigand 只负责选择、输入构造、调度、严格映射和 QC；CC、molmap 与 Q-score 数值算法调用 Chimera/MapQ，不自研替代实现。E3 体素中心同样不自研：只调用 `voxel_gt_pocket_legacy._build_voxel_center_coords_xyz`，机器来源与哈希由 `voxel_gt_pocket_legacy.source.json` 冻结。
 
 四种 CC 的代码与 README 必须解释：是否使用 contour mask，以及是否先在 mask 内减各自均值；同时保存工具版本、map/model 标识、canonical grid 元数据和 contour provenance。Q-score per-atom 文件必须说明配体 NaN/行序语义，以及口袋的 6 Å 原子包络、受体范围、atom_site.id 排序和 count 语义。
 
@@ -564,6 +591,7 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 - filtered Stage C 增加正式 run 证据覆盖防护，避免子集状态替换 22,386 行全量状态。
 - E/F 增加单一确定性 model-map 包围盒前置门与稳定 `model_map_frame_mismatch` known failure，不再用全零模拟图或猜测坐标变换表达 source frame 缺口。
 - Stage G 从尚未正式使用的 occurrence 级 v1 收敛为唯一 map-level schema v2；直接复用 F 原始量，以 occurrence 合格比例评价 map，同时避免在通过 map 内二次删除 occurrence。
+- E3 从旧 schema v2 的下角点误用收敛为 Pocket 祖传半体素中心、schema v3 和 E3 专用压缩原子覆盖；原子、半径、occurrence、重叠和稀疏排序科学语义不变，MRC 六函数完全未动。
 
 ### Neutral drift
 
@@ -580,8 +608,9 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 
 ### Unfinished scope
 
-- C source repair、全量 C、ABC gate 与正式 D/E 已完成；D–G 代码已实现。DE→F 的 status/gate、E artifact 风险分层和 exclusion/frame-mismatch 三路审计均通过。`316116/318350` 当前停在受检 scratch v4 回收门，inventory 已闭合但 process gate 仍由不归属 PID `54412` 保守阻断。未完成范围是零删除 audit、journaled apply、按 `318350→316116` 顺序恢复、F 全量四终态及质量审计、五条 Stage F exclusion 传播复核、F→G release gate、G analyze 分布和最终独立 QC。
+- C source repair、全量 C、ABC gate 与正式 D/E 已完成；D–G 代码已实现。DE→F 的 status/gate、E artifact 风险分层和 exclusion/frame-mismatch 三路审计均通过。Stage F scratch v4 inventory、双新鲜进程门、零删除 audit、journal/fsync apply 与独立定向验收已经闭合；`316116/318350` 仍保留原 allocation 与各自 `after+try`，只等待最新代码的精确同步、远端全套测试和 `318350→316116` 顺序恢复。未完成范围是 F 全量四终态及质量审计、五条 Stage F exclusion 传播复核、F→G release gate、G analyze 分布和最终独立 QC。
 - G 的 map-level 算法、比较边界、空口袋分母和整 map 保留规则已冻结；最终分辨率、选定 CC、配体 Q、口袋 Q 与比例数值仍须先看正式分布后以 schema v2 配置显式给出。当前示例不写入默认值，正式 filter/`keep_list` 尚未执行。
+- E3 本地实现/记忆基线由 `75d8f42/92fc2e8` 冻结，`e90fccc` 已删除自研候选边界并通过 300/300 Pocket 完整网格 oracle，`1780942` 已窄修生产 E/F frame preflight；尚待最新 HEAD 本地全套、远端 Linux 全套、真实多图 Pocket oracle、22,309-ID 冻结迁移和独立 release gate。77 个旧 known failure、旧 E status/de_release/exclusion 始终只读，不属于迁移目标；未使用的 `mrc.py::grid_world_bounds` 是 P2 维护项。
 
 Revision note 2026-07-10 14:38+08:00: 创建本 ExecPlan，记录已确认边界、旧产物证据、科学语义、资源/许可纪律和从实现到服务器全量验收的恢复路径。
 
@@ -626,3 +655,4 @@ Revision note 2026-07-16 13:30+08:00: 记录用户为避免非科学证据加固
 Revision note 2026-07-16 13:32+08:00: 记录用户明确决定不归属容量扫描 PID `54412` 不应阻塞 A–G。schema v3 仅以一次性精确进程指纹从 blocking 计数扣除该 raw 行，不信号该进程，也不放宽任何其他 opaque/F/recovery/scan-error 门；audit/apply 必须复用同一指纹。该变更只影响本轮 scratch 工程门，不修改科学契约。
 
 Revision note 2026-07-16 17:20+08:00: 用户把“临时脚手架最终收口”提升为整个项目的维护规则，并要求追溯审阅此前已经加入代码库的同类文件。已启动全项目只读盘点；在 `316116/318350` scratch 恢复和 E3 迁移仍依赖相应入口期间不提前删除，最终按依赖和风险分类完成测试后收口。该新增项不改变 A–G 或 E3 科学契约。
+Revision note 2026-07-16 18:05+08:00: 回填用户冻结的 E3 半体素修复契约与本地实现证据。`75d8f42/92fc2e8` 建立直接调用 Pocket vendored 体素中心、schema v3、原子坐标重建及仅限 `ligand_area.npz` 的压缩原子覆盖，基线全套为 309 passed、10 skipped；`e90fccc` 随后彻底删除解析 bbox/`searchsorted`/索引反推并取得 300/300 Pocket 完整网格 oracle 零差异，`1780942` 将 E/F frame preflight 窄修为 Pocket 物理 BOX且专项 9 passed。正式迁移集合冻结为旧 Stage E 合格的 22,309 个 PDB，77 个旧 known failure 不复活，旧 E status、`de_release` 与 exclusion 证据只读保留；E3 修复支线不阻断正在推进的 F/G。尚待最新 HEAD 本地全套、远端 Linux 全套、真实多图 Pocket 端到端 oracle与22,309-ID 独立迁移/release gate；在这些证据闭合前不得把本地实现冒充服务器迁移完成。未使用的 `mrc.py::grid_world_bounds` 只作为 P2 维护项跟踪。

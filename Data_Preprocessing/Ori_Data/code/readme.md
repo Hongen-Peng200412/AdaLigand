@@ -82,7 +82,7 @@ ${ROOT}/
 ## 3. 全局约定
 
 - **世界坐标系**：所有坐标都是 mmCIF 沉积态的**世界坐标，单位 Å**。成功样本要求 EMDB map 与受体同框，但 source 声明不能代替实际几何检验；E/F 必须先执行确定性 model-map 包围盒检查。
-- **npz 一律不压缩**（`np.savez`）并原子替换。除 `ligand_objects` 的 object 字段外均用 `allow_pickle=False`；读取 LigandObject 时才用 `allow_pickle=True`。
+- **npz 默认不压缩**（`np.savez`）并原子替换；唯一例外是 Stage E3 schema v3 的 `ligand_area.npz`，它使用 `np.savez_compressed`、写后完整验证和原子覆盖。除 `ligand_objects` 的 object 字段外均用 `allow_pickle=False`；读取 LigandObject 时才用 `allow_pickle=True`。
 - **小整数编码**：`element`=原子序数；`res_type`/原子名等是编码值，解码表见 §10。
 - **两套链/残基编号**：mmCIF 有 `label_*`（规范内部体系）和 `auth_*`（作者/PDB 网页体系），可能不同，两套都保留（见 §4.3 occurrences）。
 - **空值约定**：空 `[]` / `""` 与 `null` 同义，都表示"无/不适用"；单残基(CCD)与 BRANCHED 在某些字段上互斥取空，详见 §4.3、§4.4。
@@ -353,8 +353,10 @@ MRC 数值原语的可信祖先是 `Pocket_Plus/processedPDB_EMDB_binder/utils/m
 | `mrc.py::_rescale_real_mixed_axis_compat` | 代码与祖传 `rescale_real` 相同，唯一行为差异是条件由 `np.all(out_sz != box.shape)` 改为 `np.any(...)`；仍调用祖传 `rescale_fourier`，并直接复用祖传已经返回的补偶 grid | 全量 header 审计只发现 EMD-11978/12465 两张 mixed-axis 图；祖传分支会跳过全部 resize 却返回拟输出 voxel。本兼容只在物理闭合失败且严格满足 mixed 关系时触发，模式显式落盘；复用补偶结果避免奇数输入重复分配大型数组 | mixed 常数/odd-shape/幅值/shape/闭合回归；全量审计 2/22,269；两张真实图 smoke |
 | native 与 generated 调用点 | native EMDB 使用祖传默认 `multiply_global_origin=True`；AdaLigand/Chimera 写出的 `nstart=0`、header.origin 为 Å 的图使用 `False` | 保留 Pocket native-map 语义，同时让非单位 voxel 的 canonical MRC→Chimera→读取闭合 | 非单位 voxel+非零 origin 往返、合成 C→G smoke；真实 Chimera smoke 的两图 header/重载几何闭合 |
 | `write_canonical_mrc` | AdaLigand 自有原子 writer，标准轴、`nstart=0`、header.origin 直接写 Å | 为 Chimera `onGrid` 提供显式几何；它不是祖传六函数的修改 | 标准 header 与非单位 voxel 往返 |
-| E/F artifact/QC | E1/E2/E3 schema 由 v1 升 v2；E1 保存 target、actual voxel、祖先/副本/算法/origin-mode、native/even/canonical shape 与 resample mode；不再要求 actual voxel 精确等于 1，仍要求 exp/sim shape、actual voxel、origin 严格相同 | 阻止旧 Ada 独立重采样产物被复用，并让下游消费祖传返回的真实几何 | 旧 schema/算法拒绝、identity 精确匹配、非单位 voxel pair QC |
+| E/F artifact/QC | E1/E2 保持 schema v2；E3 使用 schema v3。E1 保存 target、actual voxel、祖先/副本/算法/origin-mode、native/even/canonical shape 与 resample mode；不再要求 actual voxel 精确等于 1，仍要求 exp/sim shape、actual voxel、origin 严格相同 | 阻止旧 Ada 独立重采样和旧 E3 半体素产物被复用，并让下游消费祖传返回的真实几何 | 旧 schema/算法拒绝、identity 精确匹配、非单位 voxel pair QC、E3 v2 必重建/v3 幂等 skip |
 | recommended contour | Pocket grid 逐值不变；保存 `contour_native`、`contour_scale_to_canonical=prod(even_input)/prod(actual_output)`、`contour_canonical`，F 只把 canonical 值传给 Chimera；F provenance 与当前 E1 的三值/scale/mode/path/source 逐项绑定 | 祖传 FFT 不做点数幅值补偿；Ada 新增的 canonical-map contour CC 必须迁移 threshold 单位，但不能因此改 Pocket 训练输入；单独破坏 provenance 不能被幂等 skip 接受 | 常数 up/down、odd padding、随机 mask 0 mismatch、缺 contour 三 null、provenance 腐败重建、合成 C→G correlation 脚本 |
+
+E3 的体素中心同样遵循“已有 Pocket 实现优先、不得自行重写”的信任边界。`voxel_gt_pocket_legacy.py` 原样 vendoring Pocket Plus `_build_voxel_center_coords_xyz`，来源文件、祖先提交、源码/AST 哈希及副本哈希由同目录 `voxel_gt_pocket_legacy.source.json` 冻结，逐函数直比测试位于 `tests/test_voxel_gt_pocket_legacy_parity.py`。`density.py` 只在祖传中心坐标之上做 AdaLigand 稀疏 occurrence mask 选择；它不修改 `load_map`、`make_model_grid` 或任何 MRC 六函数。
 
 祖传 `make_model_grid` 的契约是“目标体素 + 偶数网格 + 物理长度决定实际 voxel”，不是把 header 强制声明为精确 1.0 Å。正式 target 仍为 `1.0`，但所有消费者必须读取 artifact 的 `voxel_size`。
 
@@ -365,14 +367,14 @@ MRC 数值原语的可信祖先是 `Pocket_Plus/processedPDB_EMDB_binder/utils/m
 ### 6.1 `exp.npz`
 
 - `grid (1,Z,Y,X) float32`：native EMDB map 经 Pocket Plus 祖传函数按 **target=1.0 Å** 重采样得到的原始幅值；不归一化。
-- `target_voxel_size float32 scalar=1.0`；`voxel_size (3,) float32` 是祖传函数按偶数输出 shape 返回的**实际 XYZ voxel**，通常接近但不强制逐轴等于 1.0；`origin (3,) float32` 是 `grid[0,0,0]` 体素中心的世界 XYZ 坐标。
+- `target_voxel_size float32 scalar=1.0`；`voxel_size (3,) float32` 是祖传函数按偶数输出 shape 返回的**实际 XYZ voxel**，通常接近但不强制逐轴等于 1.0；`origin (3,) float32` 是网格/BOX 下角点的世界 XYZ 坐标，`grid[0,0,0]` 的体素中心为 `origin+0.5*voxel_size`。
 - `contour` 与 `contour_native`（float32 scalar）保存主图 `map.contour_list.contour[*]` 中唯一 `primary=true` 的原始 level；`contour_scale_to_canonical float64` 保存祖传幅值比例；`contour_canonical float32 = float32(contour_native × scale)` 是 F 实际传给 Chimera 的 threshold。缺失/歧义时 native/canonical 均为 `NaN`、`contour_present=False`，scale 和 geometry provenance 仍保存；不递归误取 additional map，也不猜 fallback。
 - `native_shape_zyx/even_input_shape_zyx/canonical_shape_zyx int64(3,)` 与 `resample_mode` 记录普通祖传或 mixed-axis 薄兼容路径。
 - `schema_version=2`；`mrc_algorithm/mrc_ancestor_sha256/mrc_vendor_sha256/source_origin_mode` 冻结祖传 lineage。任何 v1 或旧 `scipy.signal.resample` identity 都必须重建，不能 skip。
 
 ### 6.2 `sim.npz`
 
-在复用旧 `sim.npz` 或启动 Chimera 之前，E2 以 E1 `origin_xyz`为 map 下界，以 `origin_xyz+(shape_zyx[::-1]-1)*voxel_size_xyz` 为上界，并与 Stage C `receptor_tokens.coords` 的 XYZ 最小/最大值比较。对合法、有限、非空输入，任一轴超过 `1e-5 Å` 容差后仍完全分离时，状态固定为 `known_failed:model_map_frame_mismatch`，不运行 `molmap`、不写伪 `sim.npz`、不猜平移或 fitmap。坐标/map 自身的 dtype、shape、空值或非有限错误仍是 unknown。
+在复用旧 `sim.npz` 或启动 Chimera 之前，E2 以 Pocket 物理 BOX 的 `origin_xyz` 与 `origin_xyz+shape_zyx[::-1]*voxel_size_xyz` 为 map 下/上界，并与 Stage C `receptor_tokens.coords` 的 XYZ 最小/最大值比较。这里检查的是物理 BOX 是否相交，不用 E3 第一/最后体素中心替代 BOX 边界。对合法、有限、非空输入，任一轴超过 `1e-5 Å` 容差后仍完全分离时，状态固定为 `known_failed:model_map_frame_mismatch`，不运行 `molmap`、不写伪 `sim.npz`、不猜平移或 fitmap。坐标/map 自身的 dtype、shape、空值或非有限错误仍是 unknown。
 
 专用于 receptor-only 模拟图：从首 model、与 C 同款 altloc 选择的重原子中**严格只留 `group_PDB==ATOM`**，所有 HETATM（含水、配体和共价修饰）均删除。标准模型写成只含 `_entry.id`（若源存在）与逐字段原样筛选 `_atom_site` 的最小独立 mmCIF；不复制会引用已删除 model/altloc/HETATM/H 原子的 `_atom_site_anisotrop`、`_struct_conn` 等类别。F 的完整模型沿用同一最小文档规则，但其 `_atom_site` 保留首 model 的 ATOM+HETATM 重原子。Chimera 在 E1 canonical MRC 上显式 `region all step 1 limitVoxelCount false`，再 `molmap ... onGrid`；不做第二次独立重采样。缺 resolution 时该样本记 `known_failed`，不猜默认值。
 
@@ -384,15 +386,25 @@ MRC 数值原语的可信祖先是 `Pocket_Plus/processedPDB_EMDB_binder/utils/m
 
 ### 6.3 `ligand_area.npz`
 
-- `union_mask (1,Z,Y,X) bool`。
-- `mask_{cid} (K,3) int32`：唯一且字典序排序的稀疏 **ZYX** voxel 索引。
-- `centroid_voxel_{cid} (3,) float32`：字段名沿用计划，但数值明确是 mask 体素中心均值的**世界 XYZ Å**。
+E3 schema v3 从 Stage C 的 `coords_{cid}[present_{cid}]` 与 LigandObject 元素重新生成；严禁对旧 `mask` 做 roll、平移或其他近似修补。正式数组为：
 
-球半径按原子元素：C/N/O/P/S 使用计划锁定的 1.70/1.55/1.52/1.80/1.80 Å；其他有效元素调用 RDKit `PeriodicTable.GetRvdw`，绝不使用统一默认半径。实现只枚举逐原子局部 bbox/stencil，不构造 `D*H*W` 世界坐标 KD-tree。
+- `union_mask (1,Z,Y,X) bool`：所有 occurrence mask 的并集。
+- `mask_{cid} (K,3) int32`：唯一且字典序排序的稀疏 **ZYX** voxel 索引；不同 occurrence 允许重叠。
+- `centroid_voxel_{cid} (3,) float32`：字段名沿用计划，数值是该 mask 的 Pocket 祖传体素中心均值，世界 **XYZ Å**。
+
+几何身份字段为：`schema_version=3`、`grid_shape_zyx int64(3,)`、`voxel_size_xyz float32(3,)`、`origin_xyz float32(3,)`、`origin_semantics="pocket_plus_corner"`、`voxel_center_offset_xyz=float32[0.5,0.5,0.5]`、`voxel_center_formula="origin_xyz+(index_xyz+0.5)*voxel_size_xyz"`、`voxel_center_dtype="float32_after_pocket_plus_expression"`、`distance_predicate="sum((center_f32-atom_f32)^2)_float64<=vdw_radius^2+1e-8"`、`centroid_coordinate_system="world_xyz_angstrom"`、`mask_index_order="zyx"` 与 `vdw_radius_source`。
+
+`source_manifest_sha256` 继续只证明本次 E3 所消费源文件/小输入身份，不把生产算法版本混进源文件身份；算法变化由 schema v3、上述几何字段、Pocket vendored lineage 和 run-scoped 修复账本共同证明。球半径不变：C/N/O/P/S 使用 1.70/1.55/1.52/1.80/1.80 Å；其他有效元素调用 RDKit `PeriodicTable.GetRvdw`。原子来源、`present` 判定、occurrence 身份、重叠语义和球内谓词都没有变化。
+
+体素中心必须直接调用 `voxel_gt_pocket_legacy.py::_build_voxel_center_coords_xyz`，`origin` 是网格下角点，索引 `(x,y,z)` 的中心为 `origin+(index+0.5)*voxel_size`。当前实现只直接筛选该祖传函数实际生成的各轴 float32 中心，再执行既定球内距离谓词；不保留解析 bbox、`searchsorted`、索引反推或其他自研“等价”中心路径，也不构造 `D*H*W` 世界坐标 KD-tree。完整 Pocket 网格是稀疏结果的数值 oracle。
+
+`ligand_area.npz` 是全项目 `.npz` 默认不压缩规则的唯一窄例外，`storage_encoding="numpy_savez_compressed_zip_deflated"`。`atomic_save_npz_compressed()` 在目标同目录创建含 PID+UUID 的本 worker 临时文件，调用 `np.savez_compressed`，再以 `allow_pickle=False` 重读并运行完整 E3 validator；validator 还使用 `zipfile` 要求成员集合精确且每个成员的 `compress_type==ZIP_DEFLATED`。全部通过后才原子覆盖原路径。写入/验证/替换失败时只清理本次临时文件，旧正式文件、`exp.npz`、`sim.npz`、兄弟 PDB/attempt/run 均保持不变。
+
+skip 判据同时要求：schema v3、当前 `source_manifest_sha256`、全部几何/来源字段、候选 key 集、mask 唯一/排序/范围、union、世界质心和真实 ZIP_DEFLATED 编码都合法。旧 schema v2 即使 `overwrite=False` 也必须重建；已有合法 v3 才可幂等 skip。
 
 ## 7. Stage F：四种 CC、配体 Q 与口袋 Q
 
-F 在读取当前 E1 和 Stage C polymer receptor token 坐标（`receptor_tokens.coords`）后，先复用 E2 的同一 model-map 包围盒检查，然后才允许读取/复用质量产物或启动 Chimera/MapQ。该 token 坐标是 E/F 共用 frame anchor，不等同于 E2 严格 ATOM-only 模型或 F 完整 ATOM+HETATM 模型。完全不相交时 F 同样记 `known_failed:model_map_frame_mismatch`；实现不包含 PDB allowlist、坐标修复或 fitmap。前置检查不替代后续 full-model sim 的 shape/voxel/origin/三维内容 QC，其他几何或工具异常仍阻断 gate。
+F 在读取当前 E1 和 Stage C polymer receptor token 坐标（`receptor_tokens.coords`）后，先复用 E2 的同一 model-map 包围盒检查，然后才允许读取/复用质量产物或启动 Chimera/MapQ。该检查使用 Pocket 物理 BOX 的 `[origin_xyz, origin_xyz+shape_xyz*voxel_size_xyz]`，不是 E3 体素中心首尾；该 token 坐标是 E/F 共用 frame anchor，不等同于 E2 严格 ATOM-only 模型或 F 完整 ATOM+HETATM 模型。完全不相交时 F 同样记 `known_failed:model_map_frame_mismatch`；实现不包含 PDB allowlist、坐标修复或 fitmap。前置检查不替代后续 full-model sim 的 shape/voxel/origin/三维内容 QC，其他几何或工具异常仍阻断 gate。
 
 `quality/{pdb_id}.jsonl` 每个 occurrence 一行。配体本身保存 `q_score`（mean，兼容字段）、`q_score_median`、`q_score_min`、`n_valid`、`n_present`；对应受体口袋保存 `pocket_q_score`、`pocket_q_score_median`、`pocket_q_score_min`、`pocket_n_valid`、`pocket_n_atoms`、`pocket_radius_angstrom=6.0`。另外保存 `map_resolution`、`livq=null`，并重复以下四个 PDB 全局原始量：
 
@@ -549,8 +561,9 @@ for o in occ:
 - `raw/emdb_maps/` 是否生成取决于 `b_download.py --resources` 是否含 `map`（默认含）。Stage C 不消费 map。
 - 解析失败的 occurrence 记 `resolve_failed` 入 `reports`，**不**进主产物；严格依赖 `_atom_site.label_atom_id` 与 CCD 原子名精确对齐（无图同构兜底）。
 - 当前正式 run `adaligand_ag_20260711T154658` 的 `316115` 已于 2026-07-14 01:26:42 以 `COMPLETED 0:0` 闭合 D/E：D 为 22,339 success、3 skipped、44 known；E 为 22,309 skipped-valid、77 known，unknown、duplicate、silent missing 均为 0。E status SHA-256 为 `3a0d4148…c54c`，`de_release` success marker SHA-256 为 `ab49f43c…da6`；四条 run-only exclusion 与 2zhc frame mismatch 均按既定终态和 provenance 保留，风险分层 artifact 审计通过。
+- E3 schema v3 的本地核心先由 `75d8f42/92fc2e8` 冻结并取得 309 passed、10 skipped；随后 `e90fccc` 删除全部解析 bbox/`searchsorted` 路径，只保留对 Pocket 祖传函数实际 float32 中心的直接筛选，300/300 完整网格 oracle 零差异。`1780942` 又把 E/F frame preflight 窄修为 Pocket 物理 BOX 上界 `origin+shape*voxel`，专项 9 passed；未使用的 `mrc.py::grid_world_bounds` 仍是待维护帮助函数，不进入当前生产调用。以上仍只是本地实现证据：正式修复集合冻结为上述 22,309 个旧 E 合格 PDB，77 个旧 known failure 不复活；旧 E status、`de_release` 和 exclusion manifest SHA-256 `380844d0…325f` 始终只读。待远端全套、真实多图 Pocket 比较和独立 `stage_e3_repair` 迁移/release gate 闭合后，才能声明服务器 E3 已修复；F/G 可并行推进。
 - `316116` 首轮推进到 22,363/22,386 后，现场证据将唯一活动工程长尾定位为 `6kgx` 的 post-MapQ occurrence 投影；它没有公开质量三件套。用户授权后，Stage E 共享 manifest 保持 SHA-256 `380844d0…325f`，Stage F 加法视图以 SHA-256 `3b10abb5…8ee8` 追加 `6kgx`，令它保留在状态分母并写 `known_failed:run_policy_excluded`，但不进入训练、推理或 G 候选。214 项本地/远端回归和只读重放通过后，`316116` 于 2026-07-14 22:46:44 复用 run_cmd SHA-256 `bd7edb94…5ffa`，以原 run id、F12、无 overwrite 恢复；随后因 scratch 生命周期事故在 8,821/22,386 安全停写，原 CPU96 allocation 与 `after+try` 保留。全量 F 仍待最终审计。`316117` 继续依赖等待且只运行 analyze，不自动执行示例阈值或写 `keep_list`。
 - 2026-07-15 启动的尾段补算 `318350` 使用独立 run `adaligand_ag_20260711T154658_fsupp96_v1`；尾段 `[19386,22386)` 实际选择 2,990 个 PDB，plan/ID SHA-256 为 `1d5c1217…dff4f` / `acacde79…cea80`，正式碰撞门为完成 17,386。它因同一 scratch 恢复门停在 2,426/2,990，保留 `cnode01` CPU96 allocation 与 `after+try`。补算只提前形成可由正式 F 验证并复用的三件套；`316117` 仍只依赖正式 `f_release`，因此该加速和当前停写都不会绕过四终态或 G analyze 门禁。
-- 唯一有效的硬中断恢复证据位于 `/storage/penghongen/AdaLigand/Ori_Data/reports/runs/adaligand_ag_20260711T154658/stage_f_scratch_recovery_20260716_v4/`。v4 inventory 已闭合为 139,940 条文件行和 11,445 个 attempt，两个清单 SHA-256 为 `e5f3075c…c502a` / `3f9f2096…a863` 且复核通过。用户明确允许不再等待不归属的只读容量扫描 PID `54412`；schema v3 process gate 只允许 controller 上最多一个 `node+PID+PPID+start_ticks+argv SHA` 完全匹配的一次性 opaque 例外，原始进程行仍保留，第二个 opaque、身份漂移、F/recovery 或 scan error 均阻断。在 fresh audit 前进程门、零删除 audit、独立 bundle 验收、fresh apply 前进程门和 journaled apply 全部闭合前，不得解除两个 try-lock。
+- 唯一有效的硬中断恢复证据位于 `/storage/penghongen/AdaLigand/Ori_Data/reports/runs/adaligand_ag_20260711T154658/stage_f_scratch_recovery_20260716_v4/`。v4 inventory 为 139,940 条文件行和 11,445 个 attempt，两个清单 SHA-256 为 `e5f3075c…c502a` / `3f9f2096…a863`。双新鲜进程门、零删除 audit、独立 bundle 验收与 journal/fsync apply 已闭合：manifest 恰回收 4,341 个 transient，923 个受影响 attempt 的 10,260 个普通 nontransient 与 2,568 个公开质量三件套路径通过冻结身份复核，预计回收约 958.01 GiB；v1/v3 永久作废且未被 apply。`316116/318350` 仍保留各自 `after+try`，但阻断理由已从 scratch 安全门收敛为最新代码同步、远端全套测试及 `318350→316116` 顺序恢复；不得把已完成回收误写成仍待 audit/apply。
 - G 的唯一 map-level schema v2 算法已经锁定；最终分辨率、selected CC、配体 Q、口袋 Q 和合格比例数值仍按“先看正式分布再显式配置”。当前 DAG 只运行 analyze，不自动消费示例配置，也不冒充最终科学筛选或写 `keep_list`。
 - 历史 A–C 见 `文档/exec_plan/数据下载与解析.md`；当前长任务日志见 `文档/exec_plan/A-G数据流水线实现与全量运行.md`；规格见 `文档/规划文档/数据处理_v2.md`。
