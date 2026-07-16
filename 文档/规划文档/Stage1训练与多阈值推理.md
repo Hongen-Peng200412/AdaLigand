@@ -26,6 +26,7 @@ Stage1 的最终职责不是只给出一张二值图，而是形成一条可重�
 6. 小型候选选择网络始终对第一次整图推理产生的 **Global Proposal Mask** 打分。
 7. 在每个 CLG 内求一个允许为空的最优反链，得到交给 Stage2/3 的候选 blob。
 8. 可选的 selected-final 居中精修只改善最终形状，不参与候选身份建立或选择器标定。
+9. F1 baseline 是并行基线：直接物化 F1 层全部合法 blob 并交给 Stage2/3，不运行 CLG selector。
 
 下列不变量贯穿训练与推理：
 
@@ -46,12 +47,12 @@ Stage1 的最终职责不是只给出一张二值图，而是形成一条可重�
 |---|---|
 | `D,H,W` | 完整概率图的 `Z,Y,X` 三轴长度。完整网格张量形状为 `[D,H,W]`。 |
 | `B_z,B_y,B_x` | 局部 BOX 形状，第一版固定为 `80,80,80`。 |
-| `T` | 去重后的物理阈值数，必须小于 255。 |
-| `N` | 一个 CLG 中可供选择器评分的候选节点数。 |
-| `K_v` | Group-parent Mask 中保存 voxel 特征的体素数。 |
-| `N_P` | Group-parent 局部重跑保存的 P token 数。 |
-| `R` | Group-parent pocket 中保存的受体原子数。 |
-| `d` | 选择器的统一隐藏特征维度。 |
+| `T` | 去重后的物理阈值数；代码与 schema 字段名使用 `num_threshold_levels`，且必须小于 255。 |
+| `N` | 一个 CLG 中可供选择器评分的候选节点数；代码字段名使用 `num_candidates`。 |
+| `K_v` | Group-parent Mask 中保存 voxel 特征的体素数；代码字段名使用 `num_parent_voxels`。 |
+| `N_P` | Group-parent 局部重跑保存的 P token 数；代码字段名使用 `num_P_tokens`。 |
+| `R` | Group-parent pocket 中保存的受体原子数；代码字段名使用 `num_receptor_atoms`。 |
+| `d` | 选择器的统一隐藏特征维度；代码字段名使用 `hidden_dim`。 |
 
 网格索引和张量空间轴统一写成 `ZYX`；世界坐标统一写成 `XYZ`，单位为 Å。任何在两者之间的转换都必须显式使用 BOX 原点与 voxel size，不能靠轴序猜测。
 
@@ -62,13 +63,13 @@ Stage1 的最终职责不是只给出一张二值图，而是形成一条可重�
 | **全图概率图（Global Probability Map）** | Stage1 对完整密度图滑窗推理并融合后得到的 ligand-area 概率张量 `P_global[D,H,W]`。 |
 | **阈值层（Threshold Level）** | 给定阈值 `t_r` 后的上水平集 `F_r={x | P_global(x) >= t_r}`。物理阈值按从高到低排列。 |
 | **组件节点（Component Node）** | 某个阈值层中，按 26-连通得到的一个连通组件。一个节点对应一个确定的全图体素 mask。 |
-| **组件森林（Component Forest）** | 相邻阈值层的组件按包含关系连边。边从低阈值组件指向高阈值组件；因此每个非根节点只有一个入边，每棵树是一棵向外分枝树。它是离散阈值上的 max-tree。 |
+| **组件森林（Component Forest）** | 相邻阈值层的组件按包含关系连边。边从低阈值组件指向高阈值组件；因此每个非根节点只有一个入边，每棵树是一棵有根有向树。它是离散阈值上的 max-tree。 |
 | **F1 种子（F1 Seed）** | 位于 micro-F1 最优阈值 `t_F1` 所在层、满足节点可选择条件且尚未退休的组件节点。 |
 | **类种子姐妹（Seed-like Sister）** | 向低阈值扩展发生合并时，被同一合并父节点直接合并进来的其它姐妹节点。它们与原种子一样获得向高阈值分裂的预算。 |
-| **候选谱系组（Candidate Lineage Group, CLG）** | 由种子、允许深度内的可选择祖先/子孙及合并姐妹组成的候选集合；这些候选在完整组件树上的最小连接闭包是一棵有根子树。一个 CLG 是选择器 Dataset 的一个样本。 |
+| **候选谱系组（Candidate Lineage Group, CLG）** | 由种子、允许深度内的可选择祖先/子孙及合并姐妹组成的候选集合；这些候选在完整组件树上的最小连接闭包是一棵有根有向子树（rooted arborescence）。一个 CLG 是选择器 Dataset 的一个样本。 |
 | **组父节点（Group-parent Node）** | 一个 CLG 中阈值最低、因而 mask 最大的唯一节点。它是该 CLG 的根。 |
 | **全图候选（Global Proposal Candidate）** | CLG 中一个可选择组件节点；其 **Global Proposal Mask** 是第一次整图组件森林中的原始 mask。 |
-| **可行反链（Feasible Antichain）** | CLG 的候选子集 `S`，其中任意两个节点都不存在祖先—子孙关系。空集也是可行反链。 |
+| **反链（Antichain）** | CLG 的候选子集 `S`，其中任意两个节点都不存在祖先—子孙关系。反链按定义已经可行；空集也是反链。 |
 | **Group-parent BOX** | 以 Group-parent Mask 居中裁出的 80³ BOX；每个 CLG 只产生一个，负责整组共享特征物化。 |
 | **局部阈值位次图（Threshold Rank Map）** | Group-parent 局部重跑后得到的 `uint8[80,80,80]`。它编码每个体素首次进入前景的阈值位次，255 表示在所有阈值下均为背景。 |
 | **已选候选（Selected Proposal）** | 选择器打分并经反链优化后进入 `S` 的 Global Proposal Candidate。 |
@@ -97,12 +98,14 @@ $$
 | **occurrence** | 一张图中的一个真实配体实例，有独立 GT 原子坐标和 GT ligand-area mask。 |
 | **P token** | Pocket_Plus 在 BOX 内产生的虚拟节点；它不是体素，也不是受体原子，必须保存自己的坐标、概率与特征来源。 |
 | **materialization / 物化** | 把一次局部 forward 的必要结果写成可独立读取的 BOX 产物。 |
-| **ragged / 变长表** | 不同候选拥有不同数量的 voxel/P/receptor 行；用 `offset + row index` 表示，不补成固定长度落盘。 |
+| **ragged / 变长表** | 不同候选拥有不同数量的 voxel 或 receptor membership；盘上用 `offsets + indices` 表示，不补成固定长度。不同候选可引用相同 parent index；同一候选内部 indices 唯一且排序。P token 由 BOX 内全部候选共享，不使用 candidate-P membership。 |
 | **manifest / 运行清单** | 记录 checkpoint、配置、阈值、特征出口、坐标帧和哈希的只读元数据，用来准确复现实验。 |
 | **calibration / 标定** | 在独立校验集上选择阈值或少量推理参数，不更新神经网络权重。 |
 | **selector / 候选选择器** | 对 CLG 中每个 Global Proposal 预测质量分数的小网络。 |
-| **cross-attention / 交叉注意力** | 一组 query 从另一组 token 读取加权信息；本文中候选 query 只读取其 membership 指定的共享 token。 |
-| **membership / 归属索引** | 某个候选在 Group-parent 共享 voxel、P 或 receptor 表中可以读取哪些行；它是行号集合，不是另存一份特征。 |
+| **cross-attention / 交叉注意力** | 一组 query 从另一组 token 读取加权信息；候选 query 对 voxel/receptor 只读取自己的 membership，对 P 读取 BOX 内全部 token。 |
+| **membership / 归属索引** | 某个候选在 Group-parent 共享 voxel 或 receptor 表中可以读取哪些元素；它是 parent table index 集合，不是另存一份特征。 |
+| **candidate index / 候选下标** | 一个 CLG 内连续的 `0..N-1` 下标；`candidate_node_id[i]` 是该候选在原始组件树中的 `node_id`。`group_parent_candidate_index` 是 Group-parent 对应的唯一 candidate index。 |
+| **稳定运行 ID** | `proposal_run_id` 标识 Stage1 checkpoint、整图推理、阈值和 CLG 配置；`selector_run_id` 标识 selector checkpoint、模型配置和输入 feature manifest；`selection_run_id` 标识一次反链解码结果；`refinement_run_id` 标识一次 selected-final 规则与产物。各 ID 的字段与作用域由 BOX 契约定义。 |
 | **LCA / 最近公共祖先** | 组件树上同时是两个节点祖先、且离二者最近的节点；用于表示两个候选的谱系关系。 |
 | **frontier / 待扩展端点** | CLG 枚举过程中尚待继续向高阈值方向搜索的分支端点及其已用预算。 |
 | **accumulator / 概率累加器** | 一张完整图的 `probability_sum` 与 `weight_sum`；所有滑窗结果在这里按坐标累加。 |
@@ -216,7 +219,15 @@ P_{global}(x)=
 {\max(\operatorname{weight\_sum}(x),\epsilon)}.
 $$
 
-`window_weight` 可以是常数 1 或固定的中心加权窗，但必须写入推理 manifest。不得沿用“窗口边角 5 voxel 直接丢弃”的规则。
+`window_weight` 固定使用历史方案的三维 Gaussian 窗。把每轴局部坐标线性映射到 `[-1,1]`，记为 `u_z,u_y,u_x`，则：
+
+$$
+window\_weight(u)=
+\exp\left(-\frac{u_z^2+u_y^2+u_x^2}{2\sigma^2}\right),
+\qquad \sigma=0.5.
+$$
+
+坐标归一化、`sigma` 和融合公式必须写入推理 manifest。不得沿用“窗口边角 5 voxel 直接丢弃”的规则。
 
 ### 4.3 blob 的唯一来源
 
@@ -255,12 +266,12 @@ $$
 
 $$
 \alpha\in
-\left\{0.4,0.5,\frac{2}{3},1,1.5,2,2.5\right\}.
+\left\{\frac12,\frac23,\frac45,1,\frac54,\frac32,2\right\}.
 $$
 
 对每个 $\alpha$ 独立搜索使 micro-$F_\alpha$ 最大的概率阈值。若多个阈值同分，采用固定 tie-break，并记录完整扫描曲线。推荐 tie-break 选择更接近 0.5 的阈值；若仍相同，选择较高阈值，避免无意增加候选数量。
 
-不同 alpha 可能得到相同数值阈值。相同阈值只构造一个物理 Threshold Level，但 `alpha_to_threshold_rank` 保留所有语义映射。独立最优阈值通常随 alpha 近似单调；第一版不做事后强制排序修正。若发生明显反序，应先报告 calibration 不稳定性，再决定是否扩大 calibration set。
+不同 alpha 可能得到相同数值阈值。相同阈值只构造一个物理 Threshold Level；`alpha_to_threshold_rank[a]` 定义为第 `a` 个 `alpha_value` 对应的去重物理阈值在 `threshold_value[0..T-1]` 中的下标，因此多个 alpha 可以映射到同一 rank。独立最优阈值通常随 alpha 近似单调；第一版不做事后强制排序修正。若发生明显反序，应先报告 calibration 不稳定性，再决定是否扩大 calibration set。
 
 F1 阈值既是旧单阈值基线，也是 CLG 枚举的初始种子层。
 
@@ -282,7 +293,7 @@ F1 阈值既是旧单阈值基线，也是 CLG 枚举的初始种子层。
 每个原始组件节点至少记录：
 
 ```text
-tree_id: int32
+tree_id: int32                 # 在 (proposal_run_id,pdb_id) 内唯一
 node_id: int32
 tree_parent_node_id: int32 | -1
 threshold_rank: uint8
@@ -294,38 +305,43 @@ probability_mean: float32
 probability_max: float32
 ```
 
-### 6.2 节点级合法性与方向剪枝
+### 6.2 节点级合法性与严格截断
 
-节点是否可以成为 Global Proposal Candidate，与能否继续向某方向搜索分开判断。
+节点是否可以成为 Global Proposal Candidate 只由体素数与统一边界规则决定：
 
-| 条件 | 当前节点可选择 | 向高阈值/子孙继续 | 向低阈值/祖先继续 |
-|---|---:|---:|---:|
-| `voxel_count < min_voxels` | 否 | 否 | 是 |
-| `voxel_count > max_voxels` | 否 | 是 | 否 |
-| 触碰完整图最外层 voxel | 否 | 是 | 否 |
-| 居中后 bbox 任一轴装不进 80³ | 否 | 是 | 否 |
-| 按质心计算的 80³ BOX 越出完整网格 | 否 | 是 | 否 |
-| 其它正常节点 | 是 | 是 | 是 |
+| 条件 | 当前节点可选择 |
+|---|---:|
+| `voxel_count < min_voxels` | 否 |
+| `voxel_count > max_voxels` | 否 |
+| 违反统一边界规则 | 否 |
+| 其它正常节点 | 是 |
 
 第一版 `min_voxels` 的推荐起点为 32，参考 Emap2lig；最终值由 calibration 统计确定。`max_voxels` 由真实 ligand-area 体积分布和候选数量曲线确定。
 
-空间 fit 直接由 `box_shape_zyx=(80,80,80)`、节点 bbox、体素质心和完整网格形状推导，不增加 `max_bbox_extent_zyx`。不为 mask 预留额外 margin。
+空间合法性只使用一条统一边界规则，不再分别设置“mask 触原图边界”“bbox 装不进 80³”或“居中 crop 越图”等互相重叠的门禁。
 
-对轴 $a\in\{z,y,x\}$，设 mask 体素索引均值为 $c_a$，BOX 长度为 $B_a=80$。整数起点使用固定的 half-up 舍入：
+对轴 $a\in\{z,y,x\}$，设原始密度图该轴长度为 $L_a$，mask 体素索引均值为 $c_a$，BOX 长度为 $B_a=80$。整数起点使用固定的 half-up 舍入：
 
 $$
 s_a=\left\lfloor c_a-\frac{B_a-1}{2}+\frac{1}{2}\right\rfloor.
 $$
 
-只有同时满足下式才可物化：
+BOX 保持该居中起点；`s_a` 可以小于 0，也可以满足 `s_a+B_a>L_a`。图外 exp/sim/GT mask 使用常数 0，图外不存在 receptor atom；世界坐标原点仍按该整数起点外推。令该轴上 BOX 与原始密度图的可观察交集为：
 
 $$
-0\le s_a,\qquad s_a+B_a\le L_a,
+\ell_a=\max(s_a,0),\qquad
+u_a=\min(s_a+B_a-1,L_a-1).
 $$
 
-其中 $L_a$ 是完整网格该轴长度。失败时不 clamp、不 padding。触碰完整图边界、bbox 装不进 80³ 或居中 crop 越界，都属于“当前节点不可选且禁止继续向低阈值扩大”的空间非法条件。
+设该组件在原始密度图网格上的完整 mask（尚未投影到局部 BOX）的闭区间 bbox 为 `[bbox_min_a,bbox_max_a]`。节点满足统一边界规则，当且仅当：
 
-只有“当前节点可选择”的节点才进入 CLG 候选集合。遇到不可选择节点时，该节点本身不加入 `G`；算法只按上表允许的方向把它当作结构桥继续搜索，或在被禁止的方向停止。因此每个完成 CLG 的 Group-parent 必须可选择且可物化，并且能在候选表中找到 `group_parent_candidate_row`。
+$$
+\ell_a<bbox\_min_a\le bbox\_max_a<u_a
+$$
+
+对三个轴都成立。也就是说：BOX 某一面位于原图内部时，检查完整 mask 是否贴着或越过该 BOX 面；BOX 某一面超出原图时，改为检查完整 mask 是否贴着原始密度图边界。该规则同时捕获 mask 被 BOX 截断、mask 被原图截断以及 mask 本身无法由 80³ 完整容纳的情况；不再用“80³ crop 是否完全在原图内”否定候选。
+
+只有“当前节点可选择”的节点才进入 CLG 候选集合。严格枚举只从合法种子出发；沿某方向遇到第一个非法节点时立即停止该方向，不把非法节点当作桥继续穿越。每个完成 CLG 的 Group-parent 必须可选择且可物化，并且能由 `group_parent_candidate_index` 唯一定位。
 
 第一版不计算或保存 receptor clash、碎片密度等化学启发式过滤量。
 
@@ -369,34 +385,39 @@ CLG 共享状态:
 状态转移：
 
 1. 原始种子初始化 `merge_used=0, split_used=0`。
-2. 向高阈值经过 unary continuation：`split_used` 不变。
+2. 向高阈值经过 unary continuation：目标节点可选择时加入且 `split_used` 不变；目标非法时停止该 frontier。
 3. 向高阈值经过多路 split：只有 `split_used < max_split_events` 才能接受；全部直接子分支原子加入，并把各自 `split_used` 设为旧值加 1。
-4. 向低阈值经过 unary continuation：`merge_used` 不变，并更新当前最低阈值节点。
+4. 向低阈值经过 unary continuation：目标节点可选择时加入、`merge_used` 不变并更新当前最低阈值节点；目标非法时停止该方向。
 5. 向低阈值经过多路 merge：只有共享的 `merge_used < max_merge_events` 才能接受；合并父节点与全部直接姐妹原子加入，随后 `merge_used += 1`。
 6. 每个新姐妹获得新的 `lineage_seed_id`，其向高阈值 `split_used=0`，因此拥有与原始种子相同的完整 split 预算；所有分支共享已经消耗的 `merge_used`，不能通过加入姐妹重置向低阈值预算。
 7. 任一原子事件触发候选数上限时，整个事件不进入状态队列。
 
-不可选择结构节点不加入候选集合；若 §6.2 允许穿过该方向，则 frontier 只穿过它寻找下一个合法节点，预算只在真正的 split/merge 事件处变化。
+一次事件要求加入的任一节点不可选择时，整次事件拒绝且不消耗预算：split 事件任一直接子分支非法，则该 frontier 的向高阈值扩展终止；merge 父节点或任一直接姐妹非法，则整个向低阈值 merge 事件拒绝并终止该方向。不可选择节点不加入候选集合，也不被穿过。预算只在真正接受的 split/merge 事件处变化。
 
-### 7.2 同层同时处理
+### 7.2 同层严格顺序
 
-不得按 Python `for` 循环顺序贪心构组。同一阈值层的全部未退休种子按以下流程同时处理：
+每个阈值层的全部尚未退休、可选择节点先按下列键排序：
 
-1. 为每个种子独立计算在 split/merge 预算和方向剪枝下的可达边界。
-2. 找出共享同一个首次合并事件的种子。
-3. 将这些种子、合并父节点和全部直接姐妹统一闭包成一个组。
-4. 对新加入的类种子姐妹按相同 split 预算向高阈值展开。
-5. 所有组形成后，再统一标记节点归属和退休状态。
+1. mask 内 `P_global` 均值降序；
+2. `probability_max` 降序；
+3. `tree_id,node_id` 升序。
 
-相同输入、配置和 threshold manifest 必须产生相同 CLG，不受 worker 数、哈希表顺序或节点遍历顺序影响。tie-break 统一使用 `(threshold_rank, tree_id, node_id)`。
+随后严格依次处理：
+
+1. 取当前排序中第一个尚未退休节点作为种子。
+2. 按 §7.1 的 split/merge 预算完整构造该 CLG；接受 merge 时，合并父节点及全部直接姐妹作为一个原子事件加入。
+3. CLG 完成后立即按 §7.4 退休整个可比较谱系。
+4. 回到同层排序，跳过已经退休的节点，继续下一个种子。
+
+这是一套有固定排序的确定性顺序算法，不依赖 Python 容器、worker 数或哈希遍历顺序。
 
 ### 7.3 层次扫描顺序
 
-1. 首轮处理 F1 阈值层的全部有效种子。
-2. 随后依次向更低阈值层扫描尚未退休、可选择的节点。
+1. 首轮按 §7.2 处理 F1 阈值层的全部有效种子。
+2. 随后依次向更低阈值层扫描，并在每层重新按 §7.2 排序尚未退休、可选择的节点。
 3. 不从高于 F1 的层单独开启新组；高阈值节点通过种子或类种子的向上分裂扩展进入 CLG。
 
-每个完成的 CLG 在候选诱导关系下必须是一棵连通有根树，并且只有一个 Group-parent Node；完整原始树路径允许包含仅用于连接的不可选择结构节点。
+每个完成的 CLG 在完整原始组件树上的最小连接闭包必须是一棵连通有根有向子树，并且只有一个 Group-parent Node。不可选择节点可以存在于用于审计的原始树中，但严格扩展不会穿越它继续收集候选。
 
 ### 7.4 整组退休
 
@@ -406,7 +427,7 @@ $$
 D(G)=G\cup Ancestors(G)\cup Descendants(G).
 $$
 
-这里 `Ancestors(G)` 与 `Descendants(G)` 是原始组件森林中与 `G` 任一节点存在祖先—子孙关系的节点。退休只影响后续 CLG 枚举；不会从原始树缓存或已落盘 CLG 中删除数据。
+这里 `Ancestors(G)` 与 `Descendants(G)` 是原始组件森林中与 `G` 任一节点存在祖先—子孙关系的节点。退休在每个 CLG 完成后立即生效，只影响后续种子选择；不会从原始树缓存或已完成 CLG 中删除数据。
 
 退休集合依赖 `G`，不依赖网络最后选出的反链 `S`。因此训练样本构造和推理进程完全一致，且 `S=∅` 时仍会正常结束该谱系。
 
@@ -414,25 +435,13 @@ $$
 
 一次 split 或 merge 事件涉及的全部直接姐妹是一个原子单元。如果加入整个事件会使候选数超过 `max_candidates_per_clg`，拒绝整次事件；不得只保留分数最高的前 K 个姐妹。
 
+同样地，事件内任一必选节点不可选择时，拒绝整次事件；不得只删除非法姐妹后接受其余部分。事件因候选上限或非法节点被拒绝时，都终止该 frontier 对应方向的扩展。
+
 ### 7.6 每个 PDB 的 CLG 数量保护
 
-设 `N_F1_valid` 为该 PDB 在 F1 层的有效种子数：
+每个 PDB 只使用一个由 calibration set 冻结的绝对上限 `N_abs`。CLG 已由“F1 层优先、随后逐层向低阈值、同层按 mask 内 `P_global` 均值排序”的严格算法产生；当完成的 CLG 数达到 `N_abs` 时立即停止，不再生成全部 CLG 后做第二次保留排序。
 
-$$
-N_{cap}=\min\left(
-N_{abs},
-\max\left(N_{floor},\lceil5N_{F1\_valid}\rceil\right)
-\right).
-$$
-
-`N_abs` 与 `N_floor` 根据 calibration set 的 CLG 数量分布确定。触发上限时按以下顺序保留：
-
-1. F1 种子产生的 CLG；
-2. 种子阈值离 F1 更近的 CLG；
-3. 组内 Global Proposal probability 的最大值、均值；
-4. 固定的 `tree_id,node_id` tie-break。
-
-每个 PDB 必须记录 `n_clg_before_cap`、`n_clg_after_cap` 和 `clg_truncated`。
+每个 PDB 必须记录 `n_clg_completed`、`clg_cap_reached` 和 `next_eligible_seed_exists_at_stop`。在线停止不会继续构造未保留 CLG，因此不记录一个虚构的 `n_clg_before_cap`。
 
 ---
 
@@ -442,24 +451,23 @@ $$
 
 | 角色 | 是否必需 | 一次对应什么 | 用途 |
 |---|---|---|---|
-| **F1 baseline materialization** | 基线实验必需 | 一个有效 F1 节点 | 复现单阈值候选输入，直接训练/运行 Stage2/3 基线。 |
+| **F1 baseline materialization** | 基线实验必需 | F1 层的一个合法 blob | 以该 blob 居中重跑一次 Stage1 并物化与主路线同源的 voxel/P/receptor 特征；不运行 CLG selector，直接训练/运行 Stage2/3。 |
 | **CLG Group-parent materialization** | 多阈值路线必需 | 一个 CLG，只运行一次 | 为整组 Global Proposal 候选保存共享 voxel/P/receptor 特征与局部多阈值形状。 |
 | **Selected-final materialization** | 可选 | 一个已选 Global Proposal | 用原阈值做最终居中形状精修并生成独立完整 BOX。 |
 
-三种角色都使用 `box_type=infered_box`，通过 `materialization_role` 区分，不新增 box_type。
+三种角色都使用 `box_type=infered_box`，通过 `materialization_role` 区分，不新增 box_type。F1 baseline 保存 F1 层的全部合法 blob，不受多阈值路线的 `N_abs` 限制；它不伪造 CLG、LCA、selector run 或 selection run。其 blob 身份仍来自第一次全图概率图，居中重跑只补特征，不替换原 mask。
 
 ### 8.2 Group-parent 居中重跑
 
 对一个 CLG：
 
-1. 按 §6.2 的统一公式从 Group-parent Mask 体素质心确定 `box_start_zyx`；该 BOX 已通过完整网格范围检查。
+1. 按 §6.2 的统一公式从 Group-parent Mask 体素质心确定 `box_start_zyx`；允许 BOX 越出原图并按统一补零契约读取。
 2. 在该 BOX 上运行一次 Stage1。
-3. 只为原始 Group-parent Global Proposal Mask 覆盖的 voxel 保存 Stage1 多尺度特征。
-4. 保存该次局部 forward 的 P token、多尺度 P 特征、Group-parent pocket 的受体概率和多尺度受体特征。
-5. 对每个 Global Proposal Candidate 保存它在父 voxel、P 和 receptor 共享表中的行索引。
-6. 从局部 ligand-area 概率生成 threshold rank map。
+3. 物化原始 Group-parent Global Proposal Mask 对应的 voxel 特征、该次局部 forward 的全部 P token，以及 Group-parent pocket 的 receptor 特征。
+4. 每个 Global Proposal Candidate 保存自己的 voxel membership 和 receptor-pocket membership；不同候选的 membership 允许交叉。P token 属于整个 BOX，所有候选读取全部 P。
+5. 从局部 ligand-area 概率生成 threshold rank map。
 
-Group-parent Mask 包含 CLG 内所有候选 mask，因此不另造 `union_pred_mask`。同一份 parent voxel 表和 parent pocket 只存一次。
+Group-parent Mask 包含 CLG 内所有候选 mask，因此不另造 `union_pred_mask`。同一份 parent voxel、P 和 receptor 特征只物化一次。具体字段、dtype、offset/indices 和 feature-source manifest 只由 `文档/讨论/BOX-level数据契约.md` 定义，本文不重复盘上 schema。
 
 ### 8.3 threshold rank map
 
@@ -476,22 +484,18 @@ $$
 M^{local}_r = [rank\le r]
 $$
 
-精确重建。该表达允许某层前景为空或包含多个互不连通组件。第一版 selector 不给完整 80³ rank map 增加 dense 3D CNN，而是：
-
-- 在 parent voxel 坐标处查询 rank embedding；
-- 为每个 Global Proposal 派生 rank histogram 与局部体积变化曲线；
-- 保留完整 rank map 供 Stage3 和后续消融使用。
+精确重建。该表达允许某层前景为空或包含多个互不连通组件。rank map 如何进入 selector 属于 §10 的模型设计；本节只定义其语义与可重建性。
 
 ### 8.4 Global Proposal 与局部观察的边界
 
-`candidate_voxel_row` 描述 Global Proposal Mask；`threshold_rank_map` 描述 Group-parent 居中重跑。两者可以不完全重合。局部位次图不再运行连通组件匹配，不产生新的候选身份，也不改变 `tree_id/node_id`。
+`candidate_voxel_membership` 描述 Global Proposal Mask 在 parent voxel 集合中的成员关系；`threshold_rank_map` 描述 Group-parent 居中重跑。两者可以不完全重合。局部位次图不再运行连通组件匹配，不产生新的候选身份，也不改变 `tree_id/node_id`。
 
 ### 8.5 共享 pocket
 
 Group-parent pocket 由 Group-parent Mask 的体素包络和统一半径确定。保存：
 
 - 一份 parent pocket 受体原子全局索引及其局部重跑特征；
-- 每个候选自己的 pocket 原子在 parent pocket 表中的行索引。
+- 每个候选自己的 pocket 原子在 parent pocket 集合中的 membership indices。
 
 同一半径定义下，候选 mask 是 Group-parent Mask 的子集，所以候选 pocket 应是 parent pocket 的子集。实现必须检查这一不变量。
 
@@ -509,21 +513,22 @@ parent_voxel_coords:         [K_v, 3]
 parent_voxel_probability:    [K_v]
 rank_at_parent_voxel:        [K_v]
 
-P_features:                  [N_P, C_P]
-P_coords:                    [N_P, 3]
+P_feat_L2/L3/L4:             [N_P, C_P2/C_P3/C_P4]
+P_pos_box_xyz:               [N_P, 3]
 P_probability:               [N_P]
 
-receptor_features:           [R, C_R]
+receptor_feat_L1/L2/L3/L4:   [R, C_R1/C_R2/C_R3/C_R4]
 receptor_coords:             [R, 3]
 receptor_binding_probability:[R]
 
-candidate_voxel_membership:  N 个 ragged row-index 集合
-candidate_P_membership:      N 个 ragged row-index 集合
-candidate_receptor_membership:N 个 ragged row-index 集合
+candidate_voxel_membership:  [N,K_v] bool 逻辑视图
+candidate_receptor_membership:[N,R] bool 逻辑视图
 candidate_attributes:        [N, C_s]
 lca_up_distance:             [N, N]
 lca_down_distance:           [N, N]
 ```
+
+盘上 voxel/receptor membership 使用 `offsets + indices`，collate 后可转成上述 bool/padding 视图；不同候选允许共享同一个 parent index。所有候选读取 BOX 内全部 P，不存在 `candidate_P_membership`。多尺度特征必须保留已确认的 L1/L2/L3/L4 语义，并由 feature-source manifest 绑定模块出口、checkpoint 和通道数，不能只拼成来源不明的单一 `C_P/C_R`。
 
 batch 后使用 padding：
 
@@ -546,38 +551,51 @@ $$
 q_i=\max_j IoU(M_i^{global},G_j).
 $$
 
-这是主连续标签，表示候选与任一真实 occurrence 的最佳 IoU。辅助二分类标签为：
+这是逐 blob 的连续软标签；若该 PDB 没有真实 occurrence，定义 `q_i=0`。CLG 的组合监督在反链集合上定义。记 `A(G)` 为 CLG `G` 的全部反链，包括空集。对任意 `S∈A(G)`，在 `S` 与该 PDB 的真实 occurrence 之间做一对一匹配，定义 oracle 质量：
 
 $$
-y_i=\mathbf 1[q_i\ge\theta_{valid}].
+Q_{GT}(S)=
+\max_{\mathcal M\text{ one-to-one}}
+\sum_{(i,j)\in\mathcal M}IoU(M_i^{global},G_j)
+-\lambda_{count}|S|,
+\qquad Q_{GT}(\varnothing)=0.
 $$
 
-`theta_valid` 是训练配置，不固化到基础数据契约。任何接触但低 IoU 的候选可作为诊断，不作为第一版主硬标签。
-
-网络输出：
-
-```text
-predicted_max_iou: [B,N_max] float in [0,1]
-valid_logit:       [B,N_max] float
-```
-
-第一版损失推荐：
+第一轮 `lambda_count=0.05`，紧邻消融为 `0.03`。它会改变 oracle 标签，必须进入标签缓存身份、训练配置和 manifest；改变该值必须重新生成标签。完全同分时依次偏好更小的 `|S|`、更高的一对一 IoU 总和、按反链中原始 `node_id` 排序后字典序更小的结果。
 
 $$
-L_q=\operatorname{SmoothL1}(\hat q_i,q_i),\qquad
-L_y=\operatorname{BCEWithLogits}(\hat y_i,y_i),
+S^*=\arg\max_{S\in A(G)}Q_{GT}(S),
+\qquad
+y_{CLG}=\mathbf 1[S^*\ne\varnothing].
+$$
+
+网络为每个候选输出 `predicted_max_iou` 和 `selection_logit`。候选 logits 在树上组成反链分数 `score_θ(S)`，空集分数固定为 0，并在 `A(G)` 上形成结构化 softmax `p_θ(S)`。CLG 非空概率不使用独立分类 head，而直接定义为：
+
+$$
+p_{nonempty}=1-p_\theta(\varnothing).
+$$
+
+第一版三项损失等权：
+
+$$
+L_{CLG}=BCE(p_{nonempty},y_{CLG}),
 $$
 
 $$
-L=\operatorname{mean}_{CLG}
-\left[
-\operatorname{mean}_{i\in CLG}(L_q+\gamma L_y)
-\right].
+L_{IoU}=\operatorname{mean}_{i\in G}
+\operatorname{SmoothL1}(\hat q_i,q_i),
 $$
 
-先在每个 CLG 内取均值，再在 batch 内取均值，避免候选多的 CLG 自动获得更大权重。反链选择只使用 `predicted_max_iou`；`valid_logit` 不相乘、不硬门控。
+$$
+L_{antichain}=-(1-p_\theta(S^*))^{\gamma_{focal}}
+\log p_\theta(S^*),
+$$
 
-训练不使用 Hungarian matching、可微反链 loss 或强化学习。候选集合和树关系均由确定性 CLG 枚举给出。
+$$
+L=L_{CLG}+L_{IoU}+L_{antichain}.
+$$
+
+`gamma_focal=0` 等价于普通多分类交叉熵；第一轮默认 0，并保留 1/2 消融。空集已经是正式类别：负 CLG 的 one-hot 标签就是空集，模型正确时该项自然趋近 0，不增加手工 loss suppression。第一版不实现反链软分布 KL，也不增加独立的反链绝对质量回归 head。
 
 ---
 
@@ -612,7 +630,16 @@ $$
 - 第一次全图概率；
 - 局部 `rank_at_parent_voxel` embedding。
 
-`X_P` 与 `X_R` 分别包含已命名多尺度特征、坐标、P probability 或 receptor-binding probability。特征来源必须在 BOX manifest 中写出生产模块、checkpoint、通道数和坐标帧，不能只叫 `L1/L2/L3`。
+`X_P` 显式包含 `P_feat_L2`（density-box 特征）、`P_feat_L3`（cross-attention 前）、`P_feat_L4`（cross-attention 后）、`P_pos_box_xyz` 与 `P_probability`。`X_R` 显式包含 `receptor_feat_L1`（embed head 后）、`receptor_feat_L2`（density-box）、`receptor_feat_L3`（cross-attention 前）、`receptor_feat_L4`（cross-attention 后）、受体坐标与 `receptor_binding_probability`。这些层次语义不得被一个泛化的 `source_name` 取代；feature-source manifest 仍须写出生产模块、checkpoint、通道数和坐标帧。
+
+每种模态的概率使用：
+
+$$
+\tilde p=clip(p,\epsilon,1-\epsilon),\qquad
+probability\_features=[p,\log(\tilde p/(1-\tilde p))].
+$$
+
+`raw probability + clipped logit` 进入模态专属 token encoder。归一化 BOX 坐标使用低频 Fourier 编码。第一版不把概率编码成扩散 timestep 式高维 Fourier，也不把概率硬写成 attention prior；可选消融才增加可学习强度的 `log(p+epsilon)` logit bias。
 
 每个候选的初始 query：
 
@@ -620,20 +647,25 @@ $$
 Q_i^{(0)}=\operatorname{MLP}(A_i)\in\mathbb R^d.
 $$
 
-候选属性 `A_i` 推荐包含：threshold rank/value、`log(1+voxel_count)`、相对 Group-parent 体积、全图概率的均值/最大值/分位数、归一化质心、三个排序后的 mask 坐标协方差特征值、到 Group-parent 的树距离、rank histogram 与局部体积曲线。协方差特征值用于描述形状尺度，不依赖坐标轴顺序。
+候选属性 `A_i` 推荐包含：threshold rank/value、`log(1+voxel_count)`、相对 Group-parent 体积、全图概率的均值/最大值/分位数、归一化质心、三个排序后的 mask 坐标协方差特征值、到 Group-parent 的树距离、rank histogram 与局部体积曲线。协方差特征值用于描述形状尺度，不依赖坐标轴顺序。这些量在 materialization 后或首次加载时由 CPU 向量化派生，可使用由 proposal hash 键控的缓存，但不进入核心 BOX 落盘契约。
 
 ### 10.3 Global Proposal mask-conditioned 读取
 
-对模态 `m∈{v,P,R}`，候选 `i` 只从自己的 membership 行读取 token：
+候选 `i` 对 voxel 和 receptor 只读取自己的 membership，对 P 读取 BOX 内全部 token：
 
 $$
-Z_i^m=\operatorname{MultiHeadAttention}
-(Q_i^{(0)},H_m[I_i^m],H_m[I_i^m]).
+Z_i^v=Attn(Q_i^{(0)},H_v[I_i^v],H_v[I_i^v]),
 $$
 
-等价的 padded 实现是在 attention logit 上加 mask：属于候选的 token 加 0，其余加负无穷。parent token 只编码一次，候选之间共享，不复制特征表。
+$$
+Z_i^P=Attn(Q_i^{(0)},H_P,H_P),
+\qquad
+Z_i^R=Attn(Q_i^{(0)},H_R[I_i^R],H_R[I_i^R]).
+$$
 
-P token 与候选的 membership 由固定空间规则产生并随产物保存；消费方不得自行猜测。空 P 或空 receptor 子集在模型内使用一个可学习 null token，并提供 `modality_present` 标志；伪 token 不写入磁盘。
+等价的 padded 实现是在 voxel/receptor attention logit 上加 membership mask：属于候选的 token 加 0，其余加负无穷。parent token 只编码一次，候选之间共享，不复制特征表；不同候选的 membership 可以交叉。
+
+P token 是 BOX 级伪原子集合，不按 blob 划分。空 P 集合或空 receptor 子集在模型内使用一个可学习 null token，并提供 `modality_present` 标志；伪 token 不写入磁盘。
 
 ### 10.4 Group-parent 共享摘要
 
@@ -663,17 +695,16 @@ d_{ij}=depth(j)-depth(l),\qquad
 \Delta r_{ij}=r_j-r_i.
 $$
 
-有序对 `(u_ij,d_ij)` 可区分 self、祖先、子孙、姐妹及其它分支。第 `h` 个注意力头使用：
+有序对 `(u_ij,d_ij)` 可区分 self、祖先、子孙、姐妹及其它分支。另构造相对特征 `r_ij`，至少包含 LCA 上下距离、阈值差、候选质心相对坐标/距离和 log 体积比。第 `h` 个注意力头使用：
 
 $$
 A_{ij}^{h}=
 \frac{(W_Q^hE_i)(W_K^hE_j)^\top}{\sqrt{d_h}}
-+B_h[u_{ij},d_{ij}]
-+C_h[\Delta r_{ij}]
++MLP_{bias}^{h}(r_{ij})
 +M_{ij}.
 $$
 
-`M_ij` 是 batch padding mask。该编码不使用任意 child index，因此姐妹顺序变化时输出只做相同排列，保持集合顺序无关。
+`M_ij` 是 batch padding mask。`MLP_bias` 每个有序候选对输出逐头标量 bias；第一版不把完整 `E_i/E_j` 再拼入 bias MLP，避免与 QK 内容打分重复，该变体只留作消融。该编码不使用任意 child index，因此姐妹顺序变化时输出只做相同排列，保持集合顺序无关。
 
 第一版推荐起点：`d=128`、4 个注意力头、2 层、前馈子层隐藏维度 256、每个子层计算前执行 LayerNorm、dropout 0.1。它们是可配置起点，不是科学常数。
 
@@ -681,7 +712,7 @@ $$
 
 $$
 \hat q_i=\sigma(MLP_q(E_i)),\qquad
-\hat y_i=MLP_{valid}(E_i).
+z_i=MLP_{selection}(E_i).
 $$
 
 ### 10.6 计算复杂度
@@ -692,7 +723,7 @@ $$
 O(NKd)+O(N^2d).
 $$
 
-当 `N≤20` 或 `N≤40` 时，树内 `N²` 项很小。若性能剖析发现 `N*K` 的补齐浪费显著，再按变长行索引执行不补齐注意力；第一版不为此增加自定义底层算子。
+当 `N≤20` 或 `N≤40` 时，树内 `N²` 项很小；H100/A800 上第一版直接使用标准 padded attention，不以 FlashAttention 为前提，也不增加自定义 ragged 底层算子。仍需记录峰值显存，避免把 padding 的内存问题误判成 FLOPs 问题。
 
 ### 10.7 可选公共轻量密度 U-Net 调制器
 
@@ -710,11 +741,7 @@ raw_density: [B,1,Z,Y,X]
 density_context_l: [B,C_l,Z_l,Y_l,X_l]
 ```
 
-消费方式：
-
-- voxel 对象按自身网格位置 gather 对应尺度特征；
-- P、receptor atom 或其它点对象按 BOX 内连续坐标做三线性插值；
-- 不更新对象坐标。
+第一版只让 voxel/密度点按自身网格位置 gather 对应尺度特征；P 与 receptor 不做三线性插值调制，Stage2/3 同样如此。点对象调制只保留为后续消融，不进入主规格；所有路径都不更新对象坐标。
 
 对对象表示 `h[n,d]` 与采样上下文 `c[n,C]`，第一版推荐门控残差调制：
 
@@ -729,56 +756,50 @@ $$
 
 ---
 
-## §11 CLG 内反链选择与参数标定
+## §11 CLG 内结构化反链选择
 
-### 11.1 可行解与目标函数
+### 11.1 反链分布与空集
 
-对一个 CLG `G`，可行解 `S⊆G` 满足任意两个节点不可比较。允许：
-
-$$
-S=\varnothing,\qquad J(\varnothing)=0.
-$$
-
-第一版目标：
+对一个 CLG `G`，记 `A(G)` 为全部反链，包括空集。selector 为候选输出 `selection_logit z_i`；第一版反链 logit 使用可加结构：
 
 $$
-J(S)=
-a\sum_{i\in S}\hat q_i
-+b\operatorname{mean}_{i\in S}(\hat q_i)
--\lambda|S|.
+score_\theta(S)=\sum_{i\in S}z_i,
+\qquad score_\theta(\varnothing)=0.
 $$
 
-整体正比例不改变最优解，因此固定 `a=1`，只标定 `b/a` 与 `lambda/a`。`valid_logit` 不进入该目标。
-
-### 11.2 精确求解
-
-由于均值项取决于 `|S|`，先对每个候选数量 `k` 求满足反链约束的最大分数和：
+Tree-Relative Transformer 已使每个 `z_i` 感知整个 CLG，因此可加解码不等于候选独立建模。结构化分布为：
 
 $$
-Q_k=\max_{S:|S|=k,\ S\text{ is an antichain}}
-\sum_{i\in S}\hat q_i.
+p_\theta(S)=
+\frac{\exp(score_\theta(S))}
+{\sum_{S'\in A(G)}\exp(score_\theta(S'))}.
 $$
 
-网络节点表只包含可选择候选，因此原始组件树路径可能经过没有进入网络的结构节点。求解前先构造**候选诱导树（Candidate-induced Tree）**：Group-parent 是根；其它候选连接到其原始树路径上最近的候选祖先。祖先冲突仍按完整原始树判断。由于一个 CLG 只有一个 Group-parent，该诱导结构仍是一棵树。
-
-候选诱导树上的 `Q_k` 可用树形动态规划精确求得：
-
-- 选择当前节点：只能得到 `k=1`，并排除其全部候选子孙。
-- 不选择当前节点：按候选数量合并各子树的 `Q_k`；这是一个小规模背包式动态规划。
-
-然后计算：
+训练使用 §9.2 的 oracle `S*`、CLG 非空 BCE、逐 blob IoU 回归和反链 CE/focal。推理输出：
 
 $$
-J_k=Q_k+b\frac{Q_k}{k}-\lambda k,\quad k>0,
+\hat S=\arg\max_{S\in A(G)}score_\theta(S).
 $$
 
-并与 `J_0=0` 比较。选择最大者；完全同分时依次偏好更小 `k`、更高 `Q_k`、按 `node_id` 字典序更小的反链，保证确定性。
+MAP 分数完全同分时，先选择更小的 `|S|`，再选择按原始 `node_id` 排序后字典序更小的反链；该裁决写入 selection manifest，不能依赖 DP 子树遍历或回溯顺序。空集是正式结果，不使用额外阈值、手工 suppression 或独立 CLG 分类 head。
 
-### 11.3 标定缓存与实例指标
+### 11.2 原始树上的精确 DP
 
-选择器对所有候选的 `predicted_max_iou` 与 `valid_logit` 独立落盘；选择结果按 `selection_run_id` 另存。改变 `b,lambda` 不需要重跑网络。
+祖先冲突始终沿完整原始组件树判断。对当前 CLG `G`，实现只在 `G` 于原树上的最小连接闭包运行树形动态规划：只有 `i∈G` 的节点可以被选择，闭包内其它节点只传递子树状态；同一原树中其它 CLG 的候选不进入本样本。选择某节点时排除其全部候选子孙；不选择时合并各直接子树。
 
-在 calibration set 上优化 `b,lambda`，目标为：
+同一套 DP 同时计算：
+
+- `logsumexp` 半环下的结构化 softmax 分母；
+- `max` 半环下的 MAP 反链；
+- 空集概率 `p_theta(empty)` 与 `p_nonempty=1-p_theta(empty)`。
+
+不建立新的候选身份或盘上 Candidate-induced Tree。若实现为减少遍历而临时把候选连接到最近候选祖先，这只是内存邻接缓存，必须与原树 DP 逐值一致，不能写入 schema 或 provenance。
+
+### 11.3 缓存与实例指标
+
+选择器对所有候选的 `predicted_max_iou` 与 `selection_logit` 独立落盘；MAP 反链结果按 `selection_run_id` 另存。训练 oracle 使用的 `lambda_count`、一对一匹配规则、同分裁决和 `gamma_focal` 都进入 selector manifest。
+
+calibration set 报告：
 
 $$
 M_{instance}=\frac{1}{4}(
@@ -791,11 +812,11 @@ $$
 - **coverage F1**：候选只要与任一 GT 的 IoU 不低于 `tau` 就计作命中候选；GT 只要被任一候选命中就计作已覆盖。由命中候选比例与已覆盖 GT 比例计算 F1，允许多个候选覆盖同一 GT。
 - **one-to-one F1**：在 `IoU>=tau` 的候选—GT 二分图上做最大一对一匹配。匹配数 `m` 给出 `precision=m/n_pred`、`recall=m/n_gt`，再计算 F1。
 
-四项等权平均用于调参，四个分量必须分别报告。选择器训练和 `b,lambda` 标定都只使用 Global Proposal Mask，不使用 Refined Mask。
+四项及其等权平均都必须分别报告。选择器训练、oracle 标签和结构化解码都只使用 Global Proposal Mask，不使用 Refined Mask。
 
 ### 11.4 计算预算
 
-反链动态规划和二维 `b,lambda` 网格搜索只处理缓存的标量分数与小树，远低于 Stage1 forward 成本。16 核 CPU 在两天预算内不是风险项；第一版可以直接搜索两个参数。若以后增加第三个有效自由度，仍先复用同一缓存评估。
+反链的 log-partition、MAP 和一对一 oracle 都只处理小树、小型 occurrence 集合与缓存标量，远低于 Stage1 forward 成本。实现必须对小型穷举树验证 DP 的分母、MAP、空集概率和梯度，并记录 CPU 耗时。
 
 ---
 
@@ -808,7 +829,8 @@ $$
 ```text
 已选 Global Proposal Mask
 + Group-parent 共享 voxel/P/receptor 特征
-+ 候选自己的共享表行索引
++ 候选自己的 voxel/receptor membership indices
++ BOX 级共享的全部 P token
 ```
 
 Selected-final 精修关闭时不得缺少任何 Stage2/3 必需字段。
@@ -818,9 +840,9 @@ Selected-final 精修关闭时不得缺少任何 Stage2/3 必需字段。
 若启用精修：
 
 1. 以已选 Global Proposal 的体素质心裁 80³ BOX。
-2. 运行 Stage1 得到局部概率。
+2. 允许 BOX 越出原图，并按 §6.2 的同一补零和坐标外推规则运行 Stage1 得到局部概率。
 3. 使用该 Global Proposal 原来的 `threshold_rank` 与阈值，不搜索新阈值。
-4. 若该阈值下产生多个局部连通组件，选择与投影进 BOX 的 Global Proposal Mask IoU 最大的组件。
+4. 若该阈值下产生多个局部连通组件，选择与投影进 BOX 的 Global Proposal Mask IoU 最大的组件；完全同分时依次选择局部 `P_local` 均值更高、体素数更大、排序后最小局部 `ZYX` 坐标字典序更小的组件。
 5. 同时保存 `proposal_mask` 与 `refined_mask`。
 
 选择原阈值使精修保留候选的置信层语义；“寻找与旧 mask IoU 最大的阈值”会把精修退化为复制原形状，因此不作为默认。
@@ -830,10 +852,10 @@ Selected-final 精修关闭时不得缺少任何 Stage2/3 必需字段。
 必须记录：
 
 - 原 Global Proposal 总体素数；
-- 进入 final BOX 的体素数；
-- `proposal_was_clipped`；
+- 进入 `final BOX ∩ original density grid` 的体素数；
+- `proposal_outside_observable_region_voxel_count`；按候选合法性不变量应为 0，非 0 必须记为契约错误而不是静默裁剪；
 - `refine_status`，至少区分 `success`、`empty`、`no_overlap_component`；
-- 来源 `proposal_run_id/clg_id/group_parent_box_id/node_id/selection_run_id`。
+- 公共来源 `proposal_run_id/source_route/source_materialization_box_id/tree_id/node_id`；多阈值路线再记录 `clg_id/candidate_index/selection_run_id`，F1 baseline 不伪造这些身份。
 
 精修失败不得静默伪装成成功。下游可以显式回退使用原 Global Proposal。Selected-final BOX 使用与 Group-parent BOX 相同的完整 voxel/P/receptor/rank-map 契约，但它自己的特征不能默认与 Group-parent 的 Refined Mask 混用。
 
@@ -843,7 +865,7 @@ Selected-final 精修关闭时不得缺少任何 Stage2/3 必需字段。
 
 ### 13.1 追溯链
 
-每个最终候选必须能沿稳定 ID 追溯：
+多阈值路线的每个最终候选必须能沿稳定 ID 追溯：
 
 ```text
 Stage1 checkpoint + full-map inference manifest
@@ -851,10 +873,23 @@ Stage1 checkpoint + full-map inference manifest
   → component tree: tree_id/node_id
   → CLG: clg_id/group_parent_node_id
   → Group-parent infered_box: box_id
-  → selector_run_id: predicted_max_iou
-  → selection_run_id: selected candidate rows
-  → optional selected-final box/refined mask
+  → selector_run_id: predicted_max_iou/selection_logit
+  → selection_run_id: selected_candidate_indices（可以为空）
+  → optional refinement_run_id: selected-final box/refined mask
 ```
+
+F1 baseline 走独立的直接分支：
+
+```text
+Stage1 checkpoint + full-map inference manifest
+  → proposal_run_id
+  → F1 component: tree_id/node_id
+  → F1 baseline infered_box: box_id
+  → Stage2/3
+  → optional refinement_run_id: selected-final box/refined mask（仍不创建 CLG/selector/selection）
+```
+
+它不创建占位 `clg_id`、`selector_run_id` 或 `selection_run_id`。稳定 ID 的作用域固定如下：`tree_id` 在 `(proposal_run_id,pdb_id)` 内唯一，`node_id` 在 `tree_id` 内唯一，`clg_id` 在 `(proposal_run_id,pdb_id)` 内唯一，`candidate_index` 在 `clg_id` 内连续且稳定，`box_id` 在 `(pdb_id,box_type)` 内跨 run 唯一且不复用；`selector_run_id`、`selection_run_id` 与 `refinement_run_id` 由各自产物 manifest 定义。跨表引用必须带足确定作用域的上级 ID，不依赖目录顺序或物理 entry 顺序。
 
 ### 13.2 共享表原则
 
@@ -864,7 +899,8 @@ Stage1 checkpoint + full-map inference manifest
 - P token 表一份；
 - Group-parent pocket receptor 表一份；
 - `threshold_rank_map[80,80,80]` 一份；
-- `N` 个候选在三张共享表中的 ragged 行索引；
+- `N` 个候选在 parent voxel 表和 receptor 表中的 `offsets + indices` membership；不同候选可以交叉，同一候选内部 indices 唯一且排序；
+- 全部候选共享 BOX 内完整 P token 表，不保存 candidate-P membership；
 - 候选树身份、阈值、LCA 距离、Global Proposal overlap 与 provenance。
 
 旧契约中的 `blob_mask`、`blob_voxel_prob`、`blob_voxel_feat`、P/receptor 多尺度特征、pocket atom index、coverage、atom coverage、scores 与 prompt 都必须能从新字段直接取得或确定性派生。详细字段见 `文档/讨论/BOX-level数据契约.md`。
@@ -909,7 +945,7 @@ component_forest: ...
 clg: ...
 materialization: ...
 proposal_selector: ...
-selection_calibration: ...
+structured_selection: ...
 selected_final_refinement: ...
 density_context_modulator: ...
 ```
@@ -929,7 +965,10 @@ density_context_modulator: ...
 - 一次 split/merge 事件的姐妹要么全部加入，要么全部拒绝。
 - 已退休的可比较谱系不会再次产生 CLG。
 - Group-parent Mask 包含每个候选 Global Proposal Mask。
-- 每个候选的 voxel/P/receptor 行索引不越界且组内不重复。
+- 居中 BOX 越出原图时保持起点不平移；exp/sim/GT mask 的图外区域严格为 0，`origin_xyz` 仍按该起点外推。
+- 每个候选的 voxel/receptor membership indices 不越界且候选内唯一、排序；允许不同候选交叉。
+- 所有候选读取相同的完整 P token 表，盘上不存在 candidate-P membership。
+- F1 baseline 覆盖 F1 层全部合法 blob，且不产生 `clg_id/selector_run_id/selection_run_id` 或 singleton candidate membership。
 - `threshold_rank_map<=r` 能重建第 `r` 个局部阈值前景。
 - 反链结果不存在祖先—子孙对；空集合法。
 - 关闭 selected-final 后，Stage2/3 输入仍完整。
@@ -938,8 +977,8 @@ density_context_modulator: ...
 
 - 每个 $\alpha$ 的 micro/macro-$F_\alpha$、阈值和阈值重复映射。
 - 每张图各层组件数、CLG 数、候选数、候选上限原子拒绝率、PDB cap 截断率。
-- 节点因过小、过大、触边、80³ fit 失败而被剪枝的数量。
-- 选择器 IoU 回归误差、辅助分类 precision/recall/F1。
+- 节点因过小、过大或违反统一边界规则而被剪枝的数量，并按触碰 BOX 内部面、触碰原图边界面分别统计原因。
+- 选择器 IoU 回归误差、CLG 非空 BCE/precision/recall/F1、反链 CE/focal、空集准确率与 MAP 反链准确率。
 - coverage/one-to-one F1 在 0.3/0.6 下的四个分量及平均值。
 - F1 baseline 与 multi-threshold 的候选 recall、假阳数和 Stage2/3 下游指标。
 - Dataset 等待、GPU 利用率、完整图吞吐、局部重跑吞吐和落盘体量。
@@ -971,8 +1010,8 @@ density_context_modulator: ...
 2. 组件森林、CLG 枚举和反链 DP 通过确定性与不变量测试。
 3. F1 baseline 与 Group-parent materialization 都能按 BOX 契约落盘并冷读。
 4. selector 可以从落盘数据独立训练、推理和缓存分数。
-5. `b,lambda` 能仅用缓存结果重新标定。
-6. 关闭 selected-final 与 density U-Net 时，Stage2/3 可直接读取选中的 Global Proposal。
+5. 原始树 DP 的 log-partition、MAP、空集概率和梯度已与小树穷举逐值一致；`lambda_count` 改变时会显式重建 oracle 标签缓存。
+6. 关闭 selected-final 与 density U-Net 时，多阈值路线可直接读取选中的 Global Proposal，F1 baseline 可直接读取原始 F1 blob。
 7. CPU/GPU 流水没有明显串行空洞，且实际吞吐、内存与磁盘体量有记录。
 
 ---
@@ -993,11 +1032,11 @@ density_context_modulator: ...
 以下不是算法空白，而是实现后必须通过 calibration 分布冻结的数值：
 
 - `min_voxels` 的最终值与 `max_voxels`；
-- `N_abs`、`N_floor` 和候选上限升档条件；
+- `N_abs` 和候选上限升档条件；
 - threshold 扫描网格和相同 micro-$F_\alpha$ 的最终 tie-break；
-- `theta_valid`、辅助分类 loss 权重 `gamma`；
+- `lambda_count=0.05` 与紧邻 `0.03` 消融的最终取舍，以及 `gamma_focal∈{0,1,2}`；
 - selector 的 `d/heads/layers/dropout`；
-- pocket 包络半径与 P membership 的确定性规则；
+- pocket 包络半径，以及候选 receptor membership 的确定性规则；
 - density context modulator 的具体 U-Net 宽度、预训练任务与是否缓存；
 - selected-final 是否进入正式生产，取决于 2×2 消融结果。
 
