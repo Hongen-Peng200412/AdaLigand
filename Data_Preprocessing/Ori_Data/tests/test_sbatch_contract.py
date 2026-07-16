@@ -315,7 +315,7 @@ def test_generated_f_supplement_run_cmd_rejects_helper_sha_drift(tmp_path: Path)
 
 
 def test_supplement_runtime_files_are_frozen_to_lf_by_git_attributes() -> None:
-    """fresh checkout 必须保持执行文件 LF，确保冻结 helper SHA 跨 autocrlf 稳定。"""
+    """源码库检查属性；无 ``.git`` 的服务器副本仍逐文件检查 LF。"""
     relative_paths = (
         "Data_Preprocessing/Ori_Data/code/f_supplement_guard.py",
         "Data_Preprocessing/Ori_Data/scripts/f_supplement_guard.py",
@@ -325,16 +325,26 @@ def test_supplement_runtime_files_are_frozen_to_lf_by_git_attributes() -> None:
         "Data_Preprocessing/Ori_Data/sbatch/resume_f_supplement_318350_accel_v2.sh",
     )
     repository_root = PROJECT_ROOT.parents[1]
-    attributes = subprocess.run(
-        ["git", "check-attr", "text", "eol", "--", *relative_paths],
+    worktree_probe = subprocess.run(
+        ["git", "rev-parse", "--is-inside-work-tree"],
         cwd=repository_root,
-        check=True,
+        check=False,
         text=True,
         capture_output=True,
-    ).stdout
+    )
+    attributes = ""
+    if worktree_probe.returncode == 0:
+        attributes = subprocess.run(
+            ["git", "check-attr", "text", "eol", "--", *relative_paths],
+            cwd=repository_root,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout
     for relative_path in relative_paths:
-        assert f"{relative_path}: text: set" in attributes
-        assert f"{relative_path}: eol: lf" in attributes
+        if attributes:
+            assert f"{relative_path}: text: set" in attributes
+            assert f"{relative_path}: eol: lf" in attributes
         assert b"\r\n" not in (repository_root / relative_path).read_bytes()
 
 

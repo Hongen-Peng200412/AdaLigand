@@ -65,6 +65,20 @@ stop_background_watchers() {
     HEARTBEAT_PID=""
 }
 
+interruptible_sleep() {
+    # watcher 被停止时必须连同当前 sleep 一起回收；否则孤儿 sleep 会继续持有
+    # stdout/stderr 管道，使已经退出的 core 在控制面上看起来仍未结束。
+    local seconds="${1:?sleep seconds are required}"
+    local sleeper_pid=""
+    sleep "${seconds}" &
+    sleeper_pid=$!
+    trap 'kill "${sleeper_pid}" 2>/dev/null || true; wait "${sleeper_pid}" 2>/dev/null || true' TERM INT
+    wait "${sleeper_pid}"
+    local wait_exit=$?
+    trap - TERM INT
+    return "${wait_exit}"
+}
+
 terminate_extra_process_group() {
     local signal_number="${1:-9}"
     if [ -z "${EXTRA_KILL_PGID_FILE}" ] || [ ! -e "${EXTRA_KILL_PGID_FILE}" ]; then
@@ -218,7 +232,7 @@ while true; do
 
     (
         while kill -0 "${RUN_PID}" 2>/dev/null; do
-            sleep 10
+            interruptible_sleep 10 || exit 0
             if [ -f "${KILL_LOCK}" ]; then
                 echo "[KillWatcher] ${KILL_LOCK} detected; killing process group ${RUN_PID}"
                 reap_extra_process_group 0 5 || true
@@ -231,7 +245,7 @@ while true; do
     WATCHER_PID=$!
     (
         while kill -0 "${RUN_PID}" 2>/dev/null; do
-            sleep 300
+            interruptible_sleep 300 || exit 0
             echo "[Heartbeat] $(date --iso-8601=seconds) job=${SLURM_JOB_ID} run_pid=${RUN_PID}"
         done
     ) &

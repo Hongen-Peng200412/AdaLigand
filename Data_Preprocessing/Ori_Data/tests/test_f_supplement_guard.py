@@ -350,7 +350,7 @@ def test_nonzero_leader_exit_reaps_surviving_grandchild(tmp_path: Path) -> None:
         "import json,os,subprocess,sys; from pathlib import Path; "
         "grand=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); "
         f"Path({str(child_tree_path)!r}).write_text(json.dumps({{"
-        "'child':os.getpid(),'grand':grand.pid}})); "
+        "'child':os.getpid(),'grand':grand.pid})); "
         "raise SystemExit(7)"
     )
     exit_code = supervise_f_supplement(
@@ -383,7 +383,7 @@ def test_verified_reaper_cleans_group_after_supervisor_sigkill(tmp_path: Path) -
         "import json,os,subprocess,sys,time; from pathlib import Path; "
         "grand=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); "
         f"Path({str(child_tree_path)!r}).write_text(json.dumps({{"
-        "'child':os.getpid(),'grand':grand.pid}})); time.sleep(30)"
+        "'child':os.getpid(),'grand':grand.pid})); time.sleep(30)"
     )
     supervisor = subprocess.Popen(
         [
