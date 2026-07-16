@@ -40,10 +40,13 @@
     "2026-07-16：唯一有效v4 inventory已闭合并通过哈希复核：raw_inventory 139,940行、attempts 11,445行，SHA分别为e5f3075c…c502a与3f9f2096…a863。316116/318350继续保留CPU96 allocation和after+try，无实际F writer；316117仍依赖等待。用户为优先完成A-G放宽普通nontransient大文件的全量SHA要求：公开质量三件套仍完整哈希，其他保留证据以路径、类型、大小、st_blocks、mtime和已有/必要哈希证明实质内容未变。",
     "2026-07-16：用户明确决定不归属的只读容量扫描PID54412不应阻塞A-G，也不得信号。process gate升级为schema v3：controller最多一个node+PID+PPID+start_ticks+argv SHA精确例外，raw opaque行完整保留；第二个opaque、身份漂移、F/recovery、scan error或audit/apply spec漂移仍fail-closed。专项43 passed+2 skipped、Windows全套284 passed+4 skipped，compileall/diff check与两次独立审查通过。",
     "2026-07-16：用户冻结本次正式run的巨大长尾运行策略。当前run-only exclusion共5个（8ckb/8glv/9e5c/9fqr/6kgx），只可在活动长尾、完整公开artifact缺失和明确运行时/资源证据同时成立时自治再追加至多4个，使累计始终小于10。样本保留在22,386分母，记known_failed:run_policy_excluded并排除训练/推理/G，不伪造success；达到10前或出现同类聚集/系统性趋势即停止个例化、诊断并询问。该策略不改变科学契约。",
-    "2026-07-16：Stage E3 半体素修复冻结为 Pocket Plus 祖传数值实现优先。MRC 的 load_map/make_model_grid 继续零差异；E3 体素中心函数也改为直接 vendoring Pocket `_build_voxel_center_coords_xyz`，Ada 仅保留稀疏存储与已冻结标签契约所需薄适配。Git checkpoint 75d8f42；300组完整Pocket网格oracle零差异，本地全套309 passed、10个Windows条件项skipped。后续不得用Agent自研等价实现替代已有祖传函数。"
+    "2026-07-16：Stage E3 半体素修复冻结为 Pocket Plus 祖传数值实现优先。MRC 的 load_map/make_model_grid 继续零差异；E3 体素中心函数也改为直接 vendoring Pocket `_build_voxel_center_coords_xyz`，Ada 仅保留稀疏存储与已冻结标签契约所需薄适配。Git checkpoint 75d8f42；300组完整Pocket网格oracle零差异，本地全套309 passed、10个Windows条件项skipped。后续不得用Agent自研等价实现替代已有祖传函数。",
+    "2026-07-16：Stage F scratch v4回收、journal/fsync apply和独立验收闭合；318350于19:03:41恢复v1→v2尾段补算，316116于19:06:58恢复正式F，两台CPU96合计192核。只读复核显示锁、PGID、碰撞guard、日志与heartbeat均正常，当前A–G预计约27–40小时完成（保守44小时）。",
+    "2026-07-16：E3三项独立审计闭合。上下游没有新增Ada轴序补偿，E3稀疏结果与Pocket中心oracle一致，v2→v3真实产物差异符合半体素修复。全量origin风险审计覆盖22,274个唯一EMDB，正式E合格集合命中182/22,309（约0.816%）；5个header失败均为既有missing_map。该结果不是广泛硬伤，祖传函数保持不变，182个候选只记录不排除。",
+    "2026-07-16：独立E3迁移run adaligand_ag_20260711T154658_e3v3_v1已冻结22,309个旧E合格目标；target IDs SHA为35108a7a…a10b，target manifest SHA为18313414…1f10。旧E status/de_release/exclusion/pair_list继续按原SHA只读绑定；待跨run writer锁、launch manifest和单分片pilot通过后，使用独立48 CPU执行其余迁移。"
   ],
   "blockers": [
-    "当前无科学契约决策阻塞；v4 inventory已闭合，PID54412等待已由用户授权的schema v3单一精确controller例外解除。Stage F writer仍处于受检scratch恢复安全停点；下一步须在master/cnode04/cnode01零F/recovery/blocking-opaque进程时分别生成audit前与apply前的新鲜process证据，完成v4零删除audit、journaled apply和独立验收，再按318350→316116顺序恢复。不得信号PID54412、不得使用v3 bundle、不得放宽任何其他进程门。正式G数值配置/filter仍须在质量分布后另行显式执行。"
+    "当前无科学契约决策阻塞。Stage F两路CPU96已恢复并正常推进，正式G仍只等待316116的f_release。E3全量风险审计判为小范围记录项，不修改祖传函数；当前工程门只剩跨run writer锁、launch manifest、pilot和22,309-ID迁移/release。正式G数值配置/filter仍须在质量分布后另行显式执行。"
   ],
   "failures": [
     "2026-07-12 Stage C gate 事件：366/22,386 为 unknown_failed，涉及 43,175 occurrences、506 object_keys；这是系统性工程/契约问题，不能按小比例忽略。",
