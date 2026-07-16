@@ -27,6 +27,14 @@ When the user says "收口", "回填计划", "reconcile", "audit drift", or equi
 
 Keep detailed history in execution logs and Git history. Keep planning documents clean and current.
 
+## Run-Scoped Scaffolding And Maintenance Closeout
+
+One-off repair, cutoff, supplement, migration, recovery, resource-override, and dynamic run-command code MUST remain visibly separated from the long-lived artifact-production path. Run-scoped tooling needs an explicit scope, evidence location, exit condition, and statement of whether it is safe as a default production entry point.
+
+This rule is retrospective across the whole project. At final closeout, agents MUST inventory both new and pre-existing scaffolding and classify it as long-lived production code, reusable operations tooling, or run-specific scaffolding. A tool may remain only after review documents its continuing value, boundaries, default-call policy, tests, and archive or retirement condition; otherwise remove it or move it out of the active production path.
+
+Do not clean up code that is still required by a running job, unfinished recovery, open audit, or unclosed migration. Before removing scaffolding, freeze its evidence and Git checkpoint. After removal, rerun contract tests, the relevant full suite, and any necessary real smoke test to prove that scientific artifact behavior remains unchanged.
+
 ## Path Rules
 
 Use repository-relative paths for local project files in project documents, such as `文档/规划文档/数据处理_v2.md`.
