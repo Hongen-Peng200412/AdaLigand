@@ -424,9 +424,9 @@
 
 ## Outcomes & Retrospective
 
-尚未完成。Stage C v4、ABC gate、MRC 放行及正式 D/E 已闭合；`316115` 于 2026-07-14 01:26:42 `COMPLETED 0:0`，D/E 四终态、风险分层 artifact、四条 Stage E run-only exclusion 与 2zhc frame mismatch 均已通过独立审计。Stage F 的正式 `316116` 和尾段补算 `318350` 已因 scratch 生命周期事故安全收口到各自 `after+try`，原两台 CPU96 allocation、正式 status writer 与 afterok 链均保留。异常安全实现、硬中断回收工具和跨节点真实进程门已经测试；唯一有效的 v4 inventory 已闭合并通过哈希验证，但不归属 PID `54412` 尚未自然退出，因此零删除 audit、journaled apply 和顺序恢复尚未开始。全量 F 状态、五条 Stage F exclusion 终态与总体质量分布仍待完成。Stage G 单一 map-level schema v2 已实现，`316117` 仍只安排 analyze。未完成范围是受检 scratch 回收、F 顺序恢复与全量独立 QC、G analyze/分布、最终文档与记忆收口；显式阈值配置和 `keep_list` 仍不属于本轮无人值守终点。
+尚未完成。Stage C v4、ABC gate、MRC 放行及正式 D/E 已闭合；`316115` 于 2026-07-14 01:26:42 `COMPLETED 0:0`，D/E 四终态、风险分层 artifact、四条 Stage E run-only exclusion 与 2zhc frame mismatch 均已通过独立审计。Stage F scratch v4 已完成零删除 audit、4,341 条 transient 的 journal/fsync apply 和定向独立验收；10,260 条 nontransient 与 2,568 条 public trio 后验通过，`apply_summary` SHA-256 为 `4dfd0853…2f649`，v1/v3 继续永久作废。2026-07-16 19:03–19:07 依次恢复 `318350→316116`：补算以受检 run_cmd SHA-256 `ca04f4f…25f3e` 顺序执行 v1/v2，正式 F 继续以 `bd7edb94…5ffa` 运行；两台 CPU96、各 12 个外层 worker 与 MapQ `np=8` 均已实机确认，guard/child PGID 已登记，正式 `316116` 仍是唯一 22,386 行 status/release writer。全量 F 状态、五条 Stage F exclusion 终态与总体质量分布仍待完成。Stage G 单一 map-level schema v2 已实现，`316117` 仍只安排 analyze。显式阈值配置和 `keep_list` 仍不属于本轮无人值守终点。
 
-E3 的 Pocket 祖传半体素修复已经在本地实现：`75d8f42/92fc2e8` 基线全套为 309 passed、10 skipped；`e90fccc` 删除全部解析候选边界，只直接筛选祖传 float32 中心并取得 300/300 完整网格 oracle 零差异；`1780942` 将 E/F frame preflight 窄修为 Pocket 物理 BOX，专项 9 passed。它尚未完成最新 HEAD 本地全套、远端 Linux 全套、真实多图 Pocket smoke、22,309 冻结集合原子迁移和独立 E3 gate，因此不能把本地 checkpoint 冒充服务器科学产物已修复。未使用的 `mrc.py::grid_world_bounds` 仅列为 P2 维护项，不阻断生产迁移。F/G 不消费 E3，可继续推进；Stage1 训练就绪必须等待 E3 gate 与 A–G gate 同时闭合。
+E3 的 Pocket 祖传半体素修复及 source-aware release runner 已实现：`75d8f42/92fc2e8/e90fccc/1780942/7202bc9/97a9c07` 依次冻结祖传中心、删除 Agent 自研候选边界、收敛 Pocket BOX、建立 22,309 目标快照与让 validator 从当前 Stage C 原子逐 mask 重建。最新本地全套为 327 passed、10 个 Windows 条件项 skipped，服务器 Linux 全套为 337 passed；45 组合与真实 `7b14/7nll` 对 Pocket 原始中心 oracle 均逐位一致，`exp.npz/sim.npz` SHA 不变。独立审计另发现祖传 `make_model_grid` 把 `make_cubic` 的 ZYX shift 直接作用于 XYZ origin；严格风险条件是 Z/X padding shift 不同，当前只严格证实到 `7nll`。该发现未改祖传或生产逻辑，正在以独立 48 CPU 做 header-only 全量影响率审计；若形成广泛硬伤或需要改变训练产物，必须先报告用户审批。22,309 冻结集合原子迁移和独立 E3 gate 尚未执行，因此不能把代码验证冒充服务器科学产物已修复。F/G 不消费 E3，可继续推进；Stage1 训练就绪必须等待 E3 gate 与 A–G gate 同时闭合。
 
 当前正式 run 的 run-only exclusion 计数为 5，受检巨大长尾的自治追加余额为 4；只有活动长尾、完整 artifact 缺失和资源证据三项同时成立才可使用。计数将达到 10，或出现同类聚集/系统性趋势时，不得继续个例化，必须转入根因诊断并询问用户。
 
@@ -608,9 +608,9 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 
 ### Unfinished scope
 
-- C source repair、全量 C、ABC gate 与正式 D/E 已完成；D–G 代码已实现。DE→F 的 status/gate、E artifact 风险分层和 exclusion/frame-mismatch 三路审计均通过。Stage F scratch v4 inventory、双新鲜进程门、零删除 audit、journal/fsync apply 与独立定向验收已经闭合；`316116/318350` 仍保留原 allocation 与各自 `after+try`，只等待最新代码的精确同步、远端全套测试和 `318350→316116` 顺序恢复。未完成范围是 F 全量四终态及质量审计、五条 Stage F exclusion 传播复核、F→G release gate、G analyze 分布和最终独立 QC。
+- C source repair、全量 C、ABC gate 与正式 D/E 已完成；D–G 代码已实现。DE→F 的 status/gate、E artifact 风险分层和 exclusion/frame-mismatch 三路审计均通过。Stage F scratch v4 inventory、双新鲜进程门、零删除 audit、journal/fsync apply、独立定向验收以及 `318350→316116` 顺序恢复均已闭合；正式与补算当前各占一台 CPU96，补算 v2 计划为 5,984 个 ID、尾段 `[16386,22386)`、stop=14,386、guard=2,000。未完成范围是 F 全量四终态及质量审计、五条 Stage F exclusion 传播复核、F→G release gate、G analyze 分布和最终独立 QC。
 - G 的 map-level 算法、比较边界、空口袋分母和整 map 保留规则已冻结；最终分辨率、选定 CC、配体 Q、口袋 Q 与比例数值仍须先看正式分布后以 schema v2 配置显式给出。当前示例不写入默认值，正式 filter/`keep_list` 尚未执行。
-- E3 本地实现/记忆基线由 `75d8f42/92fc2e8` 冻结，`e90fccc` 已删除自研候选边界并通过 300/300 Pocket 完整网格 oracle，`1780942` 已窄修生产 E/F frame preflight；尚待最新 HEAD 本地全套、远端 Linux 全套、真实多图 Pocket oracle、22,309-ID 冻结迁移和独立 release gate。77 个旧 known failure、旧 E status/de_release/exclusion 始终只读，不属于迁移目标；未使用的 `mrc.py::grid_world_bounds` 是 P2 维护项。
+- E3 代码、独立 runner、source-aware validator、本地/远端全套与多图 Pocket oracle 已通过；尚待祖传 `make_model_grid` ZYX/XYZ shift 风险的 48 CPU 全量影响率审计、22,309-ID 冻结迁移和独立 release gate。77 个旧 known failure、旧 E status/de_release/exclusion 始终只读，不属于迁移目标；祖传文件在用户审批前绝不修改，未使用的 `mrc.py::grid_world_bounds` 是 P2 维护项。
 
 Revision note 2026-07-10 14:38+08:00: 创建本 ExecPlan，记录已确认边界、旧产物证据、科学语义、资源/许可纪律和从实现到服务器全量验收的恢复路径。
 
@@ -656,3 +656,7 @@ Revision note 2026-07-16 13:32+08:00: 记录用户明确决定不归属容量扫
 
 Revision note 2026-07-16 17:20+08:00: 用户把“临时脚手架最终收口”提升为整个项目的维护规则，并要求追溯审阅此前已经加入代码库的同类文件。已启动全项目只读盘点；在 `316116/318350` scratch 恢复和 E3 迁移仍依赖相应入口期间不提前删除，最终按依赖和风险分类完成测试后收口。该新增项不改变 A–G 或 E3 科学契约。
 Revision note 2026-07-16 18:05+08:00: 回填用户冻结的 E3 半体素修复契约与本地实现证据。`75d8f42/92fc2e8` 建立直接调用 Pocket vendored 体素中心、schema v3、原子坐标重建及仅限 `ligand_area.npz` 的压缩原子覆盖，基线全套为 309 passed、10 skipped；`e90fccc` 随后彻底删除解析 bbox/`searchsorted`/索引反推并取得 300/300 Pocket 完整网格 oracle 零差异，`1780942` 将 E/F frame preflight 窄修为 Pocket 物理 BOX且专项 9 passed。正式迁移集合冻结为旧 Stage E 合格的 22,309 个 PDB，77 个旧 known failure 不复活，旧 E status、`de_release` 与 exclusion 证据只读保留；E3 修复支线不阻断正在推进的 F/G。尚待最新 HEAD 本地全套、远端 Linux 全套、真实多图 Pocket 端到端 oracle与22,309-ID 独立迁移/release gate；在这些证据闭合前不得把本地实现冒充服务器迁移完成。未使用的 `mrc.py::grid_world_bounds` 只作为 P2 维护项跟踪。
+
+Revision note 2026-07-16 19:07+08:00: scratch v4 journaled apply 与独立验收闭合后，先受检发布 `318350` 的 v1→v2 run_cmd（SHA-256 `ca04f4f…25f3e`），确认 guard、child PGID、12 个 Loky worker 和 MapQ `np=8` 后，再删除精确 `try_lock_316116`。正式 `316116` 随后复用 `bd7edb94…5ffa` 恢复 12 个 worker；两台 CPU96 总计 192 CPU，`316117` 仍等待正式 F。v2 冻结 5,984 个 eligible ID，plan/ID SHA-256 为 `116084c3…64fc` / `7f427993…7c6c`，正式初始间隔 7,565、stop=14,386、guard=2,000；该变更只优化本轮吞吐，不改变 F 科学契约或正式 writer。
+
+Revision note 2026-07-16 19:10+08:00: 三个独立审计分别核验 E3 上下游轴序、Pocket 中心 oracle 与 v2→v3 真实产物差异；几何/内容均通过，source-aware validator 的 P1 缺口由 `97a9c07` 修复。审计还发现祖传 `make_model_grid` 的 `shift_zyx`/`origin_xyz` 轴序风险，严格条件为 Z/X padding shift 不同，当前严格证据下界为 `7nll` 一例。遵照用户边界，祖传与生产逻辑均未改；先用独立 48 CPU 输出全量受影响 EMD/PDB、SHA 和正式 E 状态 join，再由用户决定是否接受、run-only 排除或批准窄兼容。
