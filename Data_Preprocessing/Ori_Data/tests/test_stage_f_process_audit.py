@@ -46,12 +46,14 @@ def _write_proc_process(
     ppid: int,
     uid: int,
     argv: list[str],
+    start_time_ticks: int | None = None,
 ) -> None:
     """写一个足以供扫描器读取的最小 fake ``/proc/<pid>``。"""
     proc_dir = proc_root / str(pid)
     proc_dir.mkdir(parents=True)
+    stat_tail = ["S", str(ppid), *(["0"] * 17), str(start_time_ticks or pid * 100)]
     (proc_dir / "stat").write_text(
-        f"{pid} (worker) S {ppid} 0 0 0\n",
+        f"{pid} (worker) {' '.join(stat_tail)}\n",
         encoding="utf-8",
     )
     (proc_dir / "status").write_text(
@@ -164,6 +166,18 @@ def _zero_probe(node: str, identity: dict[str, str]) -> str:
     )
 
 
+def _probe_with_opaque(
+    node: str,
+    identity: dict[str, str],
+    rows: list[dict[str, object]],
+) -> str:
+    """返回保留原始 opaque 行的真实 probe stdout。"""
+    payload = json.loads(_zero_probe(node, identity))
+    payload["active_opaque_stdin_python_processes"] = len(rows)
+    payload["opaque_stdin_python_processes"] = rows
+    return json.dumps(payload, sort_keys=True) + "\n"
+
+
 def test_capture_json_round_trip_is_accepted_by_recovery(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -199,6 +213,204 @@ def test_capture_json_round_trip_is_accepted_by_recovery(
     validated = recovery._validate_process_audit(output, sha256_file(output), [101, 102])
     assert validated["probe_module_sha256"] == identity["probe_module_sha256"]
     assert validated["controller_check"]["probe_output"].startswith("{")
+
+
+def test_exact_controller_opaque_exception_round_trip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """一次性 PID 指纹可放行同一 controller 进程，但原始 opaque 行必须保留。"""
+    identity = process_audit.implementation_identity(PROCESS_SCRIPT)
+    argv = ["python3", "-"]
+    row = {
+        "pid": 54412,
+        "ppid": 53972,
+        "start_time_ticks": 123456,
+        "argv": argv,
+        "argv_sha256": process_audit.process_argv_sha256(argv),
+        "command": "python3 -",
+    }
+    spec = {
+        "node": "master",
+        "pid": row["pid"],
+        "ppid": row["ppid"],
+        "start_time_ticks": row["start_time_ticks"],
+        "argv_sha256": row["argv_sha256"],
+    }
+
+    def fake_run(argv_: list[str], *, timeout_seconds: float = 120.0) -> tuple[int, str, str]:
+        del timeout_seconds
+        if argv_[:2] == ["bash", "-lc"]:
+            return 0, "scheduler-ok\n", ""
+        node = "master"
+        for argument in argv_:
+            if argument.startswith("--nodelist="):
+                node = argument.split("=", 1)[1]
+        stdout = _probe_with_opaque(node, identity, [row]) if node == "master" else _zero_probe(node, identity)
+        return 0, stdout, ""
+
+    monkeypatch.setattr(process_audit, "_run_text", fake_run)
+    monkeypatch.setattr(process_audit.socket, "gethostname", lambda: "master")
+    output = tmp_path / "authorized-opaque.json"
+    audit = process_audit.capture_process_audit(
+        output,
+        jobs=[(101, "cnode01")],
+        script_path=PROCESS_SCRIPT,
+        lock_root=tmp_path / "locks",
+        expected_controller_node="master",
+        authorized_controller_opaque_specs=[spec],
+    )
+
+    assert audit["status"] == "success"
+    assert audit["observed_opaque_stdin_python_processes"] == 1
+    assert audit["active_opaque_stdin_python_processes"] == 0
+    assert audit["authorized_controller_opaque_processes"] == [row]
+    recovery._validate_process_audit(output, sha256_file(output), [101])
+
+
+@pytest.mark.parametrize("field", ["pid", "ppid", "start_time_ticks", "argv_sha256"])
+def test_controller_opaque_exception_identity_drift_blocks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+) -> None:
+    """PID、父进程、启动时刻或 argv 任一漂移都不能借用旧授权。"""
+    identity = process_audit.implementation_identity(PROCESS_SCRIPT)
+    argv = ["python3", "-"]
+    row = {
+        "pid": 54412,
+        "ppid": 53972,
+        "start_time_ticks": 123456,
+        "argv": argv,
+        "argv_sha256": process_audit.process_argv_sha256(argv),
+        "command": "python3 -",
+    }
+    spec = {
+        "node": "master",
+        "pid": row["pid"],
+        "ppid": row["ppid"],
+        "start_time_ticks": row["start_time_ticks"],
+        "argv_sha256": row["argv_sha256"],
+    }
+    spec[field] = "f" * 64 if field == "argv_sha256" else int(spec[field]) + 1
+
+    def fake_run(argv_: list[str], *, timeout_seconds: float = 120.0) -> tuple[int, str, str]:
+        del timeout_seconds
+        if argv_[:2] == ["bash", "-lc"]:
+            return 0, "scheduler-ok\n", ""
+        node = "master" if not any(item.startswith("--nodelist=") for item in argv_) else "cnode01"
+        stdout = _probe_with_opaque(node, identity, [row]) if node == "master" else _zero_probe(node, identity)
+        return 0, stdout, ""
+
+    monkeypatch.setattr(process_audit, "_run_text", fake_run)
+    monkeypatch.setattr(process_audit.socket, "gethostname", lambda: "master")
+    audit = process_audit.capture_process_audit(
+        tmp_path / f"blocked-{field}.json",
+        jobs=[(101, "cnode01")],
+        script_path=PROCESS_SCRIPT,
+        lock_root=tmp_path / "locks",
+        expected_controller_node="master",
+        authorized_controller_opaque_specs=[spec],
+    )
+    assert audit["status"] == "blocked"
+    assert audit["active_opaque_stdin_python_processes"] == 1
+
+
+def test_exact_exception_does_not_hide_a_second_opaque_process(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """一个精确例外只能扣除一行，另一个 opaque Python 仍须阻断。"""
+    identity = process_audit.implementation_identity(PROCESS_SCRIPT)
+    argv = ["python3", "-"]
+    digest = process_audit.process_argv_sha256(argv)
+    authorized = {
+        "pid": 54412,
+        "ppid": 53972,
+        "start_time_ticks": 123456,
+        "argv": argv,
+        "argv_sha256": digest,
+        "command": "python3 -",
+    }
+    other = {**authorized, "pid": 60000, "start_time_ticks": 654321}
+    spec = {
+        "node": "master",
+        "pid": 54412,
+        "ppid": 53972,
+        "start_time_ticks": 123456,
+        "argv_sha256": digest,
+    }
+
+    def fake_run(argv_: list[str], *, timeout_seconds: float = 120.0) -> tuple[int, str, str]:
+        del timeout_seconds
+        if argv_[:2] == ["bash", "-lc"]:
+            return 0, "scheduler-ok\n", ""
+        is_allocation = any(item.startswith("--nodelist=") for item in argv_)
+        return (
+            0,
+            _zero_probe("cnode01", identity)
+            if is_allocation
+            else _probe_with_opaque("master", identity, [authorized, other]),
+            "",
+        )
+
+    monkeypatch.setattr(process_audit, "_run_text", fake_run)
+    monkeypatch.setattr(process_audit.socket, "gethostname", lambda: "master")
+    audit = process_audit.capture_process_audit(
+        tmp_path / "second-opaque.json",
+        jobs=[(101, "cnode01")],
+        script_path=PROCESS_SCRIPT,
+        lock_root=tmp_path / "locks",
+        expected_controller_node="master",
+        authorized_controller_opaque_specs=[spec],
+    )
+    assert audit["status"] == "blocked"
+    assert audit["authorized_controller_opaque_processes"] == [authorized]
+    assert audit["blocking_controller_opaque_processes"] == [other]
+
+
+def test_only_one_controller_opaque_exception_is_allowed() -> None:
+    """接口本身不得演变成可逐条放行所有 opaque 进程的 allowlist。"""
+    digest = process_audit.process_argv_sha256(["python3", "-"])
+    specs = [
+        {
+            "node": "master",
+            "pid": pid,
+            "ppid": 1,
+            "start_time_ticks": pid * 10,
+            "argv_sha256": digest,
+        }
+        for pid in (54412, 60000)
+    ]
+    with pytest.raises(ValueError, match="at most one"):
+        process_audit.normalize_opaque_process_specs(specs)
+
+
+@pytest.mark.parametrize("tamper", ["digest", "command", "nonopaque", "duplicate"])
+def test_raw_opaque_rows_are_recomputed_before_authorization(tamper: str) -> None:
+    """raw 行不能靠自报摘要、命令或重复身份冒充精确例外。"""
+    argv = ["python3", "-"]
+    row = {
+        "pid": 54412,
+        "ppid": 53972,
+        "start_time_ticks": 123456,
+        "argv": argv,
+        "argv_sha256": process_audit.process_argv_sha256(argv),
+        "command": "python3 -",
+    }
+    rows = [row]
+    if tamper == "digest":
+        row["argv_sha256"] = "f" * 64
+    elif tamper == "command":
+        row["command"] = "python3 worker.py"
+    elif tamper == "nonopaque":
+        row["argv"] = ["python3", "-c", "print(1)"]
+        row["argv_sha256"] = process_audit.process_argv_sha256(row["argv"])
+        row["command"] = "python3 -c print(1)"
+    else:
+        rows.append(dict(row))
+    with pytest.raises(ValueError):
+        process_audit.validate_opaque_process_rows(rows)
 
 
 def test_capture_requires_the_expected_nonallocation_controller(

@@ -24,6 +24,9 @@ from stage_f_process_audit import (
     PROCESS_PROBE_CONTRACT,
     PROCESS_PROBE_SCHEMA_VERSION,
     implementation_identity,
+    normalize_opaque_process_specs,
+    partition_authorized_opaque_processes,
+    validate_opaque_process_rows,
 )
 
 
@@ -97,8 +100,9 @@ def _validate_zero_process_check(
     expected_scope: str,
     expected_identity: dict[str, str],
     expected_job_id: int | None = None,
-) -> None:
-    """闭合验证一个节点的零 writer、零 recovery 与零 stdin Python 证据。"""
+    authorized_opaque_specs: Iterable[dict[str, Any]] = (),
+) -> dict[str, list[dict[str, Any]]]:
+    """闭合验证一个节点；只允许 controller 上精确指纹匹配的 opaque 例外。"""
     if not isinstance(check, dict):
         raise RuntimeError(f"invalid process audit check for {label}: {check}")
     command = check.get("probe_command")
@@ -109,16 +113,8 @@ def _validate_zero_process_check(
         probe = json.loads(output) if isinstance(output, str) else None
     except json.JSONDecodeError:
         probe = None
-    count_fields = (
-        "active_stage_f_processes",
-        "active_inventory_or_cleanup_processes",
-        "active_opaque_stdin_python_processes",
-    )
-    process_lists = (
-        "stage_f_processes",
-        "inventory_or_cleanup_processes",
-        "opaque_stdin_python_processes",
-    )
+    zero_count_fields = ("active_stage_f_processes", "active_inventory_or_cleanup_processes")
+    zero_process_lists = ("stage_f_processes", "inventory_or_cleanup_processes")
     command_markers = ("stage_f_process_audit.py", "probe")
     allocation_markers = (
         "srun",
@@ -154,6 +150,20 @@ def _validate_zero_process_check(
         and Path(probe_argv[-2]).resolve() == expected_script
         and probe_argv[-1] == "probe"
     )
+    opaque_rows = probe.get("opaque_stdin_python_processes") if isinstance(probe, dict) else None
+    try:
+        validated_opaque_rows = validate_opaque_process_rows(
+            opaque_rows if isinstance(opaque_rows, list) else []
+        )
+        authorized_rows, blocking_rows = partition_authorized_opaque_processes(
+            validated_opaque_rows,
+            authorized_opaque_specs,
+            node=expected_node,
+        )
+    except (TypeError, ValueError):
+        authorized_rows = []
+        blocking_rows = [{"error": "invalid_opaque_partition"}]
+    opaque_count = len(opaque_rows) if isinstance(opaque_rows, list) else -1
     valid = (
         isinstance(expected_node, str)
         and bool(expected_node)
@@ -185,8 +195,14 @@ def _validate_zero_process_check(
         and type(probe.get("uid")) is int
         and int(probe["uid"]) >= 0
         and identity_matches
-        and all(check.get(field) == 0 and probe.get(field) == 0 for field in count_fields)
-        and all(isinstance(probe.get(field), list) and not probe[field] for field in process_lists)
+        and all(check.get(field) == 0 and probe.get(field) == 0 for field in zero_count_fields)
+        and all(
+            isinstance(probe.get(field), list) and not probe[field]
+            for field in zero_process_lists
+        )
+        and check.get("active_opaque_stdin_python_processes") == opaque_count
+        and probe.get("active_opaque_stdin_python_processes") == opaque_count
+        and not blocking_rows
         and check.get("scan_error_count") == 0
         and probe.get("scan_error_count") == 0
         and isinstance(probe.get("scan_errors"), list)
@@ -194,6 +210,11 @@ def _validate_zero_process_check(
     )
     if not valid:
         raise RuntimeError(f"invalid process audit check for {label}: {check}")
+    return {
+        "observed": opaque_rows,
+        "authorized": authorized_rows,
+        "blocking": blocking_rows,
+    }
 
 
 def _validate_process_audit(
@@ -221,6 +242,12 @@ def _validate_process_audit(
     except RuntimeError:
         capture_started_at = captured_at = datetime.min.replace(tzinfo=timezone.utc)
         age_seconds = float("inf")
+    try:
+        authorized_specs = normalize_opaque_process_specs(
+            audit.get("authorized_controller_opaque_specs", [])
+        )
+    except (TypeError, ValueError):
+        authorized_specs = [{"invalid": True}]
     if (
         audit.get("schema_version") != PROCESS_AUDIT_SCHEMA_VERSION
         or audit.get("status") != "success"
@@ -250,12 +277,13 @@ def _validate_process_audit(
     if any(audit.get(key) != value for key, value in expected_identity.items()):
         raise RuntimeError("process audit implementation identity mismatch")
     controller_node = audit["controller_node"]
-    _validate_zero_process_check(
+    controller_partition = _validate_zero_process_check(
         controller_check,
         label="controller",
         expected_node=controller_node,
         expected_scope="controller",
         expected_identity=expected_identity,
+        authorized_opaque_specs=authorized_specs,
     )
     check_times = [
         (
@@ -263,10 +291,11 @@ def _validate_process_audit(
             _parse_aware_time(controller_check["completed_at"], label="controller completed_at"),
         )
     ]
+    job_partitions: list[dict[str, list[dict[str, Any]]]] = []
     for job_id in job_ids:
         check = job_checks.get(str(job_id))
         expected_node = audit["job_nodes"].get(str(job_id))
-        _validate_zero_process_check(
+        job_partition = _validate_zero_process_check(
             check,
             label=f"job {job_id}",
             expected_node=expected_node,
@@ -274,12 +303,26 @@ def _validate_process_audit(
             expected_identity=expected_identity,
             expected_job_id=job_id,
         )
+        job_partitions.append(job_partition)
         check_times.append(
             (
                 _parse_aware_time(check["started_at"], label=f"job {job_id} started_at"),
                 _parse_aware_time(check["completed_at"], label=f"job {job_id} completed_at"),
             )
         )
+    observed_rows = [
+        *controller_partition["observed"],
+        *(row for partition in job_partitions for row in partition["observed"]),
+    ]
+    if (
+        audit.get("observed_opaque_stdin_python_processes") != len(observed_rows)
+        or audit.get("authorized_controller_opaque_processes")
+        != controller_partition["authorized"]
+        or audit.get("blocking_controller_opaque_processes")
+        != controller_partition["blocking"]
+        or audit.get("authorized_controller_opaque_specs") != authorized_specs
+    ):
+        raise RuntimeError("process audit opaque exception partition mismatch")
     if (
         capture_started_at > min(start for start, _end in check_times)
         or max(end for _start, end in check_times) > captured_at
@@ -723,6 +766,9 @@ def _build_scratch_audit_locked(
         "manifest_sha256": manifest_hashes,
         "audit_summary_sha256": sha256_file(report_dir / "audit_summary.json"),
         "audit_process_sha256": expected_process_audit_sha256,
+        "authorized_controller_opaque_specs": process_audit[
+            "authorized_controller_opaque_specs"
+        ],
     }
     write_report(report_dir / "audit_bundle.json", bundle)
     return summary
@@ -1037,6 +1083,11 @@ def _apply_scratch_cleanup_locked(
         run_ids,
         job_ids,
     )
+    if (
+        process_audit.get("authorized_controller_opaque_specs")
+        != bundle.get("authorized_controller_opaque_specs")
+    ):
+        raise RuntimeError("apply process exception differs from audit process exception")
     delete_path = report_dir / "delete_manifest.jsonl"
     actual_manifest_sha256 = bundle["manifest_sha256"]["delete_manifest.jsonl"]
     delete_records = _read_bound_jsonl(delete_path, actual_manifest_sha256)

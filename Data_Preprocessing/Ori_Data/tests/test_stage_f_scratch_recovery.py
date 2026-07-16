@@ -147,6 +147,10 @@ def _write_process_audit(report_dir: Path) -> tuple[Path, str]:
                 "active_stage_f_processes": 0,
                 "active_inventory_or_cleanup_processes": 0,
                 "active_opaque_stdin_python_processes": 0,
+                "observed_opaque_stdin_python_processes": 0,
+                "authorized_controller_opaque_specs": [],
+                "authorized_controller_opaque_processes": [],
+                "blocking_controller_opaque_processes": [],
                 "scan_error_count": 0,
                 "scheduler_exit_code": 0,
                 "scheduler_snapshot": scheduler_snapshot,
@@ -311,6 +315,29 @@ def test_apply_refuses_new_transient_after_audit(tmp_path: Path) -> None:
     assert not (fixture["report_dir"] / "apply_progress.jsonl").exists()
 
 
+def test_apply_rejects_process_exception_drift_before_unlink(tmp_path: Path) -> None:
+    """audit/apply 必须复用同一例外指纹；漂移时任何 transient 都不能删除。"""
+    fixture = _build_fixture(tmp_path)
+    _audit(fixture)
+    payload = json.loads(fixture["process_audit"].read_text(encoding="utf-8"))
+    payload["authorized_controller_opaque_specs"] = [
+        {
+            "node": "controller",
+            "pid": 54412,
+            "ppid": 53972,
+            "start_time_ticks": 123456,
+            "argv_sha256": hashlib.sha256(b"python3\0-").hexdigest(),
+        }
+    ]
+    fixture["process_audit"].write_text(json.dumps(payload), encoding="utf-8")
+    fixture["process_audit_sha256"] = sha256_file(fixture["process_audit"])
+    bundle_path = fixture["report_dir"] / "audit_bundle.json"
+    with pytest.raises(RuntimeError, match="exception differs"):
+        _apply(fixture, sha256_file(bundle_path))
+    assert (fixture["formal_attempt"] / "full_model.cif").exists()
+    assert not (fixture["report_dir"] / "apply_progress.jsonl").exists()
+
+
 def test_audit_requires_exact_try_lock_and_process_evidence(tmp_path: Path) -> None:
     """缺 try-lock 或进程证据哈希漂移时，audit 在扫描前失败。"""
     fixture = _build_fixture(tmp_path)
@@ -344,7 +371,14 @@ def test_process_audit_rejects_controller_opaque_stdin_python(tmp_path: Path) ->
     probe = json.loads(check["probe_output"])
     probe["active_opaque_stdin_python_processes"] = 1
     probe["opaque_stdin_python_processes"] = [
-        {"pid": 52523, "ppid": 52118, "argv": ["python", "-"], "command": "python -"}
+        {
+            "pid": 52523,
+            "ppid": 52118,
+            "start_time_ticks": 123456,
+            "argv": ["python", "-"],
+            "argv_sha256": hashlib.sha256(b"python\0-").hexdigest(),
+            "command": "python -",
+        }
     ]
     check["probe_output"] = json.dumps(probe, sort_keys=True) + "\n"
     check["probe_output_sha256"] = hashlib.sha256(check["probe_output"].encode()).hexdigest()

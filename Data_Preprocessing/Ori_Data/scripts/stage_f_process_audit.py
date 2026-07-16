@@ -22,6 +22,32 @@ def _job(value: str) -> tuple[int, str]:
     return int(job_id), node
 
 
+def _opaque_process(value: str) -> dict[str, object]:
+    """解析 ``NODE:PID:PPID:START_TICKS:ARGV_SHA256`` 精确进程指纹。"""
+    parts = value.split(":")
+    if len(parts) != 5:
+        raise argparse.ArgumentTypeError(
+            "opaque process must use NODE:PID:PPID:START_TICKS:ARGV_SHA256"
+        )
+    node, pid, ppid, start_time_ticks, argv_sha256 = parts
+    if (
+        not node
+        or not pid.isdigit()
+        or not ppid.isdigit()
+        or not start_time_ticks.isdigit()
+        or len(argv_sha256) != 64
+        or any(character not in "0123456789abcdefABCDEF" for character in argv_sha256)
+    ):
+        raise argparse.ArgumentTypeError("invalid opaque process fingerprint")
+    return {
+        "node": node,
+        "pid": int(pid),
+        "ppid": int(ppid),
+        "start_time_ticks": int(start_time_ticks),
+        "argv_sha256": argv_sha256.lower(),
+    }
+
+
 def main() -> None:
     """执行当前节点 probe，或在登录节点汇总 controller/compute 证据。"""
     parser = argparse.ArgumentParser()
@@ -32,6 +58,13 @@ def main() -> None:
     capture.add_argument("--job", action="append", type=_job, required=True)
     capture.add_argument("--lock_root", type=Path, default=Path("/home/penghongen"))
     capture.add_argument("--controller_node", required=True)
+    capture.add_argument(
+        "--allow_controller_opaque",
+        action="append",
+        type=_opaque_process,
+        default=[],
+        help="只对 controller 上一次性、精确指纹匹配的 opaque Python 取消阻断",
+    )
     args = parser.parse_args()
     script_path = Path(__file__).resolve()
     if args.mode == "probe":
@@ -43,6 +76,7 @@ def main() -> None:
         script_path=script_path,
         lock_root=args.lock_root,
         expected_controller_node=args.controller_node,
+        authorized_controller_opaque_specs=args.allow_controller_opaque,
     )
     print(
         json.dumps(

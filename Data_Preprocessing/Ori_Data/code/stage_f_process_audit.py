@@ -18,9 +18,9 @@ from io_utils import sha256_file
 from reports import write_report
 
 
-PROCESS_AUDIT_SCHEMA_VERSION = 2
-PROCESS_PROBE_SCHEMA_VERSION = 1
-PROCESS_PROBE_CONTRACT = "adaligand_stage_f_process_probe_v1"
+PROCESS_AUDIT_SCHEMA_VERSION = 3
+PROCESS_PROBE_SCHEMA_VERSION = 2
+PROCESS_PROBE_CONTRACT = "adaligand_stage_f_process_probe_v2"
 _PYTHON_EXECUTABLE = re.compile(r"^python(?:\d+(?:\.\d+)*)?(?:\.exe)?$")
 _STAGE_F_TOKENS = (
     "f_quality.py",
@@ -82,6 +82,114 @@ def _read_process_ppid(proc_dir: Path) -> int:
     text = (proc_dir / "stat").read_text(encoding="utf-8")
     tail = text[text.rfind(")") + 2 :].split()
     return int(tail[1])
+
+
+def _read_process_start_time_ticks(proc_dir: Path) -> int:
+    """读取 ``/proc/<pid>/stat`` field 22，防止 PID 复用冒充已授权进程。"""
+    text = (proc_dir / "stat").read_text(encoding="utf-8")
+    tail = text[text.rfind(")") + 2 :].split()
+    return int(tail[19])
+
+
+def process_argv_sha256(argv: list[str]) -> str:
+    """对 NUL 分隔 argv 计算稳定摘要，绑定同一进程是否发生 exec 漂移。"""
+    payload = b"\0".join(item.encode("utf-8") for item in argv)
+    return hashlib.sha256(payload).hexdigest()
+
+
+def normalize_opaque_process_specs(specs: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """规范化一次性 controller opaque 例外；任何宽泛或重复输入均拒绝。"""
+    normalized: list[dict[str, Any]] = []
+    expected_keys = {"node", "pid", "ppid", "start_time_ticks", "argv_sha256"}
+    for raw in specs:
+        if not isinstance(raw, dict) or set(raw) != expected_keys:
+            raise ValueError(f"invalid opaque process spec fields: {raw}")
+        node = str(raw["node"])
+        digest = str(raw["argv_sha256"]).lower()
+        spec = {
+            "node": node,
+            "pid": int(raw["pid"]),
+            "ppid": int(raw["ppid"]),
+            "start_time_ticks": int(raw["start_time_ticks"]),
+            "argv_sha256": digest,
+        }
+        if (
+            not node
+            or spec["pid"] <= 1
+            or spec["ppid"] < 0
+            or spec["start_time_ticks"] <= 0
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+        ):
+            raise ValueError(f"invalid opaque process spec values: {raw}")
+        normalized.append(spec)
+    normalized.sort(key=lambda row: (row["node"], row["pid"], row["start_time_ticks"]))
+    if len(normalized) > 1:
+        raise ValueError("at most one controller opaque process may be authorized")
+    identities = [(row["node"], row["pid"], row["start_time_ticks"]) for row in normalized]
+    if len(identities) != len(set(identities)):
+        raise ValueError("duplicate opaque process specs")
+    return normalized
+
+
+def validate_opaque_process_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """复算 raw opaque 行的 argv/摘要/命令与唯一进程身份，拒绝自报字段漂移。"""
+    validated: list[dict[str, Any]] = []
+    identities: set[tuple[int, int]] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError(f"opaque process row is not an object: {row}")
+        argv = row.get("argv")
+        if not isinstance(argv, list) or not argv or not all(
+            isinstance(item, str) and item for item in argv
+        ):
+            raise ValueError(f"invalid opaque process argv: {row}")
+        pid = row.get("pid")
+        ppid = row.get("ppid")
+        start_time_ticks = row.get("start_time_ticks")
+        if (
+            type(pid) is not int
+            or pid <= 1
+            or type(ppid) is not int
+            or ppid < 0
+            or type(start_time_ticks) is not int
+            or start_time_ticks <= 0
+            or row.get("command") != " ".join(argv)
+            or row.get("argv_sha256") != process_argv_sha256(argv)
+            or not is_opaque_stdin_python(argv)
+        ):
+            raise ValueError(f"invalid opaque process identity: {row}")
+        identity = (pid, start_time_ticks)
+        if identity in identities:
+            raise ValueError(f"duplicate opaque process identity: {identity}")
+        identities.add(identity)
+        validated.append(row)
+    return validated
+
+
+def partition_authorized_opaque_processes(
+    rows: Iterable[dict[str, Any]],
+    specs: Iterable[dict[str, Any]],
+    *,
+    node: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """仅把 controller 上与完整进程指纹相等的 opaque 行移出 blocking 集合。"""
+    normalized = normalize_opaque_process_specs(specs)
+    validated_rows = validate_opaque_process_rows(rows)
+    short_node = node.split(".", 1)[0].lower()
+    if any(spec["node"].split(".", 1)[0].lower() != short_node for spec in normalized):
+        raise ValueError("opaque process spec belongs to another controller node")
+    authorized: list[dict[str, Any]] = []
+    blocking: list[dict[str, Any]] = []
+    for row in validated_rows:
+        matched = any(
+            int(row.get("pid", -1)) == spec["pid"]
+            and int(row.get("ppid", -1)) == spec["ppid"]
+            and int(row.get("start_time_ticks", -1)) == spec["start_time_ticks"]
+            and row.get("argv_sha256") == spec["argv_sha256"]
+            for spec in normalized
+        )
+        (authorized if matched else blocking).append(row)
+    return authorized, blocking
 
 
 def _read_process_uid(proc_dir: Path) -> int:
@@ -161,9 +269,18 @@ def scan_owned_processes(
         lower = command.lower()
         try:
             ppid = _read_process_ppid(proc_dir)
+            start_time_ticks = _read_process_start_time_ticks(proc_dir)
         except (FileNotFoundError, PermissionError, RuntimeError, ValueError, IndexError):
             ppid = None
-        row = {"pid": pid, "ppid": ppid, "argv": argv, "command": command}
+            start_time_ticks = None
+        row = {
+            "pid": pid,
+            "ppid": ppid,
+            "start_time_ticks": start_time_ticks,
+            "argv": argv,
+            "argv_sha256": process_argv_sha256(argv),
+            "command": command,
+        }
         if any(token in lower for token in _STAGE_F_TOKENS):
             stage_rows.append(row)
         if any(token in lower for token in _RECOVERY_TOKENS):
@@ -311,6 +428,7 @@ def capture_process_audit(
     script_path: Path,
     lock_root: Path,
     expected_controller_node: str,
+    authorized_controller_opaque_specs: Iterable[dict[str, Any]] = (),
 ) -> dict[str, Any]:
     """从登录节点和每个保留 allocation 生成一次原子 process-audit 证据。"""
     job_rows = sorted((int(job_id), str(node)) for job_id, node in jobs)
@@ -333,6 +451,13 @@ def capture_process_audit(
         for _job_id, node in job_rows
     ):
         raise RuntimeError("controller node must not also be an allocation node")
+    authorized_specs = normalize_opaque_process_specs(authorized_controller_opaque_specs)
+    if any(
+        spec["node"].split(".", 1)[0].lower()
+        != controller_node.split(".", 1)[0].lower()
+        for spec in authorized_specs
+    ):
+        raise RuntimeError("authorized opaque process must belong to the controller")
     capture_started_at = datetime.now(timezone.utc).isoformat()
     identity = implementation_identity(script_path)
     python = str(Path(sys.executable).resolve())
@@ -368,8 +493,29 @@ def capture_process_audit(
     checks = [controller_check, *job_checks.values()]
     stage_count = sum(int(check["active_stage_f_processes"]) for check in checks)
     recovery_count = sum(int(check["active_inventory_or_cleanup_processes"]) for check in checks)
-    opaque_count = sum(int(check["active_opaque_stdin_python_processes"]) for check in checks)
+    observed_opaque_count = sum(
+        int(check["active_opaque_stdin_python_processes"]) for check in checks
+    )
     scan_error_count = sum(int(check["scan_error_count"]) for check in checks)
+    try:
+        controller_probe = json.loads(str(controller_check["probe_output"]))
+        controller_opaque_rows = controller_probe["opaque_stdin_python_processes"]
+        if not isinstance(controller_opaque_rows, list):
+            raise TypeError("controller opaque rows must be a list")
+        authorized_opaque_rows, blocking_controller_opaque_rows = (
+            partition_authorized_opaque_processes(
+                controller_opaque_rows,
+                authorized_specs,
+                node=controller_node,
+            )
+        )
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        authorized_opaque_rows = []
+        blocking_controller_opaque_rows = [{"error": "invalid_controller_opaque_rows"}]
+    allocation_opaque_count = sum(
+        int(check["active_opaque_stdin_python_processes"]) for check in job_checks.values()
+    )
+    blocking_opaque_count = len(blocking_controller_opaque_rows) + allocation_opaque_count
     all_checks_ok = all(
         int(check["probe_exit_code"]) == 0
         and check.get("reported_node") == check.get("node")
@@ -389,7 +535,7 @@ def capture_process_audit(
         "status": "success"
         if all_checks_ok
         and scheduler_exit == 0
-        and stage_count == recovery_count == opaque_count == scan_error_count == 0
+        and stage_count == recovery_count == blocking_opaque_count == scan_error_count == 0
         else "blocked",
         "captured_at": datetime.now(timezone.utc).astimezone().isoformat(),
         "capture_started_at": capture_started_at,
@@ -399,7 +545,11 @@ def capture_process_audit(
         **identity,
         "active_stage_f_processes": stage_count,
         "active_inventory_or_cleanup_processes": recovery_count,
-        "active_opaque_stdin_python_processes": opaque_count,
+        "active_opaque_stdin_python_processes": blocking_opaque_count,
+        "observed_opaque_stdin_python_processes": observed_opaque_count,
+        "authorized_controller_opaque_specs": authorized_specs,
+        "authorized_controller_opaque_processes": authorized_opaque_rows,
+        "blocking_controller_opaque_processes": blocking_controller_opaque_rows,
         "scan_error_count": scan_error_count,
         "scheduler_exit_code": scheduler_exit,
         "scheduler_snapshot": snapshot,
