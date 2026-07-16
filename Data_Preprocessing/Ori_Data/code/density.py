@@ -137,6 +137,16 @@ class ContourInfo:
     source: str | None
 
 
+@dataclass(frozen=True)
+class LigandAreaSource:
+    """E3 生产与只读验收共用的 Stage C 原子输入及来源身份。"""
+
+    candidate_ids: tuple[int, ...]
+    coords_by_candidate: dict[int, np.ndarray]
+    atomic_numbers_by_candidate: dict[int, np.ndarray]
+    source_manifest_sha256: str
+
+
 def extract_recommended_contour(metadata: dict[str, Any]) -> ContourInfo:
     """
     只从 EMDB 主图路径选择唯一 ``primary=true`` 的有限 contour level。
@@ -774,6 +784,71 @@ def _pocket_voxel_center_axes_xyz(
     return center_x, center_y, center_z
 
 
+def load_ligand_area_source(
+    root: Path,
+    pdb_id: str,
+    occurrences: list[dict[str, Any]],
+    exp_arrays: dict[str, np.ndarray],
+) -> LigandAreaSource:
+    """
+    从当前 Stage C 产物读取 E3 生产与 release audit 共用的原子输入。
+
+    输入参数:
+        - root: Path, Ori_Data 数据根目录
+        - pdb_id: str, PDB id，大小写均可
+        - occurrences: list[dict[str,Any]], 当前 Stage C 已验收 occurrence 记录
+        - exp_arrays: dict[str,np.ndarray], 当前 E1 artifact 数组
+
+    输出:
+        - source: LigandAreaSource，包含 occurrence 顺序的 candidate id、各 occurrence
+          present 原子的 ``(N,3) float32`` 世界 XYZ Å 坐标、``(N,)`` 原子序数和
+          绑定 E1/Stage C/LigandObject 的来源 manifest SHA-256
+    """
+    normalized_id = pdb_id.lower()
+    parse_dir = root / "parse" / normalized_id
+    occurrence_path = parse_dir / "occurrences.jsonl"
+    coords_path = parse_dir / "ligand_coords.npz"
+    coords_arrays = load_npz_arrays(coords_path, allow_pickle=False)
+    coords_by_candidate: dict[int, np.ndarray] = {}
+    atomic_numbers_by_candidate: dict[int, np.ndarray] = {}
+    object_paths: list[Path] = []
+    candidate_ids: list[int] = []
+    for occurrence in occurrences:
+        candidate_id = int(occurrence["candidate_id"])
+        candidate_ids.append(candidate_id)
+        coords = coords_arrays[f"coords_{candidate_id}"]
+        present = coords_arrays[f"present_{candidate_id}"]
+        object_path = (
+            root
+            / "ligand_objects"
+            / f"{safe_object_filename(str(occurrence['object_key']))}.npz"
+        )
+        object_paths.append(object_path)
+        with np.load(object_path, allow_pickle=True) as ligand_object:
+            atomic_numbers = ligand_object["atoms"]["element"].astype(np.int16, copy=True)
+        if len(atomic_numbers) != len(coords):
+            raise RuntimeError(f"LigandObject row mismatch for candidate {candidate_id}")
+        coords_by_candidate[candidate_id] = coords[present]
+        atomic_numbers_by_candidate[candidate_id] = atomic_numbers[present]
+
+    small_source_manifest = sha256_manifest(
+        [occurrence_path, coords_path, *sorted(set(object_paths))],
+        base=root,
+    )
+    source_manifest = sha256_named_values(
+        {
+            "exp_identity_sha256": experimental_density_identity(exp_arrays),
+            "small_source_manifest_sha256": small_source_manifest,
+        }
+    )
+    return LigandAreaSource(
+        candidate_ids=tuple(candidate_ids),
+        coords_by_candidate=coords_by_candidate,
+        atomic_numbers_by_candidate=atomic_numbers_by_candidate,
+        source_manifest_sha256=source_manifest,
+    )
+
+
 def build_ligand_area_arrays(
     grid_shape_zyx: tuple[int, int, int],
     voxel_size_xyz: np.ndarray,
@@ -919,9 +994,16 @@ def ligand_area_errors(
     origin_xyz: np.ndarray,
     candidate_ids: list[int],
     source_manifest_sha256: str,
+    expected_source_arrays: dict[str, np.ndarray] | None = None,
     artifact_path: Path | None = None,
 ) -> list[str]:
-    """验证 E3 v3 几何、稀疏 mask、世界质心、union 与压缩编码。"""
+    """
+    验证 E3 v3 自描述契约，并可按当前 Stage C 原子重建结果验证科学内容。
+
+    ``expected_source_arrays`` 必须来自 ``build_ligand_area_arrays``，只比较
+    ``union_mask``、各 ``mask_{cid}`` 与 ``centroid_voxel_{cid}``；本函数不实现
+    第二套几何或半径公式。未传入时仅执行通用 schema/内部自洽验证。
+    """
     errors: list[str] = []
     shape = tuple(int(value) for value in grid_shape_zyx)
     origin_f32 = np.asarray(origin_xyz, dtype=np.float32)
@@ -1072,6 +1154,28 @@ def ligand_area_errors(
             errors.append(f"ligand_area_value:centroid:{candidate_id}")
     if union_valid and not np.array_equal(np.asarray(union)[0], reconstructed):
         errors.append("ligand_area_value:union")
+    if expected_source_arrays is not None:
+        source_keys = [
+            "union_mask",
+            *[
+                key
+                for candidate_id in candidate_ids
+                for key in (
+                    f"mask_{candidate_id}",
+                    f"centroid_voxel_{candidate_id}",
+                )
+            ],
+        ]
+        for key in source_keys:
+            actual = arrays.get(key)
+            expected = expected_source_arrays.get(key)
+            if (
+                actual is None
+                or expected is None
+                or np.asarray(actual).dtype != np.asarray(expected).dtype
+                or not np.array_equal(np.asarray(actual), np.asarray(expected))
+            ):
+                errors.append(f"ligand_area_source_mismatch:{key}")
     if artifact_path is not None:
         errors.extend(_ligand_area_zip_errors(artifact_path, set(arrays)))
     return errors
@@ -1100,46 +1204,23 @@ def build_ligand_area(
     if exp_errors:
         raise RuntimeError(f"Stage E1 is not valid for {normalized_id}: {exp_errors}")
 
-    parse_dir = root / "parse" / normalized_id
-    occurrence_path = parse_dir / "occurrences.jsonl"
-    coords_path = parse_dir / "ligand_coords.npz"
-    coords_arrays = load_npz_arrays(coords_path, allow_pickle=False)
-    coords_by_candidate: dict[int, np.ndarray] = {}
-    elements_by_candidate: dict[int, np.ndarray] = {}
-    object_paths: list[Path] = []
-    candidate_ids: list[int] = []
-    for occurrence in occurrences:
-        candidate_id = int(occurrence["candidate_id"])
-        candidate_ids.append(candidate_id)
-        coords = coords_arrays[f"coords_{candidate_id}"]
-        present = coords_arrays[f"present_{candidate_id}"]
-        object_path = root / "ligand_objects" / f"{safe_object_filename(str(occurrence['object_key']))}.npz"
-        object_paths.append(object_path)
-        with np.load(object_path, allow_pickle=True) as ligand_object:
-            atomic_numbers = ligand_object["atoms"]["element"].astype(np.int16, copy=True)
-        if len(atomic_numbers) != len(coords):
-            raise RuntimeError(f"LigandObject row mismatch for candidate {candidate_id}")
-        coords_by_candidate[candidate_id] = coords[present]
-        elements_by_candidate[candidate_id] = atomic_numbers[present]
-
-    small_source_manifest = sha256_manifest(
-        [occurrence_path, coords_path, *sorted(set(object_paths))],
-        base=root,
-    )
-    source_manifest = sha256_named_values(
-        {
-            "exp_identity_sha256": experimental_density_identity(exp),
-            "small_source_manifest_sha256": small_source_manifest,
-        }
-    )
+    source = load_ligand_area_source(root, normalized_id, occurrences, exp)
     output_path = root / "density" / normalized_id / "ligand_area.npz"
     shape = tuple(int(value) for value in exp["grid"].shape[1:])
+    expected_source_arrays = build_ligand_area_arrays(
+        shape,
+        exp["voxel_size"],
+        exp["origin"],
+        source.coords_by_candidate,
+        source.atomic_numbers_by_candidate,
+    )
     validation_kwargs = {
         "grid_shape_zyx": shape,
         "voxel_size_xyz": exp["voxel_size"],
         "origin_xyz": exp["origin"],
-        "candidate_ids": candidate_ids,
-        "source_manifest_sha256": source_manifest,
+        "candidate_ids": list(source.candidate_ids),
+        "source_manifest_sha256": source.source_manifest_sha256,
+        "expected_source_arrays": expected_source_arrays,
     }
     if output_path.exists() and not overwrite:
         try:
@@ -1155,20 +1236,14 @@ def build_ligand_area(
             return {
                 "status": "skipped",
                 "artifact": str(output_path.relative_to(root)),
-                "n_occurrences": len(candidate_ids),
+                "n_occurrences": len(source.candidate_ids),
             }
 
-    arrays = build_ligand_area_arrays(
-        shape,
-        exp["voxel_size"],
-        exp["origin"],
-        coords_by_candidate,
-        elements_by_candidate,
-    )
+    arrays = dict(expected_source_arrays)
     arrays.update(
         {
             "schema_version": np.asarray(LIGAND_AREA_SCHEMA_VERSION, dtype=np.uint16),
-            "source_manifest_sha256": np.asarray(source_manifest),
+            "source_manifest_sha256": np.asarray(source.source_manifest_sha256),
             "centroid_coordinate_system": np.asarray("world_xyz_angstrom"),
             "mask_index_order": np.asarray("zyx"),
             "vdw_radius_source": np.asarray(VDW_RADIUS_SOURCE),
@@ -1212,7 +1287,7 @@ def build_ligand_area(
     return {
         "status": "success",
         "artifact": str(output_path.relative_to(root)),
-        "n_occurrences": len(candidate_ids),
+        "n_occurrences": len(source.candidate_ids),
         "n_union_voxels": int(np.count_nonzero(arrays["union_mask"])),
     }
 

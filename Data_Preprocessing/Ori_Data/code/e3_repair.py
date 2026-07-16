@@ -23,16 +23,16 @@ from density import (
     LIGAND_AREA_SCHEMA_VERSION,
     LIGAND_AREA_STORAGE_ENCODING,
     build_ligand_area,
-    experimental_density_identity,
+    build_ligand_area_arrays,
     ligand_area_errors,
+    load_ligand_area_source,
 )
+from failures import KnownSampleFailure
 from filtering import load_stage_statuses
 from io_utils import (
     atomic_replace,
     read_jsonl,
-    safe_object_filename,
     sha256_file,
-    sha256_manifest,
     sha256_named_values,
 )
 from parallel import shard_items
@@ -638,29 +638,24 @@ def validate_ligand_area_artifact(root: Path, pdb_id: str) -> list[str]:
     if exp_errors:
         return [f"exp:{error}" for error in exp_errors]
 
-    parse_dir = root / "parse" / normalized_id
-    occurrence_path = parse_dir / "occurrences.jsonl"
-    coords_path = parse_dir / "ligand_coords.npz"
-    candidate_ids = [int(occurrence["candidate_id"]) for occurrence in occurrences]
-    object_paths = [
-        root
-        / "ligand_objects"
-        / f"{safe_object_filename(str(occurrence['object_key']))}.npz"
-        for occurrence in occurrences
-    ]
     try:
-        small_source_manifest = sha256_manifest(
-            [occurrence_path, coords_path, *sorted(set(object_paths))],
-            base=root,
+        source = load_ligand_area_source(
+            root,
+            normalized_id,
+            occurrences,
+            exp,
         )
-        source_manifest = sha256_named_values(
-            {
-                "exp_identity_sha256": experimental_density_identity(exp),
-                "small_source_manifest_sha256": small_source_manifest,
-            }
+        expected_source_arrays = build_ligand_area_arrays(
+            tuple(int(value) for value in exp["grid"].shape[1:]),
+            exp["voxel_size"],
+            exp["origin"],
+            source.coords_by_candidate,
+            source.atomic_numbers_by_candidate,
         )
         artifact_path = root / "density" / normalized_id / "ligand_area.npz"
         arrays = load_npz_arrays(artifact_path, allow_pickle=False)
+    except KnownSampleFailure as exc:
+        return [f"ligand_area_source_rebuild:{exc.code.value}"]
     except (OSError, ValueError, KeyError) as exc:
         return [f"ligand_area:unreadable:{type(exc).__name__}"]
     return ligand_area_errors(
@@ -668,8 +663,9 @@ def validate_ligand_area_artifact(root: Path, pdb_id: str) -> list[str]:
         grid_shape_zyx=tuple(int(value) for value in exp["grid"].shape[1:]),
         voxel_size_xyz=exp["voxel_size"],
         origin_xyz=exp["origin"],
-        candidate_ids=candidate_ids,
-        source_manifest_sha256=source_manifest,
+        candidate_ids=list(source.candidate_ids),
+        source_manifest_sha256=source.source_manifest_sha256,
+        expected_source_arrays=expected_source_arrays,
         artifact_path=artifact_path,
     )
 

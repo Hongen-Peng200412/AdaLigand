@@ -18,6 +18,7 @@ if str(CODE_DIR) not in sys.path:
     sys.path.insert(0, str(CODE_DIR))
 
 import density as density_module
+import e3_repair
 import io_utils as io_utils_module
 from density import (
     EXP_SCHEMA_VERSION,
@@ -378,6 +379,104 @@ def test_ligand_area_local_stencil_sparse_order_union_and_world_centroid() -> No
     np.testing.assert_array_equal(arrays["union_mask"][0], reconstructed)
 
 
+def test_ligand_area_source_oracle_accepts_normal_multi_occurrence_content() -> None:
+    """当前 Stage C 原子经生产函数重建后，两条 occurrence 的完整内容应精确通过。"""
+    shape = (6, 7, 8)
+    voxel = np.asarray([1.2, 0.9, 1.1], dtype=np.float32)
+    origin = np.asarray([-3.0, 5.0, 11.0], dtype=np.float32)
+    expected = build_ligand_area_arrays(
+        shape,
+        voxel,
+        origin,
+        {
+            2: np.asarray([[-0.6, 6.35, 12.65]], dtype=np.float32),
+            7: np.asarray([[1.8, 8.15, 14.85]], dtype=np.float32),
+        },
+        {
+            2: np.asarray([6], dtype=np.int16),
+            7: np.asarray([8], dtype=np.int16),
+        },
+    )
+    arrays = _add_e3_metadata(
+        expected,
+        shape=shape,
+        voxel=voxel,
+        origin=origin,
+    )
+
+    assert ligand_area_errors(
+        arrays,
+        expected_source_arrays=expected,
+        **_ligand_area_validation_kwargs(
+            shape=shape,
+            voxel=voxel,
+            origin=origin,
+            candidate_ids=[2, 7],
+        ),
+    ) == []
+
+
+def test_ligand_area_source_oracle_rejects_self_consistent_wrong_and_empty_masks() -> None:
+    """内部自洽但不来自当前原子的 mask，以及空 mask，都不能通过 source audit。"""
+    shape = (4, 4, 4)
+    voxel = np.ones((3,), dtype=np.float32)
+    origin = np.zeros((3,), dtype=np.float32)
+    expected = build_ligand_area_arrays(
+        shape,
+        voxel,
+        origin,
+        {0: np.asarray([[0.5, 0.5, 0.5]], dtype=np.float32)},
+        {0: np.asarray([6], dtype=np.int16)},
+    )
+    wrong_indices = np.asarray([[3, 3, 3]], dtype=np.int32)
+    wrong_union = np.zeros((1, *shape), dtype=bool)
+    wrong_union[0, 3, 3, 3] = True
+    wrong = _add_e3_metadata(
+        {
+            "mask_0": wrong_indices,
+            "centroid_voxel_0": _pocket_centers_xyz_for_indices(
+                wrong_indices,
+                voxel=voxel,
+                origin=origin,
+            )[0],
+            "union_mask": wrong_union,
+        },
+        shape=shape,
+        voxel=voxel,
+        origin=origin,
+    )
+    validation_kwargs = _ligand_area_validation_kwargs(
+        shape=shape,
+        voxel=voxel,
+        origin=origin,
+        candidate_ids=[0],
+    )
+
+    # 反例在旧的内部自洽验证下合法，只有当前 Stage C 重建 oracle 能识别来源错误。
+    assert ligand_area_errors(wrong, **validation_kwargs) == []
+    wrong_errors = ligand_area_errors(
+        wrong,
+        expected_source_arrays=expected,
+        **validation_kwargs,
+    )
+    assert "ligand_area_source_mismatch:mask_0" in wrong_errors
+    assert "ligand_area_source_mismatch:centroid_voxel_0" in wrong_errors
+    assert "ligand_area_source_mismatch:union_mask" in wrong_errors
+
+    empty = dict(wrong)
+    empty["mask_0"] = np.empty((0, 3), dtype=np.int32)
+    empty["centroid_voxel_0"] = np.zeros((3,), dtype=np.float32)
+    empty["union_mask"] = np.zeros((1, *shape), dtype=bool)
+    empty_errors = ligand_area_errors(
+        empty,
+        expected_source_arrays=expected,
+        **validation_kwargs,
+    )
+    assert "ligand_area_contract:mask:0" in empty_errors
+    assert "ligand_area_source_mismatch:mask_0" in empty_errors
+    assert "ligand_area_source_mismatch:union_mask" in empty_errors
+
+
 def test_ligand_area_handles_boundary_clipping_without_duplicate_indices() -> None:
     """靠近图边界的球只裁剪出图部分，不能产生越界或重复 COO。"""
     arrays = build_ligand_area_arrays(
@@ -722,6 +821,43 @@ def test_build_ligand_area_rebuilds_v2_then_skips_valid_v3_without_touching_exp_
     assert sha256_file(output_path) == artifact_sha
     assert sha256_file(exp_path) == exp_sha_before
     assert sha256_file(sim_path) == sim_sha_before
+
+
+def test_e3_single_artifact_audit_rebuilds_current_stage_c_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """单样本与 release 共用审计必须拒绝内部自洽但来源原子不相容的压缩产物。"""
+    exp_path, _, output_path = _write_ligand_area_build_inputs(tmp_path, monkeypatch)
+    inspection = density_module.inspect_stage_c(tmp_path, "1abc")
+    monkeypatch.setattr(e3_repair, "inspect_stage_c", lambda *_: inspection)
+    build_ligand_area(tmp_path, "1abc", overwrite=False)
+    assert e3_repair.validate_ligand_area_artifact(tmp_path, "1abc") == []
+
+    exp = density_module.load_npz_arrays(exp_path, allow_pickle=False)
+    with np.load(output_path, allow_pickle=False) as archive:
+        corrupted = {key: archive[key] for key in archive.files}
+    shape = tuple(int(value) for value in exp["grid"].shape[1:])
+    wrong_indices = np.asarray([[5, 7, 9]], dtype=np.int32)
+    wrong_union = np.zeros((1, *shape), dtype=bool)
+    wrong_union[0, 5, 7, 9] = True
+    corrupted["mask_0"] = wrong_indices
+    corrupted["centroid_voxel_0"] = _pocket_centers_xyz_for_indices(
+        wrong_indices,
+        voxel=exp["voxel_size"],
+        origin=exp["origin"],
+    )[0]
+    corrupted["union_mask"] = wrong_union
+    atomic_save_npz_compressed(output_path, validator=lambda _: None, **corrupted)
+
+    errors = e3_repair.validate_ligand_area_artifact(tmp_path, "1abc")
+    assert "ligand_area_source_mismatch:mask_0" in errors
+    assert "ligand_area_source_mismatch:centroid_voxel_0" in errors
+    assert "ligand_area_source_mismatch:union_mask" in errors
+
+    rebuilt = build_ligand_area(tmp_path, "1abc", overwrite=False)
+    assert rebuilt["status"] == "success"
+    assert e3_repair.validate_ligand_area_artifact(tmp_path, "1abc") == []
 
 
 def test_density_import_for_e3_does_not_import_chimera_or_mapq() -> None:
