@@ -89,13 +89,14 @@ def test_model_map_frame_preflight_is_xyz_zyx_aware_and_fail_closed() -> None:
     exp["origin"] = np.asarray([10.0, 20.0, 30.0], dtype=np.float32)
     exp["voxel_size"] = np.asarray([2.0, 3.0, 4.0], dtype=np.float32)
 
-    # grid shape ZYX=(5,6,7) 对应世界 XYZ 上界 (22,35,46)。
-    touching = np.asarray([[22.000004, 35.0, 46.0]], dtype=np.float32)
+    # Pocket corner-origin 的物理 BOX 上界为 origin+shape_xyz*voxel=(24,38,50)。
+    # 旧 ``origin+(shape-1)*voxel`` 会把这个仍在最后一个体素内的点误判为分离。
+    touching = np.asarray([[23.9, 37.9, 49.9]], dtype=np.float32)
     assert model_map_frame_errors(exp, touching) == []
     for outside in (
-        np.asarray([[22.1, 25.0, 35.0]], dtype=np.float32),
-        np.asarray([[15.0, 35.1, 35.0]], dtype=np.float32),
-        np.asarray([[15.0, 25.0, 46.1]], dtype=np.float32),
+        np.asarray([[24.1, 25.0, 35.0]], dtype=np.float32),
+        np.asarray([[15.0, 38.1, 35.0]], dtype=np.float32),
+        np.asarray([[15.0, 25.0, 50.1]], dtype=np.float32),
     ):
         assert model_map_frame_errors(exp, outside) == [
             "density_pair:receptor_outside_grid"

@@ -27,6 +27,23 @@ _AXIS_NAMES = ("z", "y", "x")
 MODEL_MAP_FRAME_ATOL_ANGSTROM = 1e-5
 
 
+def density_grid_physical_bounds(
+    map_arrays: Mapping[str, np.ndarray],
+) -> tuple[np.ndarray, np.ndarray]:
+    """返回采用 Pocket corner-origin 语义的网格物理 XYZ 边界。
+
+    调用方应先完成 ``grid/voxel_size/origin`` 的 shape、dtype 与有限性检查。
+    这里直接沿用 Pocket Plus BOX 的边界公式：下界是网格角点 ``origin``，
+    上界是 ``origin + shape_xyz * voxel_size_xyz``。该范围描述整个体素盒，
+    不应缩成首末体素中心之间的区间。
+    """
+    grid = np.asarray(map_arrays["grid"])
+    origin = np.asarray(map_arrays["origin"], dtype=np.float64)
+    voxel = np.asarray(map_arrays["voxel_size"], dtype=np.float64)
+    shape_xyz = np.asarray(grid.shape[:0:-1], dtype=np.float64)
+    return origin, origin + shape_xyz * voxel
+
+
 def density_artifact_errors(
     arrays: Mapping[str, np.ndarray],
     *,
@@ -140,10 +157,8 @@ def model_map_frame_errors(
     if len(coords) == 0 or not np.isfinite(coords).all():
         return ["density_pair:receptor_empty_or_nonfinite"]
 
-    # np.ndarray[float64], (3,), 两个包围盒的世界 XYZ 下界/上界
-    grid_lower = origin.astype(np.float64)
-    shape_xyz = np.asarray(grid.shape[:0:-1], dtype=np.float64)
-    grid_upper = grid_lower + (shape_xyz - 1.0) * voxel.astype(np.float64)
+    # np.ndarray[float64], (3,), Pocket corner-origin 物理 BOX 的世界 XYZ 下界/上界
+    grid_lower, grid_upper = density_grid_physical_bounds(map_arrays)
     receptor_lower = coords.min(axis=0).astype(np.float64)
     receptor_upper = coords.max(axis=0).astype(np.float64)
     intersects = np.all(receptor_lower <= grid_upper + MODEL_MAP_FRAME_ATOL_ANGSTROM) and np.all(

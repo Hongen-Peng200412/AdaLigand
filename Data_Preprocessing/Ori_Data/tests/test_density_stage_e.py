@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -819,6 +820,13 @@ def test_model_map_frame_policy_records_bounds_and_rejects_invalid_input() -> No
     assert '"world_axis_order":"XYZ"' in detail
     assert '"policy":"no_transform_or_fitmap"' in detail
     assert all(key in detail for key in ("map_lower_xyz", "map_upper_xyz", "model_lower_xyz", "model_upper_xyz"))
+    parsed_detail = json.loads(detail)
+    grid = np.asarray(exp["grid"])
+    expected_upper = np.asarray(exp["origin"], dtype=np.float64) + np.asarray(
+        grid.shape[:0:-1], dtype=np.float64
+    ) * np.asarray(exp["voxel_size"], dtype=np.float64)
+    np.testing.assert_array_equal(parsed_detail["map_lower_xyz"], exp["origin"])
+    np.testing.assert_array_equal(parsed_detail["map_upper_xyz"], expected_upper)
 
     invalid = np.asarray([[np.nan, 0.0, 0.0]], dtype=np.float32)
     with pytest.raises(RuntimeError, match="input contract failed"):

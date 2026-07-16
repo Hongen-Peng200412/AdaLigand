@@ -43,6 +43,7 @@ from mrc import (
 from qc import (
     MODEL_MAP_FRAME_ATOL_ANGSTROM,
     density_artifact_errors,
+    density_grid_physical_bounds,
     density_pair_errors,
     model_map_frame_errors,
 )
@@ -107,10 +108,7 @@ def ensure_model_map_frame_compatible(
     if frame_errors != ["density_pair:receptor_outside_grid"]:
         raise RuntimeError(f"model-map frame input contract failed for {pdb_id}: {frame_errors}")
 
-    grid = np.asarray(map_arrays["grid"])
-    voxel = np.asarray(map_arrays["voxel_size"], dtype=np.float64)
-    map_lower = np.asarray(map_arrays["origin"], dtype=np.float64)
-    map_upper = map_lower + (np.asarray(grid.shape[:0:-1], dtype=np.float64) - 1.0) * voxel
+    map_lower, map_upper = density_grid_physical_bounds(map_arrays)
     coords = np.asarray(model_coords, dtype=np.float64)
     detail = {
         "atol_angstrom": MODEL_MAP_FRAME_ATOL_ANGSTROM,
