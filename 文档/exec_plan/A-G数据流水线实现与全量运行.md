@@ -32,7 +32,7 @@
 - [x] (2026-07-11 15:04+08:00) 按用户新增需求实现 occurrence 级 6 Å 受体口袋 Q：复用同一次全模型 MapQ，保存有序 pocket atom_site.id/逐原子 Q 与 mean/median/min/count/radius；固定包络并集、零口袋失败和合成端到端已进入 90 项全套回归。
 - [x] (2026-07-11 11:17+08:00) 通过无删除安全同步上传代码；在用户目录安装并验证 Chimera 1.19 OSMesa、MapQ 2.9.7 固定包与 mrcfile 1.5.4，工具清单落在 `/home/penghongen/.local/opt/adaligand_tools_manifest.json`。
 - [x] (2026-07-11 15:45+08:00) 真实 smoke `adaligand_smoke_20260711T113733` / job `316073` 最终 `COMPLETED 0:0`：三 PDB 的 C/D/E/F 严格门禁通过，99 occurrence 中 97 个正常口袋、2 个显式空口袋；job `316109` 的 12 Å 错位 CC 负对照也 `COMPLETED 0:0`。
-- [ ] (2026-07-11 15:47+08:00) 全量 run `adaligand_ag_20260711T154658` 已提交：ABC `316114` → DE `316115` → F `316116` → G analyze `316117`；ABC 与 DE 已完成，F12 正在原 DAG 运行，G analyze 继续依赖等待，整条 DAG 尚未完成。
+- [ ] (2026-07-11 15:47+08:00) 全量 run `adaligand_ag_20260711T154658` 已提交：ABC `316114` → DE `316115` → F `316116` → G analyze `316117`；ABC 与 DE 已完成。正式 F 与尾段补算目前都保留原 allocation，并由精确 `after+try` 锁停在 Stage F scratch v4 受检回收门前；G analyze 继续依赖等待，整条 DAG 尚未完成。
 - [x] (2026-07-12 00:24+08:00) 长周期监控改为阶段感知策略：Codex heartbeat 从每 30 分钟降为每 2 小时；正常运行只静默记录，阶段切换、失败或契约异常才通知，并在 release gate、异常诊断和最终 QC 时临时启用多智能体独立审计。
 - [x] (2026-07-12 02:58+08:00) 用户确认保留原 Job ID 的原地调度方案：pending core 支持预置普通文件 run_cmd，并在首次及每次 retry 前拒绝 symlink、检查非空/`0700`/`bash -n`、记录 SHA-256；本地全套增至 97 tests passed，shell/sbatch 语法与 `git diff --check` 通过。
 - [x] (2026-07-12 02:58+08:00) 不取消或重提既有 DAG；原子预置 `316115` 的 D64/E24 run_cmd（SHA-256 `54658b7a4c2819793a22282ac21a005bfdc6fe1f6c48d4a006c760be2cd380b0`）和 `316116` 的 F12 run_cmd（SHA-256 `8399d571bab44881facbeaa9dd1e738594255a4b4212605cfe418878744f7d13`），将 `316115/316116/316117` 原地改为 `TimeLimit=UNLIMITED` 后 release `316115`；提交时间、CPU 数与 afterok 链均保持不变。
@@ -75,7 +75,10 @@
 - [x] (2026-07-14 22:46+08:00) 为避免改写已经闭合的 Stage E，保留共享 `exclusions.jsonl` SHA-256 `380844d0…325f`，新增只供 Stage F 消费的加法视图 `exclusions.stage_f.jsonl`，SHA-256 `3b10abb5…8ee8`；其中原四条逐字段不变，仅追加 `6kgx` 的 `stage_f` run-only 记录。专项 23 tests、本地/远端全套 214 tests、脚本语法和两次独立审查通过；apply 后只读重放前后全部证据哈希逐字节一致。core 随后复用 run_cmd SHA-256 `bd7edb94…5ffa`，于 22:46:44 以原 run id、F12、无 filter、无 `--overwrite` 恢复；全量 F/G 仍未完成。
 - [x] (2026-07-15 16:29+08:00) 在不停止、不重提正式 `316116` 的前提下，按用户新增的主用 CPU192 授权启动独立尾部补算 `318350`：正式 F12 留在 `cnode04` 的 96 核，补算 F12 留在 `cnode01` 的另一整台 96 核，总分配恰为 192。补算 run `adaligand_ag_20260711T154658_fsupp96_v1` 只处理冻结尾段 `[19386,22386)` 中 2,990 个 eligible PDB；plan/ID SHA-256 分别为 `1d5c1217…dff4f` / `acacde79…cea80`，并在正式进度到 17,386 前由守护进程主动停止以避免相撞。Windows 全套为 224 passed、2 skipped，服务器 Linux 全套为 226 passed；启动后 `after_lock_318350` 与 child PGID 证据存在，正式/补算均无 try/kill，`316117` 继续只等待正式 F release。
 - [ ] (2026-07-16 07:45+08:00) Stage F scratch 只读取证确认异常路径会永久残留大型 MRC/CIF；账号分配块在 02:37:40→02:48:29 的 649 秒内净增约 36.61 GiB，即约 3.47 GiB/min。精确 `kill_lock` 同时把 `316116/318350` 分别停在 8,821/22,386 与 2,426/2,990 并收口到各自 try-lock，两个 after-lock/allocation 均保留。exact-attempt 异常安全清理提交为 `a9d9e30`，bundle-bound audit/apply 与 fsync journal 为 `39e5185`，补充生命周期回归为 `d4849fc`。首份 v3 inventory 为 141,437 条文件/11,445 attempts；audit 命中 5,838 个 MRC/CIF、预计实际分配约 2.22 TB，但其后发现 03:03 起遗留在 master 的旧 SSH/stdin v1 `python -` 进程：它在 v3 audit 结束后自行进入无 journal 清理，精确删除 1,497 个 transient（570 CIF+927 MRC，冻结清单预计约 1.085 TiB）。受影响 attempt 的 3,395 条小证据和 744 个公开三件套路径均无存在性/大小/mtime/hash 漂移；v3 bundle 因 live-tree drift 永久作废，v1/v3 均只作事故证据。该旧进程来源有父 bash、stdin 与时间线支持，但缺少系统账本权限，只记录为高可信推断。
-- [ ] (2026-07-16 07:45+08:00) 为补上 schema v1 只查 compute 节点的缺口，提交 `d53d190`：正式 process-audit 绑定当前脚本/模块 SHA，逐 allocation probe 与 scheduler/四锁快照后最后探测 `master`，显式阻断 F/工具进程、inventory/recovery、同 UID 裸/`python -`、scan error、stderr、节点/argv/时间窗漂移；audit/apply 必须分别使用新鲜证据。Windows 进程/回收/生命周期专项 48 passed+2 skipped、全套 272 passed+4 skipped；cnode01 Linux 专项 50 passed、全套 276 passed。真实 probe 在 master/cnode01/cnode04 均为 `scan_error_count=0`，并正确发现 v4 inventory 与另一个不归属本任务的只读容量扫描 `python3 -`，因此当前不会误放行。v4 inventory step `316116.43` 自 07:03 在 cnode04 单任务持续推进；两个 F writer 仍停在 try-lock，A–G 尚未完成。
+- [x] (2026-07-16 13:22+08:00) 为补上 schema v1 只查 compute 节点的缺口，提交 `d53d190`：正式 process-audit 绑定当前脚本/模块 SHA，逐 allocation probe 与 scheduler/四锁快照后最后探测 `master`，显式阻断 F/工具进程、inventory/recovery、同 UID 裸/`python -`、scan error、stderr、节点/argv/时间窗漂移；audit/apply 必须分别使用新鲜证据。Windows 进程/回收/生命周期专项 48 passed+2 skipped、全套 272 passed+4 skipped；cnode01 Linux 专项 50 passed、全套 276 passed。v4 inventory step `316116.43` 已 `COMPLETED 0:0`：`raw_inventory.tsv` 为 139,940 行、`attempts.tsv` 为 11,445 行，二者 SHA-256 分别为 `e5f3075c…c502a` / `3f9f2096…a863`，`sha256sum -c` 全部通过，`inventory.done.json` 为 `status=success`。
+- [x] (2026-07-16 13:32+08:00) 两个 F writer 继续停在各自精确 `after+try`。只读复核确认 PID `54412` 是不归属本任务、扫描其他数据根的容量探针；用户明确决定它不应阻塞 A–G，且不得发信号。commit `cdcf031` 将 process gate 升级为 schema v3：最多允许 controller 上一个 `node+PID+PPID+start_ticks+argv SHA` 完全匹配的一次性例外，raw opaque 行完整保留；第二个 opaque、任一身份漂移、F/recovery、scan error 或 audit/apply 例外漂移仍 fail-closed。本地专项 43 passed+2 skipped、全套 284 passed+4 skipped，compileall 与 diff check 通过。
+- [ ] 以当前真实指纹生成 `process_audit.before_audit.json`；完成零删除 audit 和独立 bundle 验收后，apply 前生成另一份 fresh `process_audit.before_apply.json`。两个证据必须复用同一例外指纹，随后才允许 journaled apply。
+- [x] (2026-07-16 13:30+08:00) 用户为优先恢复 A–G 明确放宽 scratch 验收：公开质量三件套仍须完整 SHA-256 逐字节不变；普通 nontransient 日志/证据只须以路径、类型、大小、mtime 和已有或必要哈希证明实质内容未变，不要求为全部大于 16 MiB 的保留文件追加全量哈希。该决定只降低回收工具的非科学证据成本，不改变四 CC、配体/口袋 Q、质量三件套或任何 F/G 科学契约。
 - [ ] 持续监控、自动诊断/修复/重提，只在科学契约变化或外部不可恢复阻塞时请求用户。
 - [ ] 完成全量验收、计划漂移收口、mapping/契约 README/项目记忆更新和最终报告。
 
@@ -393,7 +396,7 @@
 
 ## Outcomes & Retrospective
 
-尚未完成。Stage C v4、ABC gate、MRC 放行及正式 D/E 已闭合；`316115` 于 2026-07-14 01:26:42 `COMPLETED 0:0`，D/E 四终态、风险分层 artifact、四条 Stage E run-only exclusion 与 2zhc frame mismatch 均已通过独立审计。`316116` 首轮推进到 22,363/22,386 后，`6kgx` 的 post-MapQ occurrence 投影成为唯一已取证长尾；它已按用户授权写入 Stage F 专用 run-only exclusion，并在原 96 核 allocation 上以 F12、无 overwrite 恢复。2026-07-15 又在第二台 96 核节点启动独立尾段补算 `318350`，正式 F 与补算当前共用 192 CPU，但正式 status/release 仍只有 `316116` 能写。全量 F 状态、五条 Stage F exclusion 终态与总体质量分布仍待完成。Stage G 单一 map-level schema v2 已实现，`316117` 仍只安排 analyze。未完成范围是 F 全量及独立 QC、G analyze/分布、最终文档与记忆收口；显式阈值配置和 `keep_list` 仍不属于本轮无人值守终点。
+尚未完成。Stage C v4、ABC gate、MRC 放行及正式 D/E 已闭合；`316115` 于 2026-07-14 01:26:42 `COMPLETED 0:0`，D/E 四终态、风险分层 artifact、四条 Stage E run-only exclusion 与 2zhc frame mismatch 均已通过独立审计。Stage F 的正式 `316116` 和尾段补算 `318350` 已因 scratch 生命周期事故安全收口到各自 `after+try`，原两台 CPU96 allocation、正式 status writer 与 afterok 链均保留。异常安全实现、硬中断回收工具和跨节点真实进程门已经测试；唯一有效的 v4 inventory 已闭合并通过哈希验证，但不归属 PID `54412` 尚未自然退出，因此零删除 audit、journaled apply 和顺序恢复尚未开始。全量 F 状态、五条 Stage F exclusion 终态与总体质量分布仍待完成。Stage G 单一 map-level schema v2 已实现，`316117` 仍只安排 analyze。未完成范围是受检 scratch 回收、F 顺序恢复与全量独立 QC、G analyze/分布、最终文档与记忆收口；显式阈值配置和 `keep_list` 仍不属于本轮无人值守终点。
 
 ## Context and Orientation
 
@@ -477,7 +480,7 @@ Stage F 尾部补算验收还必须满足：planner 对 plan/ID 文件、正式 
 
 Stage F scratch 生命周期验收还必须满足：成功以及 canonical MRC、molmap、correlation、native 解压、MapQ、geometry/quality/provenance QC 和三种正式 writer 异常后，当前 attempt 递归不存在 MRC/MAP/CIF；必要日志/脚本仍存在，已有合法三件套的 skip 不创建 attempt；兄弟 PDB/attempt/run 与并发 worker 不受影响。清理自身失败要写小型 `cleanup_errors.json`、保留原始异常 cause 并阻断 release。当前专项 16 项、Windows 全套 240 passed+2 POSIX-only skipped、服务器 Linux 全套 242 passed；科学数值主体经 whitespace-insensitive diff 独立审查为零变化。
 
-硬中断 stale 回收还必须满足：原子 inventory 完成且 SHA 闭合；15 分钟内的 scheduler、master 与双 allocation probe 正文证明零 F/Chimera/MapQ/Loky、零旧 inventory/cleanup、零同 UID opaque stdin Python、零 scan error；probe argv/stdout/stderr、node/scope/job、最早时间和 canonical implementation SHA 全部闭合。audit 零删除并冻结 delete/nontransient/public-trio manifest 与完整 bundle；apply 使用另一份新鲜 process-audit，逐文件先 fsync intent、立即复核锁与 lstat 后只 unlink manifest 路径，再 fsync deleted。最后无换行的 journal 尾部先固化原始 bytes/hash 后才允许受检截断，中间坏行、run/stage symlink、bundle 漂移、新增 transient 或小日志/正式三件套变化均阻断。回收实现提交 `39e5185`，跨节点进程门提交 `d53d190`；当前 Windows 专项 48 passed+2 skipped、全套 272 passed+4 skipped，Linux 专项 50 passed、全套 276 passed。
+硬中断 stale 回收还必须满足：原子 inventory 完成且 SHA 闭合；15 分钟内的 scheduler、master 与双 allocation probe 正文证明零 F/Chimera/MapQ/Loky、零旧 inventory/cleanup、零 blocking opaque stdin Python、零 scan error；probe argv/stdout/stderr、node/scope/job、最早时间和 canonical implementation SHA 全部闭合。用户授权的非任务扫描只能作为 controller 上最多一个精确 `node+PID+PPID+start_ticks+argv SHA` 例外，raw 行不能消失，第二个 opaque 或任何字段漂移均阻断；start_ticks 只在当前启动周期内有效，而保留 Slurm allocation/scheduler 门使服务器重启同样 fail-closed。audit 零删除并冻结 delete/nontransient/public-trio manifest 与完整 bundle；apply 使用另一份新鲜 process-audit，且例外指纹必须与 audit 相同，逐文件先 fsync intent、立即复核锁与 lstat 后只 unlink manifest 路径，再 fsync deleted。最后无换行的 journal 尾部先固化原始 bytes/hash 后才允许受检截断，中间坏行、run/stage symlink、bundle 漂移、新增 transient 或小日志/正式三件套变化均阻断。回收实现提交 `39e5185`，跨节点进程门基线提交 `d53d190`；schema v3 本地专项 43 passed+2 skipped、全套 284 passed+4 skipped。
 
 本轮 G analyze 验收必须满足：每个 A 样本在每个适用阶段恰好处于 success/skipped/known_failed 之一；任何静默缺失或 unknown failure 都阻塞；`quality_distribution.json` 与 `candidates.pending.jsonl` 保存完整候选、四 CC/配体 Q/口袋 Q/分辨率分布和输入 manifest hash，且不写 `keep_list`。后续显式 schema v2 filter 还必须证明：同 PDB selected CC/resolution 唯一一致；Q 等于阈值时 pair 失败，CC/resolution/fraction 等于边界时 map 可通过；空口袋失败且计入分母；通过 map 的全部 occurrence 进入稳定排序的 `keep_list`。`map_filter_diagnostics.jsonl`、summary、配置 hash 和输入 manifest 必须闭合。
 
@@ -568,7 +571,7 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 
 ### Unfinished scope
 
-- C source repair、全量 C、ABC gate 与正式 D/E 已完成；D–G 代码已实现。DE→F 的 status/gate、E artifact 风险分层和 exclusion/frame-mismatch 三路审计均通过，`316116` 正以 F12 运行。未完成范围是 F 全量四终态及质量审计、四条 exclusion 的 F 传播复核、F→G release gate、G analyze 分布和最终独立 QC。
+- C source repair、全量 C、ABC gate 与正式 D/E 已完成；D–G 代码已实现。DE→F 的 status/gate、E artifact 风险分层和 exclusion/frame-mismatch 三路审计均通过。`316116/318350` 当前停在受检 scratch v4 回收门，inventory 已闭合但 process gate 仍由不归属 PID `54412` 保守阻断。未完成范围是零删除 audit、journaled apply、按 `318350→316116` 顺序恢复、F 全量四终态及质量审计、五条 Stage F exclusion 传播复核、F→G release gate、G analyze 分布和最终独立 QC。
 - G 的 map-level 算法、比较边界、空口袋分母和整 map 保留规则已冻结；最终分辨率、选定 CC、配体 Q、口袋 Q 与比例数值仍须先看正式分布后以 schema v2 配置显式给出。当前示例不写入默认值，正式 filter/`keep_list` 尚未执行。
 
 Revision note 2026-07-10 14:38+08:00: 创建本 ExecPlan，记录已确认边界、旧产物证据、科学语义、资源/许可纪律和从实现到服务器全量验收的恢复路径。
@@ -606,3 +609,9 @@ Revision note 2026-07-14 04:05+08:00: 回填 `316115 COMPLETED 0:0`、D/E 最终
 Revision note 2026-07-14 22:46+08:00: 回填 `6kgx` 的 Stage F post-MapQ occurrence 投影工程长尾、用户明确超时授权、精确 kill→try→受检 retry 状态机和六份冻结证据。记录 Stage E shared manifest 不变、Stage F 加法视图、214 项本地/远端回归、release/run_cmd 哈希和只读重放零漂移；不把单次运行决策改写进 clean spec，也不把尚未完成的 F/G 冒充验收完成。
 
 Revision note 2026-07-15 16:29+08:00: 记录用户把主用 CPU 扩为 192、48 CPU 保持测试/备用的资源边界；回填 CPU96 节点/QoS 事实、正式 F 实际利用率、尾部 3,000 关键路径核算、独立补算实现与五轮审查修复、本地/远端全套测试、plan/ID 哈希及 job `318350` 零排队启动证据。正式 `316116`、其锁和 `316117` afterok 均未改动；A–G 尚未完成。
+
+Revision note 2026-07-16 13:22+08:00: 回填 Stage F scratch 生命周期事故、安全停写、v1/v3 证据边界、跨节点 schema v2 进程门和唯一有效 v4 inventory 的闭合证据。v4 共有 139,940 条文件行和 11,445 个 attempt，清单哈希复核通过；由于不归属 PID `54412` 仍存活，尚未运行 audit/apply 或解除任何 try-lock。该回填只更新执行现实和工程恢复路径，不改变 clean spec 或 F/G 科学契约。
+
+Revision note 2026-07-16 13:30+08:00: 记录用户为避免非科学证据加固继续阻塞主线，放宽普通 nontransient 大文件的逐字节哈希要求；公开质量三件套仍完整哈希，其他保留证据以元数据和已有/必要哈希证明实质内容未变。未修改 clean spec、F 计算或 G 分析契约。
+
+Revision note 2026-07-16 13:32+08:00: 记录用户明确决定不归属容量扫描 PID `54412` 不应阻塞 A–G。schema v3 仅以一次性精确进程指纹从 blocking 计数扣除该 raw 行，不信号该进程，也不放宽任何其他 opaque/F/recovery/scan-error 门；audit/apply 必须复用同一指纹。该变更只影响本轮 scratch 工程门，不修改科学契约。

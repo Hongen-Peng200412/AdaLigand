@@ -1,6 +1,6 @@
 # AdaLigand Stage F scratch 安全停点与 v4 重建交接
 
-Date: 2026-07-16 07:48+08:00
+Date: 2026-07-16 13:22+08:00
 Status: active；A–G 尚未完成，Stage F writer 已安全停止
 
 ## 当前结论
@@ -36,16 +36,17 @@ Stage F 的科学计算契约没有改变。插曲只修复 scratch 生命周期
 
 另有 PID `54412` / PPID `53972` 是不归属本任务的只读容量扫描：从 SSH notty 以 `python3 -` 扫描 `C_a的baseline/CIF_Ligand/CryAtom`，无删除/写入逻辑。它会争用 Lustre metadata，并被新 process gate 保守识别；未经单独授权不得信号。
 
+v4 inventory 已于 10:35:05 闭合：step `316116.43` 为 `COMPLETED 0:0`，`raw_inventory.tsv` 为 139,940 行、`attempts.tsv` 为 11,445 行，SHA-256 分别为 `e5f3075c7162fbe227d03e0de44f98ae6a7f26c085129d3563491e6f9d2c502a` 与 `3f9f20960b883d645aa966f8e4c60981aa98131b778508a16601fbc209a3a863`；`sha256sum -c inventory.sha256` 两项均为 `OK`。PID `54412` 在 13:32 仍存活；用户随后明确决定它不应阻塞本轮。process gate 已升级为 schema v3，只允许 controller 上最多一个 `node+PID+PPID+start_ticks+argv SHA` 完全匹配的一次性例外，保留原始 opaque 行；任何第二进程或身份漂移仍阻断。尚未运行 audit/apply，也未改动任何 try/after lock。
+
 ## 唯一允许的继续路径
 
-1. 只轻量监控 v4 inventory step `316116.43`；不要启动第二棵全树扫描。有效目录为服务器绝对路径：
+1. v4 inventory 已闭合；不要启动第二棵全树扫描。有效目录为服务器绝对路径：
    `/storage/penghongen/AdaLigand/Ori_Data/reports/runs/adaligand_ag_20260711T154658/stage_f_scratch_recovery_20260716_v4/`
-2. 等 `raw_inventory.tsv`、`attempts.tsv`、`inventory.sha256`、`inventory.done.json` 全部闭合；当前 tmp 行数持续增长，不是停滞。
-3. 等 v4 inventory 和 PID54412 自然退出。用 canonical `scripts/stage_f_process_audit.py capture --controller_node master` 生成新的 `process_audit.before_audit.json`；master/cnode04/cnode01 必须三类 active=0、scan_error=0、stderr为空。
-4. 用 v4 inventory 运行零删除 audit；独立核验 delete/nontransient/public-trio manifest、summary、bundle SHA。旧 v3 数据不能混入。
-5. 记录 apply 前 quota，再生成另一份新鲜 `process_audit.before_apply.json`；按 v4 bundle 逐文件 journal/fsync apply。验收 `failures=0`、postscan transient=0、nontransient/public trio逐字节不变，并记录 quota 后快照。
-6. 先只删除精确 `try_lock_318350`，完成补算与独立审计；再删除 `try_lock_316116`，让正式 F 复用三件套并完成正式 status/release。不得同时盲放。
-7. F 全量四终态和质量契约独立审计通过后才接受 `316117`。G 只 analyze，不执行示例阈值、不写或删除 `keep_list`。
+2. 不等待、也不信号 PID54412。先以其当前 `PID+PPID+start_ticks+argv SHA` 生成一次性 controller 例外，再用 canonical `scripts/stage_f_process_audit.py capture --controller_node master --allow_controller_opaque ...` 生成新的 `process_audit.before_audit.json`；master/cnode04/cnode01 必须 F/recovery/blocking opaque=0、scan_error=0、stderr为空。PID 消失或身份漂移时不得伪造匹配。
+3. 用 v4 inventory 运行零删除 audit；独立核验 delete/nontransient/public-trio manifest、summary、bundle SHA。旧 v3 数据不能混入。
+4. 记录 apply 前 quota，再生成另一份新鲜 `process_audit.before_apply.json`；按 v4 bundle 逐文件 journal/fsync apply。验收 `failures=0`、postscan transient=0、公开质量三件套逐字节不变；普通 nontransient 证据以路径、类型、大小、mtime 和已有/必要哈希证明实质内容未变，不再为全部超大日志补做全量哈希，并记录 quota 后快照。
+5. 先只删除精确 `try_lock_318350`，完成补算与独立审计；再删除 `try_lock_316116`，让正式 F 复用三件套并完成正式 status/release。不得同时盲放。
+6. F 全量四终态和质量契约独立审计通过后才接受 `316117`。G 只 analyze，不执行示例阈值、不写或删除 `keep_list`。
 
 ## 权威文档
 
