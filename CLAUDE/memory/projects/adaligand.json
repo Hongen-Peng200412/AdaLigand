@@ -44,10 +44,12 @@
     "2026-07-16：Stage F scratch v4回收、journal/fsync apply和独立验收闭合；318350于19:03:41恢复v1→v2尾段补算，316116于19:06:58恢复正式F，两台CPU96合计192核。只读复核显示锁、PGID、碰撞guard、日志与heartbeat均正常，当前A–G预计约27–40小时完成（保守44小时）。",
     "2026-07-16：E3三项独立审计闭合。上下游没有新增Ada轴序补偿，E3稀疏结果与Pocket中心oracle一致，v2→v3真实产物差异符合半体素修复。全量origin风险审计覆盖22,274个唯一EMDB，正式E合格集合命中182/22,309（约0.816%）；5个header失败均为既有missing_map。该结果不是广泛硬伤，祖传函数保持不变，182个候选只记录不排除。",
     "2026-07-16：独立E3迁移run adaligand_ag_20260711T154658_e3v3_v1已冻结22,309个旧E合格目标；target IDs SHA为35108a7a…a10b，target manifest SHA为18313414…1f10。旧E status/de_release/exclusion/pair_list继续按原SHA只读绑定。",
-    "2026-07-16：E3跨run writer锁、launch manifest与authorization seal闭合。318882_0 pilot用16 CPU在16分20秒完成465/465 success，状态SHA为072f66a5…6cbc4；465份schema3/几何身份与28,115个ZIP成员检查通过，pilot audit SHA为880f1f8d…13f93。三项独立终验均PASS，未发现广泛硬伤；其余318882_[1-47%3]已按最多3并发运行，318883只等待afterok全量source-aware gate。"
+    "2026-07-16：E3跨run writer锁、launch manifest与authorization seal闭合。318882_0 pilot用16 CPU在16分20秒完成465/465 success，状态SHA为072f66a5…6cbc4；465份schema3/几何身份与28,115个ZIP成员检查通过，pilot audit SHA为880f1f8d…13f93。三项独立终验均PASS，未发现广泛硬伤；其余318882_[1-47%3]已按最多3并发运行，318883只等待afterok全量source-aware gate。",
+    "2026-07-17：Stage F补算v1的353个unknown完整归因为289/15/45/4四类固定MapQ/Chimera确定性写出适配误拒；commit 751c8b5、远端369项全套、8样本shadow/replay、9jcs四CC零漂移和7样本promotion均通过。318350已受检恢复v1，316116继续after+try停写，待补算v1 gate与v2 guard/PGID/F12闭合后再放行正式F。",
+    "2026-07-17：E3全量迁移和canonical release闭合。318882/318883共49个授权作业全部完成，48份状态恰覆盖22,309个唯一目标且全部success；source-aware gate SHA为796bc90c…be37。scheduler snapshot、release intent、final release SHA为f9705efe…32d8、0657c85b…e25d、fdcef799…bb3e；全局writer锁已精确释放，旧E status/de_release/exclusion/pair-list哈希不变，77个known failure未复活。"
   ],
   "blockers": [
-    "当前无科学契约决策阻塞。Stage F两路CPU96正常推进，正式G仍只等待316116的f_release。E3 pilot与三项独立终验已通过，318882余下47分片和318883全量gate正在执行；182个origin-risk候选只记录、不修改祖传函数。正式G数值配置/filter仍须在质量分布后另行显式执行。"
+    "当前无科学契约决策阻塞。E3已全量修复并release；318350正在F12重跑补算v1，316116由精确after+try停写，待v1零unknown gate与v2 guard/PGID/F12证据闭合后恢复。316117仍只等待正式f_release并只运行analyze；最终G数值配置/filter须在质量分布后另行显式执行。"
   ],
   "failures": [
     "2026-07-12 Stage C gate 事件：366/22,386 为 unknown_failed，涉及 43,175 occurrences、506 object_keys；这是系统性工程/契约问题，不能按小比例忽略。",
@@ -57,6 +59,7 @@
     "2026-07-13 Stage E首轮DE gate阻断：19个unknown分解为15个Chimera 3600秒超时、3个`monitor changes`/`KeyError '?'`假fatal-log、1个2zhc/EMD-1470 model-map世界坐标包围盒完全分离。前18个按工程恢复；2zhc由用户授权转为通用、受检的`model_map_frame_mismatch` known failure，不猜测坐标变换。",
     "2026-07-13 Stage E长尾截止：补足作业316415到绝对截止点仍有8glv/9e5c/9fqr缺少完整公共三件套；按用户授权仅对正式run标记`run_policy_excluded`。316415以预期的FAILED 9:0收口，不是DAG依赖；三个外部Chimera孤儿进程逐一核验归属并终止，未伪造补足success或改变通用科学契约。",
     "2026-07-14 Stage F长尾截止：6kgx在外部工具完成后因百万行模型上的occurrence投影复杂度成为唯一活动长尾，且无公开质量三件套。按用户授权仅在Stage F专用run-scoped视图记`run_policy_excluded`；样本保留在22,386宇宙和状态分母，共享Stage E manifest不变，未把一次性性能决策扩散为通用科学契约。",
-    "2026-07-16 Stage F scratch事故：旧SSH/stdin v1进程绕过只查allocation的schema v1零进程门，在无journal情况下删除1497个MRC/CIF；公开质量三件套未漂移，但v3 live-tree证据失效。新schema v2门和v4重建已启动，任何旧bundle或手填zero证据不得用于apply。"
+    "2026-07-16 Stage F scratch事故：旧SSH/stdin v1进程绕过只查allocation的schema v1零进程门，在无journal情况下删除1497个MRC/CIF；公开质量三件套未漂移，但v3 live-tree证据失效。新schema v2门和v4重建已启动，任何旧bundle或手填zero证据不得用于apply。",
+    "2026-07-17 Stage F外部工具适配事件：补算v1出现353个unknown，全部是固定MapQ三位小数/身份写出和Chimera solid contour API的确定性适配误拒，不是科学样本失败。已由commit 751c8b5、远端369项全套、真实shadow/replay和canonical promotion闭合；禁止把这些样本降级为allowlist或扩大为任意坐标容差。"
   ]
 }
