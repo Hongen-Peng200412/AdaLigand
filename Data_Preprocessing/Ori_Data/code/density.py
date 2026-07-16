@@ -810,7 +810,6 @@ def build_ligand_area_arrays(
 
     union_flat = np.zeros((int(np.prod(shape)),), dtype=bool)
     arrays: dict[str, np.ndarray] = {}
-    shape_xyz = np.asarray(shape[::-1], dtype=np.int64)
     axis_centers_f32 = _pocket_voxel_center_axes_xyz(
         shape,
         origin_f32,
@@ -829,39 +828,21 @@ def build_ligand_area_arrays(
         chunks: list[np.ndarray] = []
         for coord, atomic_number in zip(coords, atomic_numbers, strict=True):
             radius = vdw_radius(int(atomic_number))
-            # float, Å；只用于构造与最终 ``distance² <= radius² + 1e-8``
-            # 完全闭合的保守 bbox，不改变范德华半径或最终球内判据。
+            # float, Å；与最终 ``distance² <= radius² + 1e-8`` 完全一致。
             effective_radius = float(np.sqrt(radius * radius + 1e-8))
-            # 在祖传 float32 轴中心上找候选闭区间；最终仍由 Ada 已冻结的
-            # 逐元素球内谓词筛选，searchsorted 不定义或改写 Pocket 坐标语义。
-            lower_xyz = np.asarray(
-                [
-                    np.searchsorted(
-                        axis_centers[axis],
-                        coord[axis] - effective_radius,
-                        side="left",
-                    )
-                    for axis in range(3)
-                ],
-                dtype=np.int64,
-            )
-            upper_xyz = np.asarray(
-                [
-                    np.searchsorted(
-                        axis_centers[axis],
-                        coord[axis] + effective_radius,
-                        side="right",
-                    )
-                    - 1
-                    for axis in range(3)
-                ],
-                dtype=np.int64,
-            )
-            if np.any(lower_xyz > upper_xyz):
+            # 不再推导 bbox 或近似索引范围：直接在祖传函数实际生成的
+            # float32 体素中心上做逐轴必要条件筛选，再由下方球内谓词定案。
+            x_indices = np.flatnonzero(
+                np.abs(axis_centers[0] - coord[0]) <= effective_radius
+            ).astype(np.int64, copy=False)
+            y_indices = np.flatnonzero(
+                np.abs(axis_centers[1] - coord[1]) <= effective_radius
+            ).astype(np.int64, copy=False)
+            z_indices = np.flatnonzero(
+                np.abs(axis_centers[2] - coord[2]) <= effective_radius
+            ).astype(np.int64, copy=False)
+            if not len(x_indices) or not len(y_indices) or not len(z_indices):
                 continue
-            x_indices = np.arange(lower_xyz[0], upper_xyz[0] + 1, dtype=np.int64)
-            y_indices = np.arange(lower_xyz[1], upper_xyz[1] + 1, dtype=np.int64)
-            z_indices = np.arange(lower_xyz[2], upper_xyz[2] + 1, dtype=np.int64)
             center_x = axis_centers_f32[0][x_indices]
             center_y = axis_centers_f32[1][y_indices]
             center_z = axis_centers_f32[2][z_indices]

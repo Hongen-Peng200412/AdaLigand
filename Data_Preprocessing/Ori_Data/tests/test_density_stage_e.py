@@ -416,8 +416,8 @@ def test_ligand_area_uses_corner_origin_and_anisotropic_voxel_centers() -> None:
     assert old_formula_distance > vdw_radius(6)
 
 
-def test_ligand_area_bbox_covers_pocket_float32_center_rounding() -> None:
-    """实际中心 searchsorted 必须与 Pocket-f32 全图 reference 完全一致。"""
+def test_ligand_area_axis_filter_matches_pocket_float32_center_rounding() -> None:
+    """祖传实际中心的直接筛选必须与 Pocket-f32 全图 reference 完全一致。"""
     shape = (3, 3, 4)
     voxel = np.asarray([0.30897918, 1.0, 1.0], dtype=np.float32)
     origin = np.asarray([0.02594091, 0.0, 0.0], dtype=np.float32)
@@ -442,17 +442,6 @@ def test_ligand_area_bbox_covers_pocket_float32_center_rounding() -> None:
         np.array_equal(row, np.asarray([0, 0, 2], dtype=np.int32))
         for row in arrays["mask_0"]
     )
-
-    effective_radius = float(np.sqrt(vdw_radius(6) ** 2 + 1e-8))
-    upper_without_float32_guard = int(
-        np.floor(
-            (float(coord[0, 0]) + effective_radius - float(origin[0]))
-            / float(voxel[0])
-            - 0.5
-            + 1e-12
-        )
-    )
-    assert upper_without_float32_guard == 1
 
 
 def test_sparse_axis_adapter_matches_ancestor_full_grid_with_repeated_centers() -> None:
