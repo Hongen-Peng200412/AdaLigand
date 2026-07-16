@@ -76,6 +76,20 @@ def main() -> None:
     else:
         result = gate_repair(**common)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    if args.mode == "run" and _has_non_release_status(result):
+        raise SystemExit(1)
+
+
+def _has_non_release_status(summary: dict[str, object]) -> bool:
+    """判断分片是否含 release 不接受的终态，供 Slurm 正确传播失败。"""
+    raw_counts = summary.get("status_counts")
+    if not isinstance(raw_counts, dict):
+        return True
+    accepted = {"success", "skipped"}
+    return any(
+        status not in accepted and isinstance(count, int) and count > 0
+        for status, count in raw_counts.items()
+    )
 
 
 if __name__ == "__main__":
