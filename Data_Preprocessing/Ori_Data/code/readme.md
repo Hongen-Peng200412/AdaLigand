@@ -489,6 +489,8 @@ CC、分辨率和比例边界均含等号。一旦 map 通过，`keep_list.jsonl
 
 `reports/runs/{run_id}/exclusions.jsonl` 是单次正式 run 的显式排除清单，不是科学黑名单。每行必须完整给出 `schema_version/pdb_id/run_id/stages/reason/detail/authorization/decision_scope/downstream_policy/evidence`；`decision_scope` 固定为 `current_run_only`，`downstream_policy` 固定为 `exclude_from_training_and_inference`，`stages` 只能覆盖 E/F。命中项在 E/F 写 `known_failed:run_policy_excluded` 和完整 manifest/provenance，仍保留在 A 样本宇宙、状态分母与审计中；不删除 `pair_list`，不伪造 success，G 也不会把它写入候选。清单缺字段、跨 run、重复 PDB、非法 stage 或哈希漂移都必须 fail-fast。
 
+当前正式 run `adaligand_ag_20260711T154658` 另有一条严格受限的巨大长尾运行策略。现有 run-only exclusion 为 `8ckb/8glv/9e5c/9fqr/6kgx` 共 5 个；后续至多自治追加 4 个，使累计始终不超过 9。每个新增项都必须先有客观证据证明它是正在消耗关键路径的活动长尾，而不是尚未调度的排队样本；本阶段要求的完整公开 artifact 必须确实缺失；日志、进程、运行时或资源占用必须能够支撑该判断。新增项仍留在 22,386 样本分母，写 `known_failed:run_policy_excluded`，排除训练、推理和 G 候选，不得伪造 success。若新增一项会使累计达到 10，或同一模式开始聚集、呈现系统性趋势，自动个例化立即停止，必须诊断根因并向用户确认。该上限只是本次 run 的运行授权，不改变 E/F 科学契约、成功定义或未来 run 的默认行为。
+
 Stage E 的完整 artifact 是同一 PDB 的 `exp.npz`、`sim.npz`、`ligand_area.npz` 三者都存在且分别通过既有校验；只有一项或两项的 partial 三件套不算完成。`scripts/stage_e_long_tail_cutoff.py` 只在用户已经为当前 run 给出明确截止授权后使用：它同时冻结 predecision/posttermination、before/after manifest 和 summary，验证补足 job 身份、时间先后、完整三件套边界与终止证据，再原子更新清单；重复运行必须字节级幂等。当前正式 run 的 cutoff code/CLI 已通过本地与远端 207 tests，最终 exclusion manifest SHA-256 为 `380844d0…325f`；这份 before/after 审计不改变通用 E 成功定义或未来 run 的科学契约。
 
 ---

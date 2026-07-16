@@ -79,6 +79,7 @@
 - [x] (2026-07-16 13:32+08:00) 两个 F writer 继续停在各自精确 `after+try`。只读复核确认 PID `54412` 是不归属本任务、扫描其他数据根的容量探针；用户明确决定它不应阻塞 A–G，且不得发信号。commit `cdcf031` 将 process gate 升级为 schema v3：最多允许 controller 上一个 `node+PID+PPID+start_ticks+argv SHA` 完全匹配的一次性例外，raw opaque 行完整保留；第二个 opaque、任一身份漂移、F/recovery、scan error 或 audit/apply 例外漂移仍 fail-closed。本地专项 43 passed+2 skipped、全套 284 passed+4 skipped，compileall 与 diff check 通过。
 - [ ] 以当前真实指纹生成 `process_audit.before_audit.json`；完成零删除 audit 和独立 bundle 验收后，apply 前生成另一份 fresh `process_audit.before_apply.json`。两个证据必须复用同一例外指纹，随后才允许 journaled apply。
 - [x] (2026-07-16 13:30+08:00) 用户为优先恢复 A–G 明确放宽 scratch 验收：公开质量三件套仍须完整 SHA-256 逐字节不变；普通 nontransient 日志/证据只须以路径、类型、大小、mtime 和已有或必要哈希证明实质内容未变，不要求为全部大于 16 MiB 的保留文件追加全量哈希。该决定只降低回收工具的非科学证据成本，不改变四 CC、配体/口袋 Q、质量三件套或任何 F/G 科学契约。
+- [x] (2026-07-16) 用户冻结本次正式 run 的巨大长尾运行策略：当前 `8ckb/8glv/9e5c/9fqr/6kgx` 共 5 个 run-only exclusion；后续只有在客观证明样本正在形成活动长尾、缺少本阶段完整公开 artifact 且存在明确运行时/资源证据时，才可自治追加，最多再追加 4 个，使累计始终不超过 9（严格少于 10）。样本继续留在 22,386 分母，以 `known_failed:run_policy_excluded` 终态审计并排除训练、推理和 G 候选，不伪造 success；累计将达到 10，或同类失败开始聚集/呈系统性趋势时，必须停止个例化、诊断根因并询问用户。
 - [ ] 持续监控、自动诊断/修复/重提，只在科学契约变化或外部不可恢复阻塞时请求用户。
 - [ ] 完成全量验收、计划漂移收口、mapping/契约 README/项目记忆更新和最终报告。
 
@@ -374,6 +375,10 @@
   Rationale: 现场证据表明外部工具已结束，长尾来自 post-MapQ Python occurrence 投影的工程复杂度，而不是新的科学失败类别。Stage F 专用视图解决既有 E status 已绑定旧 manifest SHA 的 provenance 冲突；它是本轮 artifact/审计接口，不是未来自动超时规则，也不授权把尚未取证的排队样本批量排除。
   Date/Author: 2026-07-14 / User + Codex
 
+- Decision: 对正式 run `adaligand_ag_20260711T154658`，允许把极少数有完整现场证据的巨大活动长尾继续记为 run-only exclusion，而不让其无限阻塞 A–G。当前累计为 5 个，自治追加额度至多为 4 个，故累计必须始终严格少于 10。每次追加都必须证明：样本确实处于活动计算而非排队；本阶段要求的完整公开 artifact 尚未形成；日志、进程、运行时或资源占用能客观解释长尾。记录继续使用 `known_failed:run_policy_excluded`，保留 22,386 样本宇宙和状态分母，并排除训练、推理与 G 候选；禁止伪造 success。若下一条会使累计达到 10，或同一失败模式出现聚集/系统性趋势，必须停止逐例排除，转为根因诊断并向用户确认。
+  Rationale: 少于 10 个极端样本不足以合理占用整条 A–G 关键路径，但上限和逐样本证据可以防止把系统性工程故障误包装成零散超时。这是当前正式 run 的资源与完成策略，不新增科学 known-failure 类别，不改 E/F 成功定义，也不授权未来 run 自动沿用。
+  Date/Author: 2026-07-16 / User + Codex
+
 - Decision: 本次 cutoff 只把 `exp.npz`、`sim.npz`、`ligand_area.npz` 三者都存在且通过既有 artifact 校验的样本认作完成；仅有其中一项或两项属于 partial，继续按截止时的未完成事实审计。before/after manifest 和逐样本迁移记录只服务于正式 run `adaligand_ag_20260711T154658`，不改变 Stage E 的通用成功定义或科学契约。
   Rationale: 把 partial 当作完成会让下游消费缺失或未验证的模拟图/体素标签；把这次名单写成通用规则又会把一次性资源决定误扩散到未来 run。独立 cutoff CLI 同时验证截止时间、补足 job 身份、前后终止证据、manifest 哈希和幂等重放，随后才允许 resume v3 放行正式 E。
   Date/Author: 2026-07-13 / User + Codex
@@ -397,6 +402,8 @@
 ## Outcomes & Retrospective
 
 尚未完成。Stage C v4、ABC gate、MRC 放行及正式 D/E 已闭合；`316115` 于 2026-07-14 01:26:42 `COMPLETED 0:0`，D/E 四终态、风险分层 artifact、四条 Stage E run-only exclusion 与 2zhc frame mismatch 均已通过独立审计。Stage F 的正式 `316116` 和尾段补算 `318350` 已因 scratch 生命周期事故安全收口到各自 `after+try`，原两台 CPU96 allocation、正式 status writer 与 afterok 链均保留。异常安全实现、硬中断回收工具和跨节点真实进程门已经测试；唯一有效的 v4 inventory 已闭合并通过哈希验证，但不归属 PID `54412` 尚未自然退出，因此零删除 audit、journaled apply 和顺序恢复尚未开始。全量 F 状态、五条 Stage F exclusion 终态与总体质量分布仍待完成。Stage G 单一 map-level schema v2 已实现，`316117` 仍只安排 analyze。未完成范围是受检 scratch 回收、F 顺序恢复与全量独立 QC、G analyze/分布、最终文档与记忆收口；显式阈值配置和 `keep_list` 仍不属于本轮无人值守终点。
+
+当前正式 run 的 run-only exclusion 计数为 5，受检巨大长尾的自治追加余额为 4；只有活动长尾、完整 artifact 缺失和资源证据三项同时成立才可使用。计数将达到 10，或出现同类聚集/系统性趋势时，不得继续个例化，必须转入根因诊断并询问用户。
 
 ## Context and Orientation
 

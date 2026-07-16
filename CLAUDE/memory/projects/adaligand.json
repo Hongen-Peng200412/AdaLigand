@@ -38,7 +38,8 @@
     "2026-07-16：旧schema v1遗漏master上的SSH/stdin孤儿清理进程；该进程在v3 audit结束后无journal删除1497个精确transient，冻结清单预计约1.085 TiB，但受影响小证据与公开质量三件套未漂移。v3 bundle永久作废，v1/v3只保留事故证据；当前只允许v4 inventory→全新audit→全新apply链。",
     "2026-07-16：跨节点真实进程门提交d53d190，绑定master+双allocation、argv/stdout/stderr、node/scope/job、最老时间、scan error、opaque stdin Python和canonical脚本/模块SHA；Windows全套272 passed+4 skipped，Linux全套276 passed。v4 inventory step316116.43在cnode04单task推进；另有不归属本任务的只读容量扫描PID54412会保守阻断process gate，未经授权不得信号。",
     "2026-07-16：唯一有效v4 inventory已闭合并通过哈希复核：raw_inventory 139,940行、attempts 11,445行，SHA分别为e5f3075c…c502a与3f9f2096…a863。316116/318350继续保留CPU96 allocation和after+try，无实际F writer；316117仍依赖等待。用户为优先完成A-G放宽普通nontransient大文件的全量SHA要求：公开质量三件套仍完整哈希，其他保留证据以路径、类型、大小、st_blocks、mtime和已有/必要哈希证明实质内容未变。",
-    "2026-07-16：用户明确决定不归属的只读容量扫描PID54412不应阻塞A-G，也不得信号。process gate升级为schema v3：controller最多一个node+PID+PPID+start_ticks+argv SHA精确例外，raw opaque行完整保留；第二个opaque、身份漂移、F/recovery、scan error或audit/apply spec漂移仍fail-closed。专项43 passed+2 skipped、Windows全套284 passed+4 skipped，compileall/diff check与两次独立审查通过。"
+    "2026-07-16：用户明确决定不归属的只读容量扫描PID54412不应阻塞A-G，也不得信号。process gate升级为schema v3：controller最多一个node+PID+PPID+start_ticks+argv SHA精确例外，raw opaque行完整保留；第二个opaque、身份漂移、F/recovery、scan error或audit/apply spec漂移仍fail-closed。专项43 passed+2 skipped、Windows全套284 passed+4 skipped，compileall/diff check与两次独立审查通过。",
+    "2026-07-16：用户冻结本次正式run的巨大长尾运行策略。当前run-only exclusion共5个（8ckb/8glv/9e5c/9fqr/6kgx），只可在活动长尾、完整公开artifact缺失和明确运行时/资源证据同时成立时自治再追加至多4个，使累计始终小于10。样本保留在22,386分母，记known_failed:run_policy_excluded并排除训练/推理/G，不伪造success；达到10前或出现同类聚集/系统性趋势即停止个例化、诊断并询问。该策略不改变科学契约。"
   ],
   "blockers": [
     "当前无科学契约决策阻塞；v4 inventory已闭合，PID54412等待已由用户授权的schema v3单一精确controller例外解除。Stage F writer仍处于受检scratch恢复安全停点；下一步须在master/cnode04/cnode01零F/recovery/blocking-opaque进程时分别生成audit前与apply前的新鲜process证据，完成v4零删除audit、journaled apply和独立验收，再按318350→316116顺序恢复。不得信号PID54412、不得使用v3 bundle、不得放宽任何其他进程门。正式G数值配置/filter仍须在质量分布后另行显式执行。"
