@@ -32,7 +32,7 @@
 - [x] (2026-07-11 15:04+08:00) 按用户新增需求实现 occurrence 级 6 Å 受体口袋 Q：复用同一次全模型 MapQ，保存有序 pocket atom_site.id/逐原子 Q 与 mean/median/min/count/radius；固定包络并集、零口袋失败和合成端到端已进入 90 项全套回归。
 - [x] (2026-07-11 11:17+08:00) 通过无删除安全同步上传代码；在用户目录安装并验证 Chimera 1.19 OSMesa、MapQ 2.9.7 固定包与 mrcfile 1.5.4，工具清单落在 `/home/penghongen/.local/opt/adaligand_tools_manifest.json`。
 - [x] (2026-07-11 15:45+08:00) 真实 smoke `adaligand_smoke_20260711T113733` / job `316073` 最终 `COMPLETED 0:0`：三 PDB 的 C/D/E/F 严格门禁通过，99 occurrence 中 97 个正常口袋、2 个显式空口袋；job `316109` 的 12 Å 错位 CC 负对照也 `COMPLETED 0:0`。
-- [ ] (2026-07-11 15:47+08:00) 全量 run `adaligand_ag_20260711T154658` 已提交：ABC `316114` → DE `316115` → F `316116` → G analyze `316117`；ABC 与 DE 已完成。Stage F scratch v4 回收已经闭合；尾段补算 `318350` 已通过确定性 MapQ/Chimera 兼容修复门并在原 allocation 重跑 v1，正式 F `316116` 仍由精确 `after+try` 停写，等待补算 v1 gate 与 v2 guard/PGID/F12 证据。G analyze 继续依赖等待，整条 DAG 尚未完成。
+- [ ] (2026-07-11 15:47+08:00) 全量 run `adaligand_ag_20260711T154658` 已提交：ABC `316114` → DE `316115` → F `316116` → G analyze `316117`；ABC 与 DE 已完成。Stage F scratch v4、确定性适配恢复与六例 signal-11 的 run-only 收口均已闭合。补算 v1 已通过 2,990 行终态 gate 并进入独立 v2；正式 F `316116` 已于 2026-07-17 14:16+08:00 在原 CPU96 allocation 受检恢复，二者均为 F12、MapQ `sigma=0.4,np=8`。六例只写真实 known 状态，公开质量三件套保持 0/3；`316117` 继续只等待正式 `f_release` 并只运行 analyze，整条 DAG 尚未完成。
 - [x] (2026-07-12 00:24+08:00) 长周期监控改为阶段感知策略：Codex heartbeat 从每 30 分钟降为每 2 小时；正常运行只静默记录，阶段切换、失败或契约异常才通知，并在 release gate、异常诊断和最终 QC 时临时启用多智能体独立审计。
 - [x] (2026-07-12 02:58+08:00) 用户确认保留原 Job ID 的原地调度方案：pending core 支持预置普通文件 run_cmd，并在首次及每次 retry 前拒绝 symlink、检查非空/`0700`/`bash -n`、记录 SHA-256；本地全套增至 97 tests passed，shell/sbatch 语法与 `git diff --check` 通过。
 - [x] (2026-07-12 02:58+08:00) 不取消或重提既有 DAG；原子预置 `316115` 的 D64/E24 run_cmd（SHA-256 `54658b7a4c2819793a22282ac21a005bfdc6fe1f6c48d4a006c760be2cd380b0`）和 `316116` 的 F12 run_cmd（SHA-256 `8399d571bab44881facbeaa9dd1e738594255a4b4212605cfe418878744f7d13`），将 `316115/316116/316117` 原地改为 `TimeLimit=UNLIMITED` 后 release `316115`；提交时间、CPU 数与 afterok 链均保持不变。
@@ -92,7 +92,7 @@
 - [x] (2026-07-17) 用户选择 run-only 收口：只对正式 run `adaligand_ag_20260711T154658` 的 `9bw7/9c1k/9dgr/9fkb/9mxv/9nw3` 记录 `run_policy_excluded:chimera_full_grid_cc_signal11`，并把本 run 的排除上限由 9 显式放宽到 30。追加后总数为 11/22,386（约 0.049138%）。该授权不改变四 CC、F 成功定义或未来 run 的科学契约；生产代码禁止写 PDB allowlist，六个 ID 只能存在于绑定 run/evidence 的 manifest。
 - [x] (2026-07-17 12:50+08:00) 六项 run-scoped manifest 工程由 `879f2be/aec286b/ebbef37` 闭合半迁移恢复、进程门和 Windows MAX_PATH；最终 transition/supplement resume/formal resume/test SHA-256 分别为 `55e81acc46326e766c0a7c44d7b5d89d213a7d26e17938eb2447a1e9c70a3dfb` / `3da2b388acdbf599ab2f4d0ae7876c2b277cc74d6c346a8f2ab1c5f30cb0fc43` / `f8adf31fec1cdc45bed338abda58027931b3d4894ccd88d63e438d9b81476a95` / `eed82818901df13ebb901db6f69b2a300376aa1b53b103832a0f7d6553b7b335`。独立复核无阻断；本地专项 18 passed、全套 377 passed+10 skipped，远端 Linux 全套 387 passed。端到端 fixture 证明六例只写真实 known 状态，质量三件套保持 0/3，G 可按完整性自然排除，不生成任何占位产物。
 - [x] (2026-07-17 12:59+08:00) 新鲜 master+cnode04+cnode01 进程门以 schema v3/status success 闭合，audit SHA-256 为 `697bcb28d0d3cf43bbd883e5e0247d4241630a84a87ae6ffb716de75e3ebd063`；当时双 job 仍为精确 `after+try` 且无 writer。受检 apply/replay 后，正式共享 4 条 manifest 仍为 `380844d0…325f`，正式 Stage F 视图从 `3b10abb5…8ee8` 原子追加为 11 条、SHA-256 `10c5d923779645a6eeeeb5d277722e6f487593557c095cfcdef641553613c8ac`；补算 v1/v2 各自六条 manifest SHA-256 为 `6f3a0a880e6e38768e1e096b2bcb776087372be56987b4a930c88306b5527f35` / `43da55a71885730458cab546f6eb96e38722b726445eaf3613873f23e74b7d40`，六例 canonical 质量产物仍恰为 0/3。
-- [ ] (2026-07-17 12:59+08:00) `318350` 已原子切换到 run_cmd SHA-256 `90489efe798aa324c3854b3f26adee4761d016f022b2b99b206b4c80395def29` 并只删除精确 `try_lock_318350`；当前以 F12/no-overwrite 重跑补算 v1，正式 `316116` 继续由 `after+try` 停写。待 v1 闭合为 2,990 unique、零 unknown/duplicate/silent missing、六例 manifest-bound known 与 0/3，并确认 v2 guard/child PGID/F12 后，才受检恢复正式 F。manifest 的退出条件仍是正式 F status/`f_release`、Stage G analyze 与最终 A–G 审计闭合；依赖它的一次性脚手架须在最终维护收口中审查、归档或移出生产入口。
+- [x] (2026-07-17 14:16+08:00) 补算 v1 以 2,990 unique 闭合为 2,984 skipped + 6 manifest-bound known，unknown/duplicate/silent missing 均为 0；status/release SHA-256 为 `04d6474e…39a7` / `9a445fa4…9426`，六例公开质量三件套仍为 0/3，且补算未写正式 status/`f_release`。wrapper 随后进入独立 v2，5,984-ID/plan SHA-256 为 `7f427993…17c6c` / `116084c3…64fc`，guard、child PGID `165143`、F12 与首个真实进度均通过。受检 release 两次复核这些事实后，原子替换正式 run_cmd 为 SHA-256 `6c1f89a5…c00d`，仅删除精确 `try_lock_316116`；正式 F 已在原 CPU96 allocation 恢复，`after` 保留、`try/kill/pre` 不存在。manifest 的退出条件仍是正式 F status/`f_release`、Stage G analyze 与最终 A–G 审计闭合；依赖它的一次性脚手架须在最终维护收口中审查、归档或移出生产入口。
 - [ ] 持续监控、自动诊断/修复/重提，只在科学契约变化或外部不可恢复阻塞时请求用户。
 - [ ] 完成全量验收、计划漂移收口、mapping/契约 README/项目记忆更新和最终报告。
 
@@ -450,7 +450,7 @@
   Date/Author: 2026-07-17 / Codex
 
 - Decision: 用户授权六个固定 ID 仅在当前正式 run 中以 `run_policy_excluded:chimera_full_grid_cc_signal11` 收口，并把该 run 的 run-only exclusion 硬上限放宽到 30；本次追加后累计 11/22,386（约 0.049138%）。
-  Rationale: 六者已由单进程 6/6 fail、有效 fresh ALL 正/负控制、signal 11 与非 OOM 证据逐项闭合；继续改四 CC 或无限等待不优于把约万分之 4.9 的已取证运行失败显式排除。该决定只改变本次运行的完成策略，不新增通用 known-failure 科学类别。生产路径只能通用读取 run-scoped manifest，禁止把六个 PDB 写进代码 allowlist；manifest 必须绑定授权、证据、run id、阶段、下游策略、退出条件与最终脚手架审查。
+  Rationale: 六者已由单进程 6/6 fail、有效 fresh ALL 正/负控制、signal 11 与非 OOM 证据逐项闭合；继续改四 CC 或无限等待不优于把约万分之 4.9 的已取证运行失败显式排除。该决定只改变本次运行的完成策略，不新增通用 known-failure 科学类别。生产路径只能通用读取 run-scoped manifest，禁止把六个 PDB 写进代码 allowlist；manifest 必须绑定授权、证据、run id、阶段、下游策略、退出条件与最终脚手架审查。六者不得产生占位 JSON/NPZ：状态分母保留真实 known failure，而训练、推理和 G 通过公开质量三件套完整性自然排除。
   Date/Author: 2026-07-17 / User + Codex
 
 ## Outcomes & Retrospective
@@ -461,9 +461,9 @@ E3 的 Pocket 祖传半体素修复及 source-aware release runner 已实现并�
 
 旧的 run-only 规则在累计达到 10 或同类聚集前要求停下询问；它已成功阻止 Agent 自行个例化。用户随后只对当前正式 run 显式把硬上限放宽到 30，并授权六个已取证 Fresh ALL signal-11 PDB。当前应有 11/22,386 项，未来 run 不继承 30 或六个 ID；生产路径禁止 PDB allowlist。
 
-2026-07-17 的最新 Stage F 状态覆盖上文“两个 writer 正在运行”的时间点：补算 v1 已把 353 个 unknown 完整归因为四类确定性 MapQ/Chimera 适配误拒；commit `751c8b5`、远端 369 项全套、8 样本 shadow smoke/replay、`9jcs` 四 CC 零漂移和 7 样本 promotion gate 均已通过。03:07 只释放精确 `try_lock_318350`，补算已在原 allocation 以 F12 重跑 v1；`316116` 仍由精确 `after+try` 停写。下一步必须让补算 v1 复用 2,637 份合法三件套并把 353 个旧 unknown 重算到 unknown=0，再核验 v2 guard/child PGID/F12，最后才恢复唯一正式 writer `316116`；因此 A–G 仍未完成，`316117` 继续只等待正式 `f_release`。
+2026-07-17 的最新 Stage F 状态覆盖上文早期“双 writer 停写”的时间点：补算 v1 已把 353 个旧 unknown 先归因为四类确定性适配误拒，再把最终六个稳定 signal-11 样本按用户授权写成真实 run-only known failure。最终 v1 为 2,990 unique、2,984 skipped + 6 known，unknown/duplicate/silent missing 均为 0；六例公开质量三件套严格保持 0/3。补算 wrapper 已进入 5,984-ID 的独立 v2，正式 `316116` 也在 v2 guard/child PGID/F12 门闭合后恢复为唯一 22,386 行 status/`f_release` writer。因此 A–G 仍未完成，但已不存在科学决策阻塞；`316117` 继续只等待正式 `f_release`。
 
-随后完成的重跑把旧 353 unknown 收敛到六个大网格 PDB，但没有达到可放行状态。六者在 `n_jobs=1` 仍 6/6 fail；有效 ALL-only v2 以 `9hhl` 逐位复现 canonical 的正控制排除了 harness/公式漂移，同时以 `9fkb` fresh 子进程 signal 11 复现故障。约 2 TB 节点没有 OOM 证据，继续增加 RAM/worker 不是已有证据支持的修复。用户现已选择只对本 run 的六者使用 `run_policy_excluded:chimera_full_grid_cc_signal11`，并把本 run 上限放宽到 30；累计 11/22,386（约 0.049138%）。本地工程 commit `879f2be` 与专项/相关测试已闭合，但远端同步、Linux 全套、manifest 实例 SHA/行数和锁恢复尚待闭合；此前两个 F 作业保持精确 `after+try`，G 尚未开始。
+随后完成的重跑把旧 353 unknown 收敛到六个大网格 PDB。六者在 `n_jobs=1` 仍 6/6 fail；有效 ALL-only v2 以 `9hhl` 逐位复现 canonical 的正控制排除了 harness/公式漂移，同时以 `9fkb` fresh 子进程 signal 11 复现故障。约 2 TB 节点没有 OOM 证据，继续增加 RAM/worker 不是已有证据支持的修复。用户选择只对本 run 的六者使用 `run_policy_excluded:chimera_full_grid_cc_signal11`，并把本 run 上限放宽到 30；累计 11/22,386（约 0.049138%）。本地/远端全套、三份 manifest 原子迁移、补算 v1 gate、v2 进程门和正式 F 恢复现已全部闭合；六例仍为 0/3，未生成伪装产物。G 尚未开始。
 
 ## Context and Orientation
 
@@ -644,7 +644,7 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 
 ### Unfinished scope
 
-- C source repair、全量 C、ABC gate 与正式 D/E 已完成；D–G 代码已实现。DE→F 的 status/gate、E artifact 风险分层和 exclusion/frame-mismatch 三路审计均通过。Stage F scratch v4 与 adapter recovery 已闭合；六个大网格 signal-11 样本的本 run 授权、工程实现、独立复核、本地/远端全套和三份 manifest 原子迁移也已闭合，六例仍为 0/3。当前未完成的是补算 v1→v2 与正式 F 的受检恢复、正式 F 全量四终态和质量审计、11 条 Stage F exclusion 传播复核、F→G release gate、G analyze 分布和最终独立 QC。
+- C source repair、全量 C、ABC gate 与正式 D/E 已完成；D–G 代码已实现。DE→F 的 status/gate、E artifact 风险分层和 exclusion/frame-mismatch 三路审计均通过。Stage F scratch v4、adapter recovery、六个大网格 signal-11 样本的本 run 授权/manifest 迁移、补算 v1 gate、v2 进程门及正式 F 恢复均已闭合，六例仍为 0/3。当前未完成的是补算 v2 与正式 F 全量计算、正式 F 四终态和质量审计、11 条 Stage F exclusion 传播复核、F→G release gate、G analyze 分布和最终独立 QC。
 - G 的 map-level 算法、比较边界、空口袋分母和整 map 保留规则已冻结；最终分辨率、选定 CC、配体 Q、口袋 Q 与比例数值仍须先看正式分布后以 schema v2 配置显式给出。当前示例不写入默认值，正式 filter/`keep_list` 尚未执行。
 - E3 代码、独立 runner、source-aware validator、本地/远端全套、多图 Pocket oracle、22,309-ID 全量迁移、独立 gate 与 canonical writer release 均已通过；77 个旧 known failure 未复活，旧 E status/de_release/exclusion/pair-list 始终只读。独立 48 CPU header 审计中的 182/22,309 个小范围风险候选继续只作证据，不修改祖传实现或排除样本。E3 已无未完成生产范围；未使用的 `mrc.py::grid_world_bounds` 仍是 P2 维护项，最终一次性脚手架收口时一并分类。
 
@@ -710,3 +710,5 @@ Revision note 2026-07-17 Fresh ALL 隔离诊断: 补算 v1 已由 353 个适配 
 Revision note 2026-07-17 六项 run-only 授权: 用户选择不修改祖传 ALL 或四 CC，而只对当前 run 的六个已取证 signal-11 PDB 写 `run_policy_excluded:chimera_full_grid_cc_signal11`，并把本 run 排除硬上限从 9 放宽到 30。累计 11/22,386（约 0.049138%）；生产代码禁止 PDB allowlist，manifest 必须绑定本 run、退出条件和最终一次性脚手架审查。本地工程检查点 `879f2be` 已通过专项 12 项与相关 42 项测试（另 2 项 Linux-only skipped）；远端 Linux 全套、manifest 实例和锁恢复仍待受检闭合。
 
 Revision note 2026-07-17 12:59+08:00: 六项授权实现经追加工程修复与最终独立复核闭合，本地全套 377 passed+10 skipped、远端 Linux 全套 387 passed。新鲜跨节点 process audit 通过后，正式 Stage F 视图原子迁移为 11 条、补算 v1/v2 各自迁移为六条；正式共享 4 条历史 manifest 和六例 0/3 质量产物均不变。随后只恢复 `318350` 重跑 v1，正式 `316116` 继续停写，等待 v1 gate 与 v2 guard/PGID 门；该修订只更新运行现实，不改变四 CC 或 clean spec。
+
+Revision note 2026-07-17 14:16+08:00: 补算 v1 以 status/release SHA-256 `04d6474e…39a7` / `9a445fa4…9426` 通过 2,990 行 gate，六例为真实 known failure 且公开质量三件套保持 0/3；补算未触碰正式 status/`f_release`。wrapper 自动进入独立 v2，5,984-ID/plan SHA-256 为 `7f427993…17c6c` / `116084c3…64fc`。两次 validate-only/正式 release 绑定 v1/v2、进程树、六例 0/3 和锁 inode，正式证据 SHA-256 为 `b7d70433…5477`；随后原子发布正式 run_cmd `6c1f89a5…c00d` 并只删除精确 `try_lock_316116`。正式 F 与补算 v2 现各用 CPU96/F12 继续运行；14:26–14:32 的独立只读双快照分别为正式 457→661 outer tasks、v2 104→121/5,984，且现场 v2 MapQ 命令均显式 `sigma=0.4,np=8`。本次记录强调 known failure 不生成占位产物，训练、推理和 G 按完整性自然排除。
