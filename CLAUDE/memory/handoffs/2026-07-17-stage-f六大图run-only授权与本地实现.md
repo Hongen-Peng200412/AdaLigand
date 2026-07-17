@@ -10,31 +10,31 @@ Date: 2026-07-17
 - 六者 `n_jobs=1` 为 6/6 fail；有效 fresh ALL v2 用 `9hhl` 逐位复现 canonical 两个 ALL 值，并在 `9fkb` 重现 signal 11。约 2 TB 节点无节点/cgroup OOM 证据。
 - 用户已授权六者仅在当前正式 run 中写 `run_policy_excluded:chimera_full_grid_cc_signal11`，并把本 run 的 run-only exclusion 上限由 9 放宽到 30。与既有五项合计 11/22,386，约 0.049138%。这不是通用科学契约或未来 run 默认值。
 
-## Local engineering checkpoint
+## Engineering and server checkpoint
 
-- Commit: `879f2be fix(stage-f): exclude six reproducible Chimera signal-11 cases`。
+- Commits: `879f2be/aec286b/ebbef37`，依次闭合 run-only 实现、三目标原子迁移/进程门与短证据名。
 - 只修改 4 个专用文件：
-  - `Data_Preprocessing/Ori_Data/scripts/f_signal11_exclusion_transition.py`，SHA-256 `8e2e1346b7c35452d4058c4a7c59faa116f80446982540332f0cae2a8ddba489`；
-  - `Data_Preprocessing/Ori_Data/sbatch/resume_f_316116_signal11_v1.sh`，SHA-256 `6e16aec8f9c2f7c8fc6a3c2e643053daf3c574b13a774141b8757e836fdacc79`；
-  - `Data_Preprocessing/Ori_Data/sbatch/resume_f_supplement_318350_signal11_v1.sh`，SHA-256 `99f81c76bcdce7038a6020c400889ebdd7d09d624d41c28052113379a80ee787`；
-  - `Data_Preprocessing/Ori_Data/tests/test_f_signal11_exclusions.py`，SHA-256 `46d07664990e1bf9aab1f8bdd1d13d734350c69466a27c749d2e8f4201c3ebdc`。
+  - `Data_Preprocessing/Ori_Data/scripts/f_signal11_exclusion_transition.py`，SHA-256 `55e81acc46326e766c0a7c44d7b5d89d213a7d26e17938eb2447a1e9c70a3dfb`；
+  - `Data_Preprocessing/Ori_Data/sbatch/resume_f_316116_signal11_v1.sh`，SHA-256 `f8adf31fec1cdc45bed338abda58027931b3d4894ccd88d63e438d9b81476a95`；
+  - `Data_Preprocessing/Ori_Data/sbatch/resume_f_supplement_318350_signal11_v1.sh`，SHA-256 `3da2b388acdbf599ab2f4d0ae7876c2b277cc74d6c346a8f2ab1c5f30cb0fc43`；
+  - `Data_Preprocessing/Ori_Data/tests/test_f_signal11_exclusions.py`，SHA-256 `eed82818901df13ebb901db6f69b2a300376aa1b53b103832a0f7d6553b7b335`。
 - transition 只生成绑定 run/evidence 的 manifest，不在生产 Python 写 PDB allowlist，不创建六者的伪质量三件套。正式视图应由原 5 条严格追加为 11 条；两个补算 run 各自使用仅含六条、重写对应 run_id 的 F-only manifest。
 - 正式恢复入口要求补算 v1 恰 2,990 行、unknown=0、六者均为 manifest-bound known 且 gate 成功；随后还必须证明 v2 gate 已成功，或 job `318350` 正在运行且已登记新的正整数 child PGID。正式 `316116` 仍是 22,386 行 status/`f_release` 唯一 writer。
 
-## Validation
+## Validation and live transition
 
-- 专项：12 passed。
-- 相关：42 passed，2 个 Linux-only skipped。
-- 本机完整收集因环境缺少 `rdkit/gemmi` 出现 16 个 collection errors；这不是全套通过，也不是实现失败的科学证据。
-- 截至本 handoff，代码尚未 safe sync 到服务器，远端 Linux 全套尚未运行，manifest 实例 SHA/行数尚未生成，任何 try-lock/after-lock 均未由本地实现提交动作改变。
+- 专项：18 passed；本地全套：377 passed、10 skipped；远端 Linux 全套：387 passed。最终独立复核无阻断。
+- 新鲜跨节点 process audit SHA-256 为 `697bcb28d0d3cf43bbd883e5e0247d4241630a84a87ae6ffb716de75e3ebd063`，capture 时 master/cnode04/cnode01 均无 F/recovery/blocking opaque 进程，双 job 恰为 `after+try`。
+- transition apply/replay 已成功。正式共享 4 条 manifest 仍为 `380844d0…325f`；正式 Stage F 视图为 11 条、SHA-256 `10c5d923779645a6eeeeb5d277722e6f487593557c095cfcdef641553613c8ac`；补算 v1/v2 各六条 manifest SHA-256 为 `6f3a0a880e6e38768e1e096b2bcb776087372be56987b4a930c88306b5527f35` / `43da55a71885730458cab546f6eb96e38722b726445eaf3613873f23e74b7d40`。
+- 六例 canonical 质量三件套仍严格为 0/3。manifest 不产生占位 JSON/NPZ；这既保留真实 known 状态，也允许下游用几行完整性检查自然排除。
+- `318350` 已原子切换到 run_cmd SHA-256 `90489efe798aa324c3854b3f26adee4761d016f022b2b99b206b4c80395def29`，并于 12:59+08 只删除精确 `try_lock_318350` 重跑 v1；`316116` 继续由精确 `after+try` 停写。
 
 ## Next actions
 
-1. 按 `project-server-interaction` 做无删除 safe sync，复核远端四文件 SHA，并运行远端 Linux 全套；不得把 collection failure 或测试未收集冒充通过。
-2. 在 fresh process/锁门通过后运行 transition 的 audit/validate，再生成正式 11 条与两个补算各 6 条 manifest；记录精确路径、SHA-256、行数和旧五条逐字节保持证据。
-3. 更新受检 run_cmd/release marker，先只恢复 `318350`；确认补算 v1 gate 与 v2 gate/child-PGID/F12 后，再恢复唯一正式 writer `316116`。不得同时盲放两个 try-lock。
-4. 正式 F 完成后独立审计 22,386 四终态、11 条 provenance、unknown/duplicate/silent missing=0、六者 0/3 质量三件套以及四 CC/Q/MapQ 契约；`f_release` 成功后才允许 `316117` 只运行 G analyze。
-5. manifest 的退出条件是正式 F release、G analyze 和最终 A–G 审计闭合。最终维护收口必须审查这些一次性生成/恢复脚本，并归档或移出生产入口；未来 run 不继承六个 ID 或 cap30。
+1. 只读监控 `318350` v1；验收 2,990 unique、unknown/duplicate/silent missing=0、六例恰为 manifest-bound known、六例 0/3 与 v1 release success。
+2. 确认 wrapper 自动进入 v2，核对 run/plan/IDs、guard、child PGID、F12/MapQ np8 和首个真实进度；随后原子发布受检 formal run_cmd，并只删除精确 `try_lock_316116`。不得同时盲放两个 writer。
+3. 正式 F 完成后独立审计 22,386 四终态、11 条 provenance、unknown/duplicate/silent missing=0、六者 0/3 质量三件套以及四 CC/Q/MapQ 契约；`f_release` 成功后才允许 `316117` 只运行 G analyze。
+4. manifest 的退出条件是正式 F release、G analyze 和最终 A–G 审计闭合。最终维护收口必须审查这些一次性生成/恢复脚本，并归档或移出生产入口；未来 run 不继承六个 ID 或 cap30。
 
 ## Do not do
 
