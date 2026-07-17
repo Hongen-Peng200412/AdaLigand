@@ -7,7 +7,7 @@ set -euo pipefail
 readonly formal_run_id="adaligand_ag_20260711T154658"
 readonly formal_job_id="316116"
 readonly transition_script="${CODE_ROOT}/scripts/f_signal11_exclusion_transition.py"
-readonly expected_transition_sha256="8e2e1346b7c35452d4058c4a7c59faa116f80446982540332f0cae2a8ddba489"
+readonly expected_transition_sha256="c2bd1e672a904d85fd77f9312da658cbcdf470b05c0e4e4667c93b46ae8dd2c4"
 
 if [[ "${SLURM_JOB_ID:-}" != "${formal_job_id}" || \
       "${ADALIGAND_RUN_ID:-}" != "${formal_run_id}" ]]; then

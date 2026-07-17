@@ -112,6 +112,16 @@ DEFAULT_CONTRACT = Signal11TransitionContract(
 SchedulerStateQuery = Callable[[int], str]
 
 
+@dataclass(frozen=True)
+class _LiveReplacement:
+    """描述一个已冻结顺序、允许旧态和目标字节的 live manifest 替换。"""
+
+    path: Path
+    payload: bytes
+    allowed_before_sha256: str | None
+    allow_absent: bool
+
+
 def apply_or_validate_signal11_transition(
     root: Path,
     *,
@@ -205,55 +215,11 @@ def apply_or_validate_signal11_transition(
         run_id: evidence_dir / f"{run_id}.exclusions.after.jsonl"
         for run_id in contract.supplement_run_ids
     }
-
-    if mode == "apply":
-        _write_immutable(formal_before_evidence, before_bytes)
-        _write_immutable(status_evidence, status_before_bytes)
-        _write_immutable(formal_after_path, formal_after_bytes)
-        for run_id, payload in supplement_payloads.items():
-            _write_immutable(supplement_after_paths[run_id], payload)
-        _replace_if_before_or_equal(
-            formal_manifest,
-            formal_after_bytes,
-            allowed_before_sha256=contract.expected_formal_before_sha256,
-        )
-        for run_id, payload in supplement_payloads.items():
-            run_dir = root / "reports" / "runs" / run_id
-            stage_f_view = run_dir / "exclusions.stage_f.jsonl"
-            if stage_f_view.exists() or stage_f_view.is_symlink():
-                raise RuntimeError(
-                    f"supplement run must not introduce a Stage F overlay: {stage_f_view}"
-                )
-            _replace_if_absent_or_equal(run_dir / "exclusions.jsonl", payload)
-    else:
-        _require_bytes(formal_before_evidence, before_bytes, "formal before evidence")
-        _require_bytes(status_evidence, status_before_bytes, "status before evidence")
-        _require_bytes(formal_after_path, formal_after_bytes, "formal after evidence")
-        _require_bytes(formal_manifest, formal_after_bytes, "formal Stage F manifest")
-        for run_id, payload in supplement_payloads.items():
-            _require_bytes(
-                supplement_after_paths[run_id],
-                payload,
-                f"{run_id} after evidence",
-            )
-            _require_bytes(
-                root / "reports" / "runs" / run_id / "exclusions.jsonl",
-                payload,
-                f"{run_id} exclusion manifest",
-            )
-
-    formal_loaded, formal_sha = load_run_exclusions(
-        root, contract.formal_run_id, "stage_f"
-    )
-    if set(formal_loaded) != set(formal_records):
-        raise RuntimeError("formal Stage F loader does not expose exactly 11 exclusions")
-    supplement_sha: dict[str, str] = {}
-    for run_id in contract.supplement_run_ids:
-        loaded, digest = load_run_exclusions(root, run_id, "stage_f")
-        if set(loaded) != set(SIGNAL11_IDS) or digest is None:
-            raise RuntimeError(f"supplement exclusion loader mismatch: {run_id}")
-        supplement_sha[run_id] = digest
-
+    formal_sha = _sha256_bytes(formal_after_bytes)
+    supplement_sha = {
+        run_id: _sha256_bytes(payload)
+        for run_id, payload in supplement_payloads.items()
+    }
     summary = {
         "schema_version": 1,
         "status": "success",
@@ -289,10 +255,107 @@ def apply_or_validate_signal11_transition(
     }
     summary_bytes = _encode_json(summary)
     summary_path = evidence_dir / "summary.json"
+    replacement_plan_path = evidence_dir / "apply_journal.plan.json"
+    supplement_run_dirs = {
+        run_id: root / "reports" / "runs" / run_id
+        for run_id in contract.supplement_run_ids
+    }
+    replacements = [
+        _LiveReplacement(
+            path=formal_manifest,
+            payload=formal_after_bytes,
+            allowed_before_sha256=contract.expected_formal_before_sha256,
+            allow_absent=False,
+        ),
+        *(
+            _LiveReplacement(
+                path=supplement_run_dirs[run_id] / "exclusions.jsonl",
+                payload=supplement_payloads[run_id],
+                allowed_before_sha256=None,
+                allow_absent=True,
+            )
+            for run_id in contract.supplement_run_ids
+        ),
+    ]
+    replacement_plan_bytes = _encode_json(
+        {
+            "schema_version": 1,
+            "status": "prepared",
+            "event": "stage_f_signal11_manifest_replacement_plan",
+            "replay_policy": (
+                "all targets are preflighted and all replacement temp files are fsynced "
+                "before the first os.replace; interrupted commits replay idempotently"
+            ),
+            "replacement_order": [
+                {
+                    "sequence": index,
+                    "path": str(replacement.path),
+                    "target_sha256": _sha256_bytes(replacement.payload),
+                    "allow_absent": replacement.allow_absent,
+                    "allowed_before_sha256": replacement.allowed_before_sha256,
+                }
+                for index, replacement in enumerate(replacements, start=1)
+            ],
+        }
+    )
+    evidence_payloads = [
+        (formal_before_evidence, before_bytes, "formal before evidence"),
+        (status_evidence, status_before_bytes, "status before evidence"),
+        (formal_after_path, formal_after_bytes, "formal after evidence"),
+        *(
+            (
+                supplement_after_paths[run_id],
+                supplement_payloads[run_id],
+                f"{run_id} after evidence",
+            )
+            for run_id in contract.supplement_run_ids
+        ),
+        (replacement_plan_path, replacement_plan_bytes, "replacement plan evidence"),
+        (summary_path, summary_bytes, "transition summary"),
+    ]
+
+    if mode == "apply":
+        _preflight_signal11_apply(
+            replacements,
+            supplement_run_dirs=supplement_run_dirs,
+            evidence_payloads=evidence_payloads,
+        )
+        # 所有 evidence 目标与 live 目标已一起只读预检；先冻结可重放证据，再准备全部 live temp。
+        for path, payload, _label in evidence_payloads[:-1]:
+            _write_immutable(path, payload)
+        prepared = _prepare_live_replacement_temps(replacements)
+        try:
+            _commit_live_replacements(replacements, prepared)
+        finally:
+            for temporary in prepared.values():
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
+    else:
+        for path, payload, label in evidence_payloads:
+            _require_bytes(path, payload, label)
+        _require_bytes(formal_manifest, formal_after_bytes, "formal Stage F manifest")
+        for run_id, payload in supplement_payloads.items():
+            _require_bytes(
+                supplement_run_dirs[run_id] / "exclusions.jsonl",
+                payload,
+                f"{run_id} exclusion manifest",
+            )
+
+    formal_loaded, observed_formal_sha = load_run_exclusions(
+        root, contract.formal_run_id, "stage_f"
+    )
+    if (
+        set(formal_loaded) != set(formal_records)
+        or observed_formal_sha != formal_sha
+    ):
+        raise RuntimeError("formal Stage F loader does not expose exactly 11 exclusions")
+    for run_id, expected_sha in supplement_sha.items():
+        loaded, observed_sha = load_run_exclusions(root, run_id, "stage_f")
+        if set(loaded) != set(SIGNAL11_IDS) or observed_sha != expected_sha:
+            raise RuntimeError(f"supplement exclusion loader mismatch: {run_id}")
+
     if mode == "apply":
         _write_immutable(summary_path, summary_bytes)
-    else:
-        _require_bytes(summary_path, summary_bytes, "transition summary")
     return summary
 
 
@@ -428,6 +491,8 @@ def validate_signal11_apply_preconditions(
     ):
         if type(audit.get(field)) is not int or audit[field] != 0:
             raise RuntimeError(f"process audit is not quiescent: {field}={audit.get(field)!r}")
+    if audit.get("blocking_controller_opaque_processes") != []:
+        raise RuntimeError("process audit contains a blocking controller opaque process")
     job_checks = audit.get("job_checks")
     if not isinstance(job_checks, dict) or set(job_checks) != {"316116", "318350"}:
         raise RuntimeError("process audit must contain the two exact job checks")
@@ -442,7 +507,6 @@ def validate_signal11_apply_preconditions(
             or check.get("probe_stderr") != ""
             or check.get("active_stage_f_processes") != 0
             or check.get("active_inventory_or_cleanup_processes") != 0
-            or check.get("active_opaque_stdin_python_processes") != 0
         ):
             raise RuntimeError(f"process audit contains a non-quiescent probe: {check}")
     if (
@@ -498,6 +562,65 @@ def validate_signal11_apply_preconditions(
         "process_audit_captured_at": captured_at_raw,
         "process_audit_age_seconds": age_seconds,
         "lock_snapshot": lock_snapshot,
+    }
+
+
+def apply_signal11_transition_with_preconditions(
+    root: Path,
+    *,
+    process_audit_path: Path,
+    expected_process_audit_sha256: str,
+    lock_root: Path,
+    contract: Signal11TransitionContract = DEFAULT_CONTRACT,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """
+    以按 audit SHA 命名的稳定证据授权一次可幂等重放的 signal-11 apply。
+
+    同一 audit 的实时 ``age_seconds`` 只进入控制台返回值，不进入 immutable evidence；fresh
+    audit 使用新 SHA 文件，因此首次 live commit 后无论同 audit 重试还是 fresh audit 复核都不会
+    被固定文件名或动态年龄阻断。
+    """
+    preconditions = validate_signal11_apply_preconditions(
+        process_audit_path,
+        expected_process_audit_sha256=expected_process_audit_sha256,
+        lock_root=lock_root,
+        now=now,
+    )
+    stable_preconditions = {
+        "schema_version": 1,
+        "status": "success",
+        "event": "stage_f_signal11_apply_preconditions",
+        "process_audit_sha256": preconditions["process_audit_sha256"],
+        "process_audit_captured_at": preconditions["process_audit_captured_at"],
+        "lock_snapshot": preconditions["lock_snapshot"],
+    }
+    evidence_path = (
+        root
+        / "reports"
+        / "runs"
+        / contract.formal_run_id
+        / "stage_f_signal11_exclusion_20260717_v1"
+        / f"apply_preconditions.{expected_process_audit_sha256}.json"
+    )
+    evidence_payload = _encode_json(stable_preconditions)
+    _preflight_immutable(
+        evidence_path,
+        evidence_payload,
+        "process-audit-bound apply preconditions",
+    )
+    _write_immutable(evidence_path, evidence_payload)
+    transition = apply_or_validate_signal11_transition(
+        root,
+        mode="apply",
+        contract=contract,
+    )
+    return {
+        "status": "success",
+        "transition": transition,
+        "apply_preconditions": preconditions,
+        "apply_preconditions_path": str(evidence_path),
+        "apply_preconditions_sha256": sha256_file(evidence_path),
     }
 
 
@@ -794,30 +917,112 @@ def _write_immutable(path: Path, payload: bytes) -> None:
     _atomic_write(path, payload)
 
 
-def _replace_if_before_or_equal(
-    path: Path,
-    payload: bytes,
+def _preflight_signal11_apply(
+    replacements: list[_LiveReplacement],
     *,
-    allowed_before_sha256: str,
+    supplement_run_dirs: dict[str, Path],
+    evidence_payloads: list[tuple[Path, bytes, str]],
 ) -> None:
-    """仅允许从冻结旧身份迁移，或接受已完成的幂等重放。"""
-    if path.is_symlink() or not path.is_file():
-        raise RuntimeError(f"manifest must be a regular file: {path}")
+    """
+    在首个 live replace 前一次性验证三目标、两份 overlay 和全部 evidence 目的地。
+
+    该预检不创建目录或文件。任何 symlink、漂移、缺失父目录或不可接受旧态都在
+    formal/supplement manifest 发生首个变更前失败。
+    """
+    for run_id, run_dir in supplement_run_dirs.items():
+        if run_dir.is_symlink() or not run_dir.is_dir():
+            raise RuntimeError(f"supplement run directory is not regular: {run_dir}")
+        stage_f_view = run_dir / "exclusions.stage_f.jsonl"
+        if stage_f_view.exists() or stage_f_view.is_symlink():
+            raise RuntimeError(
+                f"supplement run must not introduce a Stage F overlay: {run_id}"
+            )
+    for replacement in replacements:
+        _preflight_live_replacement(replacement)
+    for path, payload, label in evidence_payloads:
+        _preflight_immutable(path, payload, label)
+
+
+def _preflight_live_replacement(replacement: _LiveReplacement) -> None:
+    """验证一个 live manifest 当前为允许旧态、目标字节或允许的 absent。"""
+    path = replacement.path
+    if path.parent.is_symlink() or not path.parent.is_dir():
+        raise RuntimeError(f"live manifest parent is not a regular directory: {path.parent}")
+    if path.is_symlink():
+        raise RuntimeError(f"live manifest must not be a symlink: {path}")
+    if not path.exists():
+        if replacement.allow_absent:
+            return
+        raise RuntimeError(f"required live manifest is absent: {path}")
+    if not path.is_file():
+        raise RuntimeError(f"live manifest must be a regular file: {path}")
     current = path.read_bytes()
-    if current == payload:
+    if current == replacement.payload:
         return
-    if _sha256_bytes(current) != allowed_before_sha256:
-        raise RuntimeError(f"manifest drift before signal-11 transition: {path}")
-    _atomic_write(path, payload)
+    if (
+        replacement.allowed_before_sha256 is not None
+        and _sha256_bytes(current) == replacement.allowed_before_sha256
+    ):
+        return
+    raise RuntimeError(f"live manifest drift before signal-11 transition: {path}")
 
 
-def _replace_if_absent_or_equal(path: Path, payload: bytes) -> None:
-    """补算 run 只允许首次创建自己的 manifest，或逐字节幂等重放。"""
+def _preflight_immutable(path: Path, payload: bytes, label: str) -> None:
+    """只读验证 immutable evidence 可新建，或已逐字节等于本次冻结内容。"""
+    _require_safe_parent_chain(path)
     if path.exists() or path.is_symlink():
-        _require_bytes(path, payload, "supplement exclusion manifest")
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_write(path, payload)
+        _require_bytes(path, payload, label)
+
+
+def _require_safe_parent_chain(path: Path) -> None:
+    """要求目标父链不存在 symlink 或非目录节点；允许 evidence 的末级目录尚未创建。"""
+    for parent in (path.parent, *path.parent.parents):
+        if parent.is_symlink():
+            raise RuntimeError(f"target parent chain contains a symlink: {parent}")
+        if parent.exists() and not parent.is_dir():
+            raise RuntimeError(f"target parent chain contains a non-directory: {parent}")
+
+
+def _prepare_live_replacement_temps(
+    replacements: list[_LiveReplacement],
+) -> dict[Path, Path]:
+    """在任何 replace 前，为全部 live 目标同目录写入并 fsync 当前进程独占 temp。"""
+    prepared: dict[Path, Path] = {}
+    try:
+        for replacement in replacements:
+            _preflight_live_replacement(replacement)
+            temporary = replacement.path.with_name(
+                f"{replacement.path.name}.tmp.{os.getpid()}.{uuid4().hex}"
+            )
+            with temporary.open("xb") as stream:
+                stream.write(replacement.payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            prepared[replacement.path] = temporary
+    except Exception:
+        for temporary in prepared.values():
+            temporary.unlink(missing_ok=True)
+        raise
+    return prepared
+
+
+def _commit_live_replacements(
+    replacements: list[_LiveReplacement],
+    prepared: dict[Path, Path],
+) -> None:
+    """按冻结 journal 顺序提交已 fsync 的 temp；每步前再次拒绝并发漂移。"""
+    if set(prepared) != {replacement.path for replacement in replacements}:
+        raise RuntimeError("prepared replacement set does not match the frozen journal")
+    for replacement in replacements:
+        _preflight_live_replacement(replacement)
+        if (
+            replacement.path.is_file()
+            and not replacement.path.is_symlink()
+            and replacement.path.read_bytes() == replacement.payload
+        ):
+            prepared[replacement.path].unlink(missing_ok=True)
+            continue
+        os.replace(prepared[replacement.path], replacement.path)
 
 
 def _require_bytes(path: Path, expected: bytes, label: str) -> None:
@@ -828,7 +1033,8 @@ def _require_bytes(path: Path, expected: bytes, label: str) -> None:
 
 def _atomic_write(path: Path, payload: bytes) -> None:
     """在目标目录内写当前进程独占临时文件，再原子替换目标。"""
-    temporary = path.with_name(f"{path.name}.tmp.{os.getpid()}.{uuid4().hex}")
+    # 临时名不复制长目标名，避免 Windows 测试路径在 audit SHA 文件上超过 MAX_PATH。
+    temporary = path.with_name(f".tmp.{os.getpid()}.{uuid4().hex}")
     try:
         with temporary.open("xb") as stream:
             stream.write(payload)
@@ -856,36 +1062,12 @@ def main() -> None:
     if args.mode == "apply":
         if args.process_audit is None or args.process_audit_sha256 is None:
             parser.error("apply requires --process_audit and --process_audit_sha256")
-        preconditions = validate_signal11_apply_preconditions(
-            args.process_audit,
+        summary = apply_signal11_transition_with_preconditions(
+            args.root,
+            process_audit_path=args.process_audit,
             expected_process_audit_sha256=args.process_audit_sha256,
             lock_root=args.lock_root,
         )
-        transition = apply_or_validate_signal11_transition(args.root, mode="apply")
-        evidence_path = (
-            args.root
-            / "reports"
-            / "runs"
-            / DEFAULT_CONTRACT.formal_run_id
-            / "stage_f_signal11_exclusion_20260717_v1"
-            / "apply_preconditions.json"
-        )
-        _write_immutable(
-            evidence_path,
-            _encode_json(
-                {
-                    **preconditions,
-                    "transition_summary_sha256": _sha256_bytes(_encode_json(transition)),
-                }
-            ),
-        )
-        summary = {
-            "status": "success",
-            "transition": transition,
-            "apply_preconditions": preconditions,
-            "apply_preconditions_path": str(evidence_path),
-            "apply_preconditions_sha256": sha256_file(evidence_path),
-        }
     elif args.mode == "readiness":
         if args.expected_supplement_run_cmd_sha256 is None:
             parser.error(

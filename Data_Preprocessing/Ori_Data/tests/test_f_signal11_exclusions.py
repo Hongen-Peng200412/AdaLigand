@@ -24,6 +24,7 @@ from f_signal11_exclusion_transition import (
     DEFAULT_CONTRACT,
     SIGNAL11_IDS,
     Signal11TransitionContract,
+    apply_signal11_transition_with_preconditions,
     apply_or_validate_signal11_transition,
     validate_formal_signal11_readiness,
     validate_signal11_apply_preconditions,
@@ -191,6 +192,10 @@ def _process_audit_payload(captured_at: datetime) -> dict:
         "active_stage_f_processes": 0,
         "active_inventory_or_cleanup_processes": 0,
         "active_opaque_stdin_python_processes": 0,
+        "observed_opaque_stdin_python_processes": 0,
+        "authorized_controller_opaque_specs": [],
+        "authorized_controller_opaque_processes": [],
+        "blocking_controller_opaque_processes": [],
         "scan_error_count": 0,
         "scheduler_exit_code": 0,
         "controller_check": check("master", None),
@@ -332,6 +337,51 @@ def test_transition_rejects_existing_quality_artifact_without_side_effects(
         apply_or_validate_signal11_transition(root, mode="apply", contract=contract)
     assert artifact.read_text(encoding="utf-8") == "real artifact\n"
     assert formal_path.read_bytes() == formal_before
+
+
+@pytest.mark.parametrize("supp2_conflict", ["symlink", "drift", "overlay"])
+def test_transition_preflights_all_targets_before_first_live_replace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    supp2_conflict: str,
+) -> None:
+    """supp2 任一可预见冲突都必须在 formal/supp1 首次写入前阻断。"""
+    root, contract = _prepare_root(tmp_path)
+    formal_path = root / "reports" / "runs" / "formal" / "exclusions.stage_f.jsonl"
+    supp1_path = root / "reports" / "runs" / "supp1" / "exclusions.jsonl"
+    supp2_dir = root / "reports" / "runs" / "supp2"
+    supp2_path = supp2_dir / "exclusions.jsonl"
+    formal_before = formal_path.read_bytes()
+    if supp2_conflict == "symlink":
+        original_is_symlink = Path.is_symlink
+        monkeypatch.setattr(
+            Path,
+            "is_symlink",
+            lambda path: path == supp2_path or original_is_symlink(path),
+        )
+        expected_error = "must not be a symlink"
+    elif supp2_conflict == "drift":
+        supp2_path.write_text('{"drift":true}\n', encoding="utf-8")
+        expected_error = "live manifest drift"
+    else:
+        (supp2_dir / "exclusions.stage_f.jsonl").write_text(
+            '{"overlay":true}\n',
+            encoding="utf-8",
+        )
+        expected_error = "must not introduce a Stage F overlay"
+
+    with pytest.raises(RuntimeError, match=expected_error):
+        apply_or_validate_signal11_transition(root, mode="apply", contract=contract)
+    assert formal_path.read_bytes() == formal_before
+    assert not (supp1_path.exists() or supp1_path.is_symlink())
+    evidence_dir = (
+        root
+        / "reports"
+        / "runs"
+        / "formal"
+        / "stage_f_signal11_exclusion_20260717_v1"
+    )
+    assert not evidence_dir.exists()
 
 
 def test_supplement_gate_accepts_only_real_manifest_bound_known_statuses(
@@ -513,6 +563,110 @@ def test_apply_preconditions_reject_stale_or_active_process_audit(
             lock_root=lock_root,
             now=captured_at + timedelta(seconds=60),
         )
+
+
+def test_apply_preconditions_allow_authorized_controller_opaque_but_reject_blocking(
+    tmp_path: Path,
+) -> None:
+    """schema v3 只按顶层 blocking opaque 判定，不误伤精确授权的 controller 扫描。"""
+    captured_at = datetime.now(timezone.utc)
+    lock_root = tmp_path / "locks"
+    lock_root.mkdir()
+    for job_id in (316116, 318350):
+        for kind in ("after", "try"):
+            (lock_root / f"{kind}_lock_{job_id}").write_text("held\n", encoding="utf-8")
+    authorized = _process_audit_payload(captured_at)
+    authorized["observed_opaque_stdin_python_processes"] = 1
+    authorized["controller_check"]["active_opaque_stdin_python_processes"] = 1
+    authorized["authorized_controller_opaque_specs"] = [{"pid": 54412}]
+    authorized["authorized_controller_opaque_processes"] = [{"pid": 54412}]
+    authorized_path = tmp_path / "authorized.json"
+    authorized_path.write_text(json.dumps(authorized), encoding="utf-8")
+    summary = validate_signal11_apply_preconditions(
+        authorized_path,
+        expected_process_audit_sha256=sha256_file(authorized_path),
+        lock_root=lock_root,
+        now=captured_at + timedelta(seconds=60),
+    )
+    assert summary["status"] == "success"
+
+    blocking = dict(authorized)
+    blocking["blocking_controller_opaque_processes"] = [{"pid": 60001}]
+    blocking_path = tmp_path / "blocking.json"
+    blocking_path.write_text(json.dumps(blocking), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="blocking controller opaque"):
+        validate_signal11_apply_preconditions(
+            blocking_path,
+            expected_process_audit_sha256=sha256_file(blocking_path),
+            lock_root=lock_root,
+            now=captured_at + timedelta(seconds=60),
+        )
+
+
+def test_apply_replays_with_same_or_fresh_process_audit_without_manifest_drift(
+    tmp_path: Path,
+) -> None:
+    """首次 live commit 后，同 audit 与 fresh audit 都能幂等重放且不改变三份 manifest。"""
+    root, contract = _prepare_root(tmp_path)
+    lock_root = tmp_path / "locks"
+    lock_root.mkdir()
+    for job_id in (316116, 318350):
+        for kind in ("after", "try"):
+            (lock_root / f"{kind}_lock_{job_id}").write_text("held\n", encoding="utf-8")
+    captured_at = datetime.now(timezone.utc)
+    audit1_path = tmp_path / "audit1.json"
+    audit1_path.write_text(
+        json.dumps(_process_audit_payload(captured_at)),
+        encoding="utf-8",
+    )
+    audit1_sha = sha256_file(audit1_path)
+    first = apply_signal11_transition_with_preconditions(
+        root,
+        process_audit_path=audit1_path,
+        expected_process_audit_sha256=audit1_sha,
+        lock_root=lock_root,
+        contract=contract,
+        now=captured_at + timedelta(seconds=30),
+    )
+    manifest_paths = [
+        root / "reports" / "runs" / "formal" / "exclusions.stage_f.jsonl",
+        root / "reports" / "runs" / "supp1" / "exclusions.jsonl",
+        root / "reports" / "runs" / "supp2" / "exclusions.jsonl",
+    ]
+    manifest_bytes = {path: path.read_bytes() for path in manifest_paths}
+    evidence_path = Path(first["apply_preconditions_path"])
+    evidence_bytes = evidence_path.read_bytes()
+
+    replay = apply_signal11_transition_with_preconditions(
+        root,
+        process_audit_path=audit1_path,
+        expected_process_audit_sha256=audit1_sha,
+        lock_root=lock_root,
+        contract=contract,
+        now=captured_at + timedelta(seconds=120),
+    )
+    assert replay["apply_preconditions_path"] == str(evidence_path)
+    assert evidence_path.read_bytes() == evidence_bytes
+    assert {path: path.read_bytes() for path in manifest_paths} == manifest_bytes
+
+    fresh_captured_at = captured_at + timedelta(seconds=180)
+    audit2_path = tmp_path / "audit2.json"
+    audit2_path.write_text(
+        json.dumps(_process_audit_payload(fresh_captured_at)),
+        encoding="utf-8",
+    )
+    audit2_sha = sha256_file(audit2_path)
+    fresh = apply_signal11_transition_with_preconditions(
+        root,
+        process_audit_path=audit2_path,
+        expected_process_audit_sha256=audit2_sha,
+        lock_root=lock_root,
+        contract=contract,
+        now=fresh_captured_at + timedelta(seconds=30),
+    )
+    assert fresh["apply_preconditions_path"] != str(evidence_path)
+    assert Path(fresh["apply_preconditions_path"]).is_file()
+    assert {path: path.read_bytes() for path in manifest_paths} == manifest_bytes
 
 
 def test_formal_release_and_g_analyze_naturally_exclude_signal11_without_quality(

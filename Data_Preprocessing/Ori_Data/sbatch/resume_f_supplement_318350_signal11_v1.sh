@@ -5,7 +5,7 @@ set -euo pipefail
 readonly expected_job_id="318350"
 readonly expected_v1_run_id="adaligand_ag_20260711T154658_fsupp96_v1"
 readonly transition_script="${CODE_ROOT}/scripts/f_signal11_exclusion_transition.py"
-readonly expected_transition_sha256="8e2e1346b7c35452d4058c4a7c59faa116f80446982540332f0cae2a8ddba489"
+readonly expected_transition_sha256="c2bd1e672a904d85fd77f9312da658cbcdf470b05c0e4e4667c93b46ae8dd2c4"
 readonly delegate="${CODE_ROOT}/sbatch/resume_f_supplement_318350_accel_v2.sh"
 readonly expected_delegate_sha256="4ccd573bdfe6dfe264029e959cafb97dc18a96fb4db9a376f1a16ee364f083bd"
 
