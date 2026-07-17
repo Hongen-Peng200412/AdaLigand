@@ -575,11 +575,11 @@ def apply_signal11_transition_with_preconditions(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """
-    以按 audit SHA 命名的稳定证据授权一次可幂等重放的 signal-11 apply。
+    以 audit SHA 短前缀命名的稳定证据授权一次可幂等重放的 signal-11 apply。
 
     同一 audit 的实时 ``age_seconds`` 只进入控制台返回值，不进入 immutable evidence；fresh
-    audit 使用新 SHA 文件，因此首次 live commit 后无论同 audit 重试还是 fresh audit 复核都不会
-    被固定文件名或动态年龄阻断。
+    audit 通常使用新短名；若短前缀碰撞，完整 SHA 所在的 payload 不同会在 live commit 前
+    fail closed。因此同 audit 重试与 fresh audit 复核都不会被动态年龄或静默覆盖阻断。
     """
     preconditions = validate_signal11_apply_preconditions(
         process_audit_path,
@@ -595,13 +595,15 @@ def apply_signal11_transition_with_preconditions(
         "process_audit_captured_at": preconditions["process_audit_captured_at"],
         "lock_snapshot": preconditions["lock_snapshot"],
     }
+    # 文件名只携带足够短的审计摘要前缀，完整 SHA 仍由不可变 payload 绑定；
+    # 若前缀碰撞，_preflight_immutable 会在任何 live manifest 写入前拒绝覆盖。
     evidence_path = (
         root
         / "reports"
         / "runs"
         / contract.formal_run_id
         / "stage_f_signal11_exclusion_20260717_v1"
-        / f"apply_preconditions.{expected_process_audit_sha256}.json"
+        / f"apply.{expected_process_audit_sha256[:16]}.json"
     )
     evidence_payload = _encode_json(stable_preconditions)
     _preflight_immutable(

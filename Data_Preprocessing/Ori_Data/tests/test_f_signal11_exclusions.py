@@ -669,6 +669,77 @@ def test_apply_replays_with_same_or_fresh_process_audit_without_manifest_drift(
     assert {path: path.read_bytes() for path in manifest_paths} == manifest_bytes
 
 
+def test_apply_rejects_short_audit_prefix_collision_before_live_commit(
+    tmp_path: Path,
+) -> None:
+    """短摘要前缀碰撞必须保留旧证据，并在三份 live manifest 变化前失败。"""
+    root, contract = _prepare_root(tmp_path)
+    lock_root = tmp_path / "locks"
+    lock_root.mkdir()
+    for job_id in (316116, 318350):
+        for kind in ("after", "try"):
+            (lock_root / f"{kind}_lock_{job_id}").write_text("held\n", encoding="utf-8")
+    captured_at = datetime.now(timezone.utc)
+    audit_path = tmp_path / "audit.json"
+    audit_path.write_text(
+        json.dumps(_process_audit_payload(captured_at)),
+        encoding="utf-8",
+    )
+    audit_sha = sha256_file(audit_path)
+    evidence_path = (
+        root
+        / "reports"
+        / "runs"
+        / contract.formal_run_id
+        / "stage_f_signal11_exclusion_20260717_v1"
+        / f"apply.{audit_sha[:16]}.json"
+    )
+    colliding_sha = (
+        audit_sha[:16]
+        + ("0" if audit_sha[16] != "0" else "1")
+        + audit_sha[17:]
+    )
+    collision_payload = {
+        "schema_version": 1,
+        "status": "success",
+        "event": "stage_f_signal11_apply_preconditions",
+        "process_audit_sha256": colliding_sha,
+        "process_audit_captured_at": captured_at.isoformat(),
+        "lock_snapshot": {},
+    }
+    evidence_path.parent.mkdir(parents=True, exist_ok=True)
+    evidence_path.write_text(json.dumps(collision_payload), encoding="utf-8")
+    evidence_before = evidence_path.read_bytes()
+    manifest_paths = [
+        root / "reports" / "runs" / "formal" / "exclusions.stage_f.jsonl",
+        root / "reports" / "runs" / "supp1" / "exclusions.jsonl",
+        root / "reports" / "runs" / "supp2" / "exclusions.jsonl",
+    ]
+    manifest_before = {
+        path: path.read_bytes() if path.exists() else None
+        for path in manifest_paths
+    }
+
+    with pytest.raises(
+        RuntimeError,
+        match="process-audit-bound apply preconditions drift",
+    ):
+        apply_signal11_transition_with_preconditions(
+            root,
+            process_audit_path=audit_path,
+            expected_process_audit_sha256=audit_sha,
+            lock_root=lock_root,
+            contract=contract,
+            now=captured_at + timedelta(seconds=30),
+        )
+
+    assert evidence_path.read_bytes() == evidence_before
+    assert {
+        path: path.read_bytes() if path.exists() else None
+        for path in manifest_paths
+    } == manifest_before
+
+
 def test_formal_release_and_g_analyze_naturally_exclude_signal11_without_quality(
     tmp_path: Path,
 ) -> None:
