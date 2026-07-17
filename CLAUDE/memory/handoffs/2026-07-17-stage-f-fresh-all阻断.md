@@ -6,7 +6,7 @@ Date: 2026-07-17
 
 - 正式 A–G run 仍为 `adaligand_ag_20260711T154658`。A–E 与 E3 已闭合；F 尚未 release，G 尚未启动。
 - `316116` 与 `318350` 当前均保留各自精确 `after+try`，没有 Stage F writer。不得在用户选择后续路径前删除任一 try-lock。
-- 修复后的补算 v1 status SHA-256 为 `7938aea615c19029265587d556622c8f2d6aea5acff59a94baa85813698496b`，仅余 `9bw7/9c1k/9dgr/9fkb/9mxv/9nw3` 六个 unknown。
+- 修复后的补算 v1 status SHA-256 为 `7938aea615c19029265587d556622c8f2d6aea5acff59a94baa85813698496b6`，仅余 `9bw7/9c1k/9dgr/9fkb/9mxv/9nw3` 六个 unknown。
 
 ## Completed
 

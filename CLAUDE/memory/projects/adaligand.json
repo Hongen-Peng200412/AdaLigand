@@ -46,10 +46,12 @@
     "2026-07-16：独立E3迁移run adaligand_ag_20260711T154658_e3v3_v1已冻结22,309个旧E合格目标；target IDs SHA为35108a7a…a10b，target manifest SHA为18313414…1f10。旧E status/de_release/exclusion/pair_list继续按原SHA只读绑定。",
     "2026-07-16：E3跨run writer锁、launch manifest与authorization seal闭合。318882_0 pilot用16 CPU在16分20秒完成465/465 success，状态SHA为072f66a5…6cbc4；465份schema3/几何身份与28,115个ZIP成员检查通过，pilot audit SHA为880f1f8d…13f93。三项独立终验均PASS，未发现广泛硬伤；其余318882_[1-47%3]已按最多3并发运行，318883只等待afterok全量source-aware gate。",
     "2026-07-17：Stage F补算v1的353个unknown完整归因为289/15/45/4四类固定MapQ/Chimera确定性写出适配误拒；commit 751c8b5、远端369项全套、8样本shadow/replay、9jcs四CC零漂移和7样本promotion均通过。318350已受检恢复v1，316116继续after+try停写，待补算v1 gate与v2 guard/PGID/F12闭合后再放行正式F。",
-    "2026-07-17：E3全量迁移和canonical release闭合。318882/318883共49个授权作业全部完成，48份状态恰覆盖22,309个唯一目标且全部success；source-aware gate SHA为796bc90c…be37。scheduler snapshot、release intent、final release SHA为f9705efe…32d8、0657c85b…e25d、fdcef799…bb3e；全局writer锁已精确释放，旧E status/de_release/exclusion/pair-list哈希不变，77个known failure未复活。"
+    "2026-07-17：E3全量迁移和canonical release闭合。318882/318883共49个授权作业全部完成，48份状态恰覆盖22,309个唯一目标且全部success；source-aware gate SHA为796bc90c…be37。scheduler snapshot、release intent、final release SHA为f9705efe…32d8、0657c85b…e25d、fdcef799…bb3e；全局writer锁已精确释放，旧E status/de_release/exclusion/pair-list哈希不变，77个known failure未复活。",
+    "2026-07-17：修复后的Stage F补算v1只余9bw7/9c1k/9dgr/9fkb/9mxv/9nw3六个大网格unknown；n_jobs1仍6/6 fail，有效fresh ALL v2由9hhl逐位复现canonical并在9fkb重现signal11，约2TB节点无OOM。用户授权六者仅在本run以run_policy_excluded:chimera_full_grid_cc_signal11收口，并把本run上限放宽到30；累计11/22,386≈0.049138%。这不改变四CC或未来run，生产代码禁止PDB allowlist。",
+    "2026-07-17：本地工程检查点879f2be仅修改transition、正式/补算恢复脚本与回归测试4个专用文件；专项12 passed，相关42 passed、2个Linux-only skipped。本机完整收集因缺rdkit/gemmi出现16个collection errors，未冒充全套通过；远端Linux全套、manifest实例SHA/行数和锁恢复仍待闭合。"
   ],
   "blockers": [
-    "当前无科学契约决策阻塞。E3已全量修复并release；318350正在F12重跑补算v1，316116由精确after+try停写，待v1零unknown gate与v2 guard/PGID/F12证据闭合后恢复。316117仍只等待正式f_release并只运行analyze；最终G数值配置/filter须在质量分布后另行显式执行。"
+    "当前无科学契约决策阻塞。用户已授权六个fresh ALL signal11样本按本run manifest排除并把上限放宽到30，本地实现879f2be及专项/相关测试已闭合；316116/318350继续精确after+try停写，等待无删除safe sync、远端Linux全套、manifest实例SHA/行数和受检恢复。316117仍只等待正式f_release并只运行analyze；最终G数值配置/filter须在质量分布后另行显式执行。"
   ],
   "failures": [
     "2026-07-12 Stage C gate 事件：366/22,386 为 unknown_failed，涉及 43,175 occurrences、506 object_keys；这是系统性工程/契约问题，不能按小比例忽略。",
@@ -60,6 +62,7 @@
     "2026-07-13 Stage E长尾截止：补足作业316415到绝对截止点仍有8glv/9e5c/9fqr缺少完整公共三件套；按用户授权仅对正式run标记`run_policy_excluded`。316415以预期的FAILED 9:0收口，不是DAG依赖；三个外部Chimera孤儿进程逐一核验归属并终止，未伪造补足success或改变通用科学契约。",
     "2026-07-14 Stage F长尾截止：6kgx在外部工具完成后因百万行模型上的occurrence投影复杂度成为唯一活动长尾，且无公开质量三件套。按用户授权仅在Stage F专用run-scoped视图记`run_policy_excluded`；样本保留在22,386宇宙和状态分母，共享Stage E manifest不变，未把一次性性能决策扩散为通用科学契约。",
     "2026-07-16 Stage F scratch事故：旧SSH/stdin v1进程绕过只查allocation的schema v1零进程门，在无journal情况下删除1497个MRC/CIF；公开质量三件套未漂移，但v3 live-tree证据失效。新schema v2门和v4重建已启动，任何旧bundle或手填zero证据不得用于apply。",
-    "2026-07-17 Stage F外部工具适配事件：补算v1出现353个unknown，全部是固定MapQ三位小数/身份写出和Chimera solid contour API的确定性适配误拒，不是科学样本失败。已由commit 751c8b5、远端369项全套、真实shadow/replay和canonical promotion闭合；禁止把这些样本降级为allowlist或扩大为任意坐标容差。"
+    "2026-07-17 Stage F外部工具适配事件：补算v1出现353个unknown，全部是固定MapQ三位小数/身份写出和Chimera solid contour API的确定性适配误拒，不是科学样本失败。已由commit 751c8b5、远端369项全套、真实shadow/replay和canonical promotion闭合；禁止把这些样本降级为allowlist或扩大为任意坐标容差。",
+    "2026-07-17 Stage F Fresh ALL事件：适配修复后仍有六个大网格样本在单进程下失败；有效fresh harness以9hhl逐位复现canonical并在9fkb重现signal11，非节点OOM。用户选择只在当前run显式排除六者；生产科学路径和未来run不得继承ID或改写四CC。"
   ]
 }

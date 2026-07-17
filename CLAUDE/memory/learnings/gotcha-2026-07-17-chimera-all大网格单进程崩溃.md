@@ -14,11 +14,11 @@ Stage F 的确定性 MapQ/Chimera 适配修复后，补算 v1 仅余 `9bw7/9c1k/
 - classic Chimera 1.19 的 ALL 路径会把实验图全部非零 grid 点先物化为 `float32 (N,3)` 坐标，再生成权重与模拟图三线性插值向量；超大图可能在单 PDB、单进程下触发 legacy 内部 signal 11。`n_jobs=1` 失败说明外层 Loky 并发不是唯一原因，约 2 TB 宿主无 OOM 说明盲目增加 RAM/worker 没有证据支持。
 - 四 CC 契约不能因该故障静默改变。禁止裁图、降采样、改非零 mask、换均值或归约精度、用 contour CC 代替 ALL，或换工具后仍把结果称为原 `cc_all*`。
 - 若用户批准有界内存适配，最窄路径是按祖传 C-ravel 顺序分块生成 float32 点，复用原世界变换与 `interpolated_values`，把完整 `w1/w2` 按原顺序写入 memmap，最终仍调用原 `FitMap.overlap_and_correlation`。控制样本应要求向量和最终 packed float64 逐位相同。只流式累加 sufficient statistics 会改变浮点归约顺序，不能默认宣称祖传数值等价。
-- 当前 run 已有 5 个 run-only exclusion；六者全部排除会达到 11，违反用户冻结的严格 `<10` 上限，而且同类聚集已经是系统性趋势。必须停止个例化并让用户在“祖传等价适配、显式放宽本 run 上限、命名清楚的科学替代”之间选择。
+- 在旧上限下，当前 5 项再加六者会达到 11，违反严格 `<10` 并呈系统性趋势，因此 Agent 必须先停下请求用户。用户随后显式选择仅在本 run 排除六者，并把本 run 上限放宽到 30；累计 11/22,386（约 0.049138%）。这不授权生产 PDB allowlist、未来 run 自动排除或修改四 CC，长期边界见 `decision-2026-07-17-stage-f六大图run-only排除与上限30.md`。
 
 ## When To Use
 
-当 Stage F 的 `cc_all` 或 `cc_all_about_mean` 在大网格上 signal 11、单进程仍失败，或有人提议通过裁图、换相关函数、增加 worker、直接排除样本来绕过时使用。先保留 unknown 和精确 `after+try` 停点，再核验 fresh 正控制与外部工具路径。
+当 Stage F 的 `cc_all` 或 `cc_all_about_mean` 在大网格上 signal 11、单进程仍失败，或有人提议通过裁图、换相关函数、增加 worker、直接排除样本来绕过时使用。在取得显式 run-scoped 授权前先保留 unknown 和精确 `after+try` 停点，再核验 fresh 正控制与外部工具路径；授权后仍须通过 manifest 而不是生产 allowlist 实施。
 
 ## Related Files
 

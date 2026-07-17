@@ -87,9 +87,11 @@
 - [x] (2026-07-17 03:02+08:00) 尾段补算 v1 的 2,990 行状态闭合为 2,153 skipped、484 success、353 unknown；2,637 个 success/skipped 全部具有合法质量三件套，353 个 unknown 均为 0/3。逐例归因把 unknown 完整分解为 289 个 MapQ 三位小数坐标写出差异、15 个跨 occurrence 合法复用 `_atom_site.id` 被全局唯一检查误拒、45 个 Chimera solid contour 的 Midas level 语法失败、4 个 MapQ 确定性身份规范化差异；没有未分类余项。
 - [x] (2026-07-17 03:02+08:00) 确定性适配修复提交为 `751c8b5`，远端 Linux 全套 369 tests passed。独立 shadow smoke `adaligand_ag_20260711T154658_fcompat_smoke_v1` 与只读重放 `adaligand_ag_20260711T154658_fcompat_smoke_validate_v1` 覆盖 7 个旧失败代表和成功基线 `9jcs`；其证据目录为 `/storage/penghongen/AdaLigand/Ori_Data/reports/runs/adaligand_ag_20260711T154658/stage_f_adapter_recovery_20260717_v1/real_smoke/`，smoke manifest/acceptance SHA-256 为 `51ea388f7e619f74aed9ae60bb8ae30f0c62473dd625aef6491b411fd8d2b19f` / `c07a40bb750a67129f127097b575b8d03d7928e81ce2447ae88f3139c9008581`，`9jcs` 四项 CC 新旧 `max_abs_diff=0`。随后独立 promotion run `adaligand_ag_20260711T154658_fcompat_promote_v1` 使 7/7 旧失败样本形成合法三件套；promotion 由该独立 run 及 acceptance/gate SHA-256 `0d570a9dbb424923f54ffeafcb6e323d5690f175f842b98e884eafb930d6de80` / `3d5af50a1f6062816c5d539728c868e309c5df4330bf99ffc575b0a717aed681` 定位。
 - [x] (2026-07-17 03:02+08:00) 此冻结检查点上，`318350` 与 `316116` 仍各自保留 `after_lock+try_lock`，`kill/pre` 均不存在，且没有 F/Loky/Chimera/MapQ 进程；兼容 promotion 通过不等于两个 writer 已恢复。该状态只记录放行前证据，不代表当前仍有两个 try-lock。
-- [ ] (2026-07-17 03:07+08:00) 在远端 369 项全套、真实 smoke/replay、promotion、锁 inode 与双节点无残留进程门全部通过后，只删除精确 `try_lock_318350`；release script SHA-256 为 `784adf6e…1187`。wrapper 于 03:07:24 复用 run_cmd SHA-256 `ca04f4f…25f3e` 重进 v1，child PGID `113024`、guard、12 个 Loky worker 及 MapQ/Chimera 子进程均绑定补算 run，03:12 已推进 157/2,990。旧 2,990 行 status 会在末尾原子刷新，当前仍显示旧 353 unknown，不能据此放行正式 F。`316116` 继续精确 `after+try` 停写；只有 v1 刷新为 unknown=0/gate success，并确认 wrapper 进入 v2、guard/child PGID/F12 正确后，才可删除 `try_lock_316116`。正式 `316116` 始终是 22,386 行 status/`f_release` 唯一 writer，`316117` 继续 dependency/analyze-only。
-- [x] (2026-07-17) 修复后的补算 v1 最终仅余 `9bw7/9c1k/9dgr/9fkb/9mxv/9nw3` 六个 unknown，status SHA-256 为 `7938aea615c19029265587d556622c8f2d6aea5acff59a94baa85813698496b`。独立 `n_jobs=1` shadow 对六者仍为 6/6 fail，step `318350.61`，status/acceptance SHA-256 为 `5c41167deb1e17e8fade06c588c25bf4786048ca9286f4e1e317b4c296af50f9` / `67cc083c94efbb72648db07e5d62ec8fee195bbf3a3dc59eecb5dcbf0ed868b2`，排除了外层 Loky 并发作为唯一原因。首版 ALL-only fresh-process shadow `318350.63` 因诊断 harness 自身 `ImportError` 而零科学计算，永久只作失败证据；修正后的 v2 `318350.64` 以 `COMPLETED 0:0`、elapsed `00:04:24` 闭合，控制样本 `9hhl` 的 `cc_all/cc_all_about_mean` 与 canonical 值逐位相同，而 `9fkb` 的 fresh ALL 子进程仍为 signal 11，acceptance SHA-256 为 `e0bef08c6a4da804d0173ccc920e3e58316912ee4fea303bf9045ad4f50032e9`。
-- [ ] (2026-07-17) `316116` 与 `318350` 当前都保留精确 `after+try` 且无 Stage F writer，等待用户在以下互斥路径中选择：批准通用、可证明祖传数值等价的分块向量/memmap 适配并以原 Chimera reducer 收口；显式放宽本 run 的 run-only exclusion 上限以容纳六个系统性大图失败；或批准另行命名的裁图、换工具/公式等科学变更。在决定前不得释放任一 writer、不得把 signal 11 降级为 known failure，也不得让 `316117` 启动。
+- [x] (2026-07-17 03:07+08:00) 当时在远端 369 项全套、真实 smoke/replay、promotion、锁 inode 与双节点无残留进程门通过后，只删除精确 `try_lock_318350`；release script SHA-256 为 `784adf6e…1187`。wrapper 于 03:07:24 复用 run_cmd SHA-256 `ca04f4f…25f3e` 重进 v1，child PGID `113024`、guard、12 个 Loky worker 及 MapQ/Chimera 子进程均绑定补算 run。该次恢复最终把 353 unknown 收敛为下一条记录的六个 signal-11 unknown，未满足原定 unknown=0 放行条件，因此 `316116/318350` 又回到精确 `after+try` 停点；后续路径已被用户的 run-only 授权取代。正式 `316116` 始终是 22,386 行 status/`f_release` 唯一 writer，`316117` 继续 dependency/analyze-only。
+- [x] (2026-07-17) 修复后的补算 v1 最终仅余 `9bw7/9c1k/9dgr/9fkb/9mxv/9nw3` 六个 unknown，status SHA-256 为 `7938aea615c19029265587d556622c8f2d6aea5acff59a94baa85813698496b6`。独立 `n_jobs=1` shadow 对六者仍为 6/6 fail，step `318350.61`，status/acceptance SHA-256 为 `5c41167deb1e17e8fade06c588c25bf4786048ca9286f4e1e317b4c296af50f9` / `67cc083c94efbb72648db07e5d62ec8fee195bbf3a3dc59eecb5dcbf0ed868b2`，排除了外层 Loky 并发作为唯一原因。首版 ALL-only fresh-process shadow `318350.63` 因诊断 harness 自身 `ImportError` 而零科学计算，永久只作失败证据；修正后的 v2 `318350.64` 以 `COMPLETED 0:0`、elapsed `00:04:24` 闭合，控制样本 `9hhl` 的 `cc_all/cc_all_about_mean` 与 canonical 值逐位相同，而 `9fkb` 的 fresh ALL 子进程仍为 signal 11，acceptance SHA-256 为 `e0bef08c6a4da804d0173ccc920e3e58316912ee4fea303bf9045ad4f50032e9`。
+- [x] (2026-07-17) 用户选择 run-only 收口：只对正式 run `adaligand_ag_20260711T154658` 的 `9bw7/9c1k/9dgr/9fkb/9mxv/9nw3` 记录 `run_policy_excluded:chimera_full_grid_cc_signal11`，并把本 run 的排除上限由 9 显式放宽到 30。追加后总数为 11/22,386（约 0.049138%）。该授权不改变四 CC、F 成功定义或未来 run 的科学契约；生产代码禁止写 PDB allowlist，六个 ID 只能存在于绑定 run/evidence 的 manifest。
+- [x] (2026-07-17) 本地工程检查点 `879f2be` 已实现六项 run-scoped manifest 迁移、正式/补算恢复前门、正式 `f_release` 与 G analyze 传播回归，仅修改 4 个专用文件。transition/formal resume/supplement resume/test SHA-256 分别为 `8e2e1346b7c35452d4058c4a7c59faa116f80446982540332f0cae2a8ddba489` / `6e16aec8f9c2f7c8fc6a3c2e643053daf3c574b13a774141b8757e836fdacc79` / `99f81c76bcdce7038a6020c400889ebdd7d09d624d41c28052113379a80ee787` / `46d07664990e1bf9aab1f8bdd1d13d734350c69466a27c749d2e8f4201c3ebdc`。专项 12 passed，相关 42 passed、2 个 Linux-only skipped；本机完整收集因缺少 `rdkit/gemmi` 出现 16 个 collection errors，不能冒充全套通过。
+- [ ] (2026-07-17) 在无删除 safe sync 后完成远端 Linux 全套、生成并核验正式 11 条及两个补算各 6 条 manifest 的精确 SHA/行数、绑定 fresh process/锁门和受检 run_cmd，再按顺序恢复 `318350→316116`。manifest 的退出条件是本 run 的正式 F status/`f_release`、Stage G analyze 与最终 A–G 审计闭合；依赖它的一次性生成/恢复脚手架必须在最终维护收口中审查、归档或移出生产入口。
 - [ ] 持续监控、自动诊断/修复/重提，只在科学契约变化或外部不可恢复阻塞时请求用户。
 - [ ] 完成全量验收、计划漂移收口、mapping/契约 README/项目记忆更新和最终报告。
 
@@ -237,7 +239,7 @@
   Evidence: 2,990 行补算状态中 2,637 个 success/skipped 都有合法三件套，353 个 unknown 均为 0/3 且四类计数相加恰为 353。commit `751c8b5` 后远端 369 tests passed；8 样本 shadow smoke/replay 全部通过，成功基线 `9jcs` 四项 CC 新旧 `max_abs_diff=0`，7 个旧失败样本的独立 promotion gate 通过。该证据只授权固定序列化/规范化兼容，不授权 PDB allowlist、任意坐标容差或身份放宽。
 
 - Observation: 上述适配误拒修复后仍有六个大网格样本在单 PDB、单进程条件下失败；fresh-process 隔离又把故障收窄到 classic Chimera 的 ALL 相关路径，而不是 contour CC、MapQ、外层 joblib 并发或 Python 三件套 writer。
-  Evidence: 补算 v1 status SHA-256 `7938aea6…96b` 只剩 `9bw7/9c1k/9dgr/9fkb/9mxv/9nw3` 六个 unknown；`stage_f_cc_sigsegv_shadow_20260717_v1` 的 `n_jobs=1` step `318350.61` 为 6/6 fail。ALL-only v1 step `318350.63` 因 harness `ImportError` 没有执行科学计算，不能支撑任何结论；修正后的 v2 step `318350.64` 中，`9hhl` 两个 ALL 值与 canonical 逐位相同，证明 fresh harness 能忠实执行祖传公式，而 `9fkb` 仍 signal 11。运行节点约 2 TB RAM，且现场没有节点或 cgroup OOM 证据，因此不能把问题简单归因为宿主物理内存不足或继续拍脑袋增加 worker/RAM。
+  Evidence: 补算 v1 status SHA-256 `7938aea6…96b6` 只剩 `9bw7/9c1k/9dgr/9fkb/9mxv/9nw3` 六个 unknown；`stage_f_cc_sigsegv_shadow_20260717_v1` 的 `n_jobs=1` step `318350.61` 为 6/6 fail。ALL-only v1 step `318350.63` 因 harness `ImportError` 没有执行科学计算，不能支撑任何结论；修正后的 v2 step `318350.64` 中，`9hhl` 两个 ALL 值与 canonical 逐位相同，证明 fresh harness 能忠实执行祖传公式，而 `9fkb` 仍 signal 11。运行节点约 2 TB RAM，且现场没有节点或 cgroup OOM 证据，因此不能把问题简单归因为宿主物理内存不足或继续拍脑袋增加 worker/RAM。
 
 - Observation: classic Chimera 1.19 的 ALL 路径会先把实验图全部非零 grid 点物化为 `float32 (N,3)` 世界坐标，再生成权重和插值向量，峰值工作集随非零体素数线性增长；这解释了故障为何只聚集在超大图，但 signal 11 本身仍不是修改四 CC 科学公式的授权。
   Evidence: 安装版 `FitMap/fitmap.py` 的 `map_points_and_weights(..., above_threshold=False)` 调用 `grid_indices(m.shape[::-1], float32)`、按 `m.ravel()!=0` 取点，再由 `map2.interpolated_values` 三线性插值；最终 `overlap_and_correlation` 仍用 `_volume.inner_product_64` 与 float64 mean 计算 `cc_all/cc_all_about_mean`。若采用分块实现，必须保持非零点 C-ravel 顺序、float32 点/权重、原世界变换、原插值及最终 reducer；单纯流式 sufficient statistics 因改变浮点归约顺序不能自动宣称祖传结果等价。
@@ -442,9 +444,13 @@
   Rationale: 这是既有科学产物的确定性几何修复，不是扩张样本宇宙或改写历史放行证据。独立账本可证明 22,309 个原路径被受检原子替换，同时避免把旧 release 伪造成新算法证明。
   Date/Author: 2026-07-16 / User + Codex
 
-- Decision: 六个 fresh ALL signal-11 样本在用户作出科学/运行授权前保持 unknown；`316116/318350` 均以各自精确 `after+try` 停写。不得用无科学计算的 ALL-only v1 ImportError 作为排除或公式结论，也不得因约 2 TB 节点上的 signal 11 静默裁图、换工具、改 mask/均值/精度或用 contour CC 代替 ALL。
-  Rationale: v2 的 `9hhl` 控制已证明 fresh harness 可逐位复现 canonical ALL，`9fkb` 又证明故障在有效祖传路径内仍可重现。当前已有 5 个 run-only exclusion，六个全部追加会把总数推到 11，违反用户冻结的严格 `<10` 上限，并且同类聚集已属于系统性趋势；这两项都要求显式用户决定。
-  Date/Author: 2026-07-17 / Codex（等待 User 选择后续路径）
+- Decision: 在用户作出选择前，六个 fresh ALL signal-11 样本保持 unknown，`316116/318350` 以各自精确 `after+try` 停写；无科学计算的 ALL-only v1 ImportError 不作为排除或公式结论，也不得静默裁图、换工具、改 mask/均值/精度或用 contour CC 代替 ALL。该停点决策已由下一条用户授权解除，但诊断边界继续有效。
+  Rationale: v2 的 `9hhl` 控制已证明 fresh harness 可逐位复现 canonical ALL，`9fkb` 又证明故障在有效祖传路径内仍可重现。旧上限下六项会使总数达到 11，且同类聚集属于系统性趋势，因此当时必须停下请求用户，而不能由 Agent 自行个例化。
+  Date/Author: 2026-07-17 / Codex
+
+- Decision: 用户授权六个固定 ID 仅在当前正式 run 中以 `run_policy_excluded:chimera_full_grid_cc_signal11` 收口，并把该 run 的 run-only exclusion 硬上限放宽到 30；本次追加后累计 11/22,386（约 0.049138%）。
+  Rationale: 六者已由单进程 6/6 fail、有效 fresh ALL 正/负控制、signal 11 与非 OOM 证据逐项闭合；继续改四 CC 或无限等待不优于把约万分之 4.9 的已取证运行失败显式排除。该决定只改变本次运行的完成策略，不新增通用 known-failure 科学类别。生产路径只能通用读取 run-scoped manifest，禁止把六个 PDB 写进代码 allowlist；manifest 必须绑定授权、证据、run id、阶段、下游策略、退出条件与最终脚手架审查。
+  Date/Author: 2026-07-17 / User + Codex
 
 ## Outcomes & Retrospective
 
@@ -452,11 +458,11 @@
 
 E3 的 Pocket 祖传半体素修复及 source-aware release runner 已实现并完成服务器迁移：`75d8f42/92fc2e8/e90fccc/1780942/7202bc9/97a9c07` 依次冻结祖传中心、删除 Agent 自研候选边界、收敛 Pocket BOX、建立 22,309 目标快照与让 validator 从当前 Stage C 原子逐 mask 重建。三项独立终验、本地/远端全套、真实 Pocket oracle 和全量 header 风险审计均已闭合；严格 Z/X padding-shift 风险命中 182/22,309（约 0.816%），按用户边界只记录、不修改祖传实现或排除样本。`318882→318883` 已使 22,309 个冻结目标全部成为合法 schema v3 压缩产物，gate SHA-256 `796bc90c…be37`；canonical snapshot/intent/release SHA-256 为 `f9705efe…32d8` / `0657c85b…e25d` / `fdcef799…bb3e`，全局 writer lock 已受检释放。F/G 不消费 E3，当前继续独立推进；Stage1 训练就绪只等待 A–G gate。
 
-当前正式 run 的 run-only exclusion 计数为 5，受检巨大长尾的自治追加余额为 4；只有活动长尾、完整 artifact 缺失和资源证据三项同时成立才可使用。计数将达到 10，或出现同类聚集/系统性趋势时，不得继续个例化，必须转入根因诊断并询问用户。
+旧的 run-only 规则在累计达到 10 或同类聚集前要求停下询问；它已成功阻止 Agent 自行个例化。用户随后只对当前正式 run 显式把硬上限放宽到 30，并授权六个已取证 Fresh ALL signal-11 PDB。当前应有 11/22,386 项，未来 run 不继承 30 或六个 ID；生产路径禁止 PDB allowlist。
 
 2026-07-17 的最新 Stage F 状态覆盖上文“两个 writer 正在运行”的时间点：补算 v1 已把 353 个 unknown 完整归因为四类确定性 MapQ/Chimera 适配误拒；commit `751c8b5`、远端 369 项全套、8 样本 shadow smoke/replay、`9jcs` 四 CC 零漂移和 7 样本 promotion gate 均已通过。03:07 只释放精确 `try_lock_318350`，补算已在原 allocation 以 F12 重跑 v1；`316116` 仍由精确 `after+try` 停写。下一步必须让补算 v1 复用 2,637 份合法三件套并把 353 个旧 unknown 重算到 unknown=0，再核验 v2 guard/child PGID/F12，最后才恢复唯一正式 writer `316116`；因此 A–G 仍未完成，`316117` 继续只等待正式 `f_release`。
 
-随后完成的重跑把旧 353 unknown 收敛到六个大网格 PDB，但没有达到可放行状态。六者在 `n_jobs=1` 仍 6/6 fail；有效 ALL-only v2 以 `9hhl` 逐位复现 canonical 的正控制排除了 harness/公式漂移，同时以 `9fkb` fresh 子进程 signal 11 复现故障。约 2 TB 节点没有 OOM 证据，继续增加 RAM/worker 不是已有证据支持的修复。两个 F 作业现均为精确 `after+try` 停写，G 尚未开始；主线正等待用户决定采用祖传等价的通用有界内存适配、放宽本 run exclusion 上限，还是批准明确标名的科学替代。
+随后完成的重跑把旧 353 unknown 收敛到六个大网格 PDB，但没有达到可放行状态。六者在 `n_jobs=1` 仍 6/6 fail；有效 ALL-only v2 以 `9hhl` 逐位复现 canonical 的正控制排除了 harness/公式漂移，同时以 `9fkb` fresh 子进程 signal 11 复现故障。约 2 TB 节点没有 OOM 证据，继续增加 RAM/worker 不是已有证据支持的修复。用户现已选择只对本 run 的六者使用 `run_policy_excluded:chimera_full_grid_cc_signal11`，并把本 run 上限放宽到 30；累计 11/22,386（约 0.049138%）。本地工程 commit `879f2be` 与专项/相关测试已闭合，但远端同步、Linux 全套、manifest 实例 SHA/行数和锁恢复尚待闭合；此前两个 F 作业保持精确 `after+try`，G 尚未开始。
 
 ## Context and Orientation
 
@@ -637,7 +643,7 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 
 ### Unfinished scope
 
-- C source repair、全量 C、ABC gate 与正式 D/E 已完成；D–G 代码已实现。DE→F 的 status/gate、E artifact 风险分层和 exclusion/frame-mismatch 三路审计均通过。Stage F scratch v4 inventory、双新鲜进程门、零删除 audit、journal/fsync apply 与独立定向验收已闭合；补算 v1 的 353 个确定性 MapQ/Chimera 适配误拒也已完成修复、远端 369 项全套、8 样本 shadow/replay、成功基线四 CC 零漂移和 7 样本 promotion。修复后补算 v1 只余六个大网格 unknown，但 `n_jobs=1` 和有效 fresh ALL v2 都证明它们不能按原恢复路径自动闭合；`316116/318350` 当前均以精确 `after+try` 停写，等待用户选择祖传数值等价的通用有界内存适配、放宽本 run exclusion 上限或明确的科学替代。决定并闭合六者后，仍须完成正式 F 全量四终态及质量审计、Stage F exclusion 传播复核、F→G release gate、G analyze 分布和最终独立 QC。
+- C source repair、全量 C、ABC gate 与正式 D/E 已完成；D–G 代码已实现。DE→F 的 status/gate、E artifact 风险分层和 exclusion/frame-mismatch 三路审计均通过。Stage F scratch v4 inventory、双新鲜进程门、零删除 audit、journal/fsync apply 与独立定向验收已闭合；补算 v1 的 353 个确定性 MapQ/Chimera 适配误拒也已完成修复、远端 369 项全套、8 样本 shadow/replay、成功基线四 CC 零漂移和 7 样本 promotion。修复后补算 v1 只余六个大网格 signal-11 unknown；用户已授权把六者仅在本 run 排除并将本 run 上限放宽到 30，本地工程检查点 `879f2be` 及专项/相关测试已通过。当前未完成的是无删除 safe sync、远端 Linux 全套、manifest 实例 SHA/行数与受检锁恢复；闭合后仍须完成正式 F 全量四终态及质量审计、11 条 Stage F exclusion 传播复核、F→G release gate、G analyze 分布和最终独立 QC。
 - G 的 map-level 算法、比较边界、空口袋分母和整 map 保留规则已冻结；最终分辨率、选定 CC、配体 Q、口袋 Q 与比例数值仍须先看正式分布后以 schema v2 配置显式给出。当前示例不写入默认值，正式 filter/`keep_list` 尚未执行。
 - E3 代码、独立 runner、source-aware validator、本地/远端全套、多图 Pocket oracle、22,309-ID 全量迁移、独立 gate 与 canonical writer release 均已通过；77 个旧 known failure 未复活，旧 E status/de_release/exclusion/pair-list 始终只读。独立 48 CPU header 审计中的 182/22,309 个小范围风险候选继续只作证据，不修改祖传实现或排除样本。E3 已无未完成生产范围；未使用的 `mrc.py::grid_world_bounds` 仍是 P2 维护项，最终一次性脚手架收口时一并分类。
 
@@ -699,3 +705,5 @@ Revision note 2026-07-17 03:07+08:00: 03:02 的“双 try-lock”只作为放行
 Revision note 2026-07-17 05:30+08:00: E3 array/gate 共 49 个授权作业全部完成，48 份状态恰覆盖 22,309 个唯一目标且全部 success；source-aware gate SHA-256 为 `796bc90c…be37`。canonical launch control 生成 squeue 终态快照 `f9705efe…32d8` 后，发布 intent/release `0657c85b…e25d` / `fdcef799…bb3e` 并精确释放全局 writer lock。独立事后审计确认 gate、target、repair status 和所有旧 Stage E 证据哈希不变，锁根仍存在且只移除目标锁；E3 全量修复正式闭合。
 
 Revision note 2026-07-17 Fresh ALL 隔离诊断: 补算 v1 已由 353 个适配 unknown 收敛为六个固定大网格 unknown；单进程 6/6 fail，首版 ALL-only harness 因 ImportError 作废，修正后的 v2 由 `9hhl` 两个 ALL 值逐位复现 canonical 并由 `9fkb` signal 11 复现真实故障。约 2 TB 节点没有 OOM 证据；两个 F writer 均保持 `after+try`，未改四 CC、未追加 exclusion、未释放 G。该修订记录新的系统性阻塞和待用户选择，不修改 clean spec。
+
+Revision note 2026-07-17 六项 run-only 授权: 用户选择不修改祖传 ALL 或四 CC，而只对当前 run 的六个已取证 signal-11 PDB 写 `run_policy_excluded:chimera_full_grid_cc_signal11`，并把本 run 排除硬上限从 9 放宽到 30。累计 11/22,386（约 0.049138%）；生产代码禁止 PDB allowlist，manifest 必须绑定本 run、退出条件和最终一次性脚手架审查。本地工程检查点 `879f2be` 已通过专项 12 项与相关 42 项测试（另 2 项 Linux-only skipped）；远端 Linux 全套、manifest 实例和锁恢复仍待受检闭合。
