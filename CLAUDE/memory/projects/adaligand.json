@@ -49,10 +49,11 @@
     "2026-07-17：E3全量迁移和canonical release闭合。318882/318883共49个授权作业全部完成，48份状态恰覆盖22,309个唯一目标且全部success；source-aware gate SHA为796bc90c…be37。scheduler snapshot、release intent、final release SHA为f9705efe…32d8、0657c85b…e25d、fdcef799…bb3e；全局writer锁已精确释放，旧E status/de_release/exclusion/pair-list哈希不变，77个known failure未复活。",
     "2026-07-17：修复后的Stage F补算v1只余9bw7/9c1k/9dgr/9fkb/9mxv/9nw3六个大网格unknown；n_jobs1仍6/6 fail，有效fresh ALL v2由9hhl逐位复现canonical并在9fkb重现signal11，约2TB节点无OOM。用户授权六者仅在本run以run_policy_excluded:chimera_full_grid_cc_signal11收口，并把本run上限放宽到30；累计11/22,386≈0.049138%。这不改变四CC或未来run，生产代码禁止PDB allowlist。",
     "2026-07-17：signal11工程最终由879f2be/aec286b/ebbef37闭合；专项18 passed，本地全套377 passed+10 skipped，远端Linux全套387 passed，独立复核通过。fresh跨节点process audit SHA为697bcb28…bd063；formal Stage F视图已原子迁移为11条、SHA 10c5d923…c8ac，supp v1/v2各六条SHA为6f3a0a88…7f35/43da55a7…7d40，shared base4与六例0/3不变。318350已用run_cmd 90489efe…ef29恢复v1；316116继续after+try停写等待v1 gate与v2 guard/PGID。",
-    "2026-07-17：补算v1已以2990 unique、2984 skipped+6 manifest-bound known和零unknown/duplicate/silent missing通过gate，status/release SHA为04d6474e…39a7/9a445fa4…9426；六例canonical质量三件套保持0/3，未生成占位产物。wrapper已进入5984-ID独立v2，IDs/plan SHA为7f427993…17c6c/116084c3…64fc。v2 guard/child PGID/F12门闭合后，正式316116于14:16+08以run_cmd 6c1f89a5…c00d在原CPU96恢复F12；两路共CPU192运行，316117仍只等待正式f_release并只运行analyze。"
+    "2026-07-17：补算v1已以2990 unique、2984 skipped+6 manifest-bound known和零unknown/duplicate/silent missing通过gate，status/release SHA为04d6474e…39a7/9a445fa4…9426；六例canonical质量三件套保持0/3，未生成占位产物。wrapper已进入5984-ID独立v2，IDs/plan SHA为7f427993…17c6c/116084c3…64fc。v2 guard/child PGID/F12门闭合后，正式316116于14:16+08以run_cmd 6c1f89a5…c00d在原CPU96恢复F12；两路共CPU192运行，316117仍只等待正式f_release并只运行analyze。",
+    "2026-07-18：Stage F Phase-2已按cap100完成formal 11→19与supplement v2 6→14的受检迁移，正式/补算manifest SHA为f9482353…fea8/c1755825…6d45；旧base4与补算v1不变。318350已在cnode01以CPU96/F12/no-overwrite重放v2，316116继续after+try停写等待v2 gate。用户同时冻结run-scoped controlled-failure waiver规则：后续少量、根因闭合、下游可安全排除的unknown保留raw状态，以精确gate/G overlay先放行当前run，补票异步完成；不得伪造success/known、造占位产物或自动消费cap100。"
   ],
   "blockers": [
-    "当前无科学契约决策阻塞。补算v1 gate、v2 guard/PGID和正式316116受检恢复均已闭合；318350独立v2与正式316116正分别以CPU96/F12运行，正式316116仍是22386行status/f_release唯一writer。六例signal11只记录真实known failure且公开质量三件套保持0/3。316117只等待正式f_release并只运行analyze；最终G数值配置/filter须在质量分布后另行显式执行。"
+    "当前无科学契约决策阻塞。Phase-2迁移已闭合，318350正在CPU96/F12/no-overwrite重放补算v2；316116继续after+try停写，待补算v2达到5984 unique、零unknown/duplicate/silent missing且release通过后再受检恢复。正式316116仍是22386行status/f_release唯一writer，316117只等待正式f_release并只运行analyze；最终G数值配置/filter须在质量分布后另行显式执行。"
   ],
   "failures": [
     "2026-07-12 Stage C gate 事件：366/22,386 为 unknown_failed，涉及 43,175 occurrences、506 object_keys；这是系统性工程/契约问题，不能按小比例忽略。",

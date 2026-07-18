@@ -1,0 +1,47 @@
+# Handoff: 受控 unknown 开路规则与 Stage F 当前停点
+
+Date: 2026-07-18
+
+## Current State
+
+- 正式 A–G run 为 `adaligand_ag_20260711T154658`。A–E 与独立 E3 已闭合；正式 Stage F job `316116` 仍是 22,386 行 status 与 `f_release` 的唯一 writer，G job `316117` 继续只等待正式 `f_release` 并只允许 analyze。
+- Stage F Phase-2 已原子迁移闭合：正式 exclusion 19 条，SHA-256 `f9482353f6f8a2ee574fbdc881715a1d3b5258fc6f397271294152b5665ffea8`；补算 v2 exclusion 14 条，SHA-256 `c1755825ee9d1bee5bff84eaa6a1318c3a39af6092403385527507c632f86d45`。Stage E base4、补算 v1 和历史 cap 证据不变。
+- `318350/cnode01` 已在原 CPU96 allocation 以 F12、MapQ np8、no-overwrite 重放补算 v2；`316116/cnode04` 继续保留精确 after+try、零 F writer，等待补算 v2 gate。不得修改运行中补算代码/命令，也不得提前释放正式 F。
+- 本次用户新增的是后续事件的运维规则；它未追溯替代已完成的 Phase-2 迁移，也没有改变当前运行命令或科学契约。
+
+## Completed
+
+- 独立只读审查确认：现有 status loader、release gate 和 G 都会拒绝 raw unknown；未来临时开路不能只绕 release gate，gate 与 G 必须共享同一份受检有效状态视图。
+- 已把规则写入 A–G ExecPlan、代码旁契约 README 和 durable decision memory。
+- 规则正式命名为 **run-scoped controlled-failure waiver**。raw `unknown_failed`、原始错误和状态分母保留；命中项只进入独立 `waived_controlled_failures` 集合并排除训练、推理和 G，绝不能伪造 success/known。
+
+## Decisions
+
+- 仅当固定 ID、逐例根因闭合、样本已稳定终态、无活动 writer、无共享污染、科学契约不变、required artifact 明确 0/N 或完整通过 validator 且下游可安全排除时，才允许当前-run waiver。
+- cap=100 是硬上限而不是自动配额；每批仍需单独取证。错误签名增长或提示系统性问题时停止个例化并诊断。
+- duplicate、silent missing/extra、非法 schema、身份/SHA/manifest 漂移、未列 unknown、partial/损坏产物、系统性风险和 strict smoke 继续 fail-closed。其他 stage 不自动继承 E/F 经验。
+- waiver 不修改运行中 producer、不改 raw status、不造占位产物。发布时必须绑定 status/row SHA、attempt/job/node/tool/code、日志/诊断 SHA、artifact 快照、无 writer 快照、授权、数量/cap、下游策略与退出条件。
+- “补票”可在 producer 继续运行时异步完成：实现无 PDB allowlist 的一般化分类/修复和回归，使未来 clean run 无 waiver 通过；补票完成后退休 run-specific 脚手架。
+
+## Open Questions
+
+- 当前没有需要用户决定的新科学契约问题。
+- controlled-failure waiver 的通用 adapter 尚未实现；只有未来真的出现符合条件的 raw unknown 时，才应按本记录建立独立 ticket/ExecPlan 项、实现默认关闭的 overlay 并测试。不得为了“预先完备”而改动当前运行代码。
+
+## Next Actions
+
+1. 继续只读监控 `318350` 的进度、child PGID/formal-held guard、14 条 known、8 例 0/3 和 `f_supplement_release`；任何未列 unknown 仍按默认门禁阻断。
+2. 补算 v2 达到 5,984 unique、unknown/duplicate/silent missing=0 且 release 成功后，做独立验收，再只删除精确 `try_lock_316116` 恢复正式 F。
+3. 正式 F 完成后审计 22,386 四终态、19 条 run-only provenance、排除样本 0/3、四 CC、配体/6 Å 口袋 Q、MapQ 参数与 provenance；`f_release` 成功后才接受 G analyze。
+4. 若后续出现新的小批 raw unknown，先按本规则判断是否满足 waiver 全部前置条件；满足时不停止仍在正常工作的 producer，并行准备受检 gate/G overlay 和异步补票。不满足时继续 fail-closed。
+5. A–G 最终收口时盘点并退休所有 run-specific waiver、repair、supplement 与恢复脚手架，保留不可变证据和可复用、默认关闭且有完整测试的运维层。
+
+## Files To Reopen
+
+- `文档/exec_plan/A-G数据流水线实现与全量运行.md`
+- `Data_Preprocessing/Ori_Data/code/readme.md`
+- `CLAUDE/memory/learnings/decision-2026-07-18-受控unknown不中断主线与延后补票.md`
+- `CLAUDE/memory/learnings/pattern-2026-07-16-临时运行脚手架须在最终收口清理.md`
+- `Data_Preprocessing/Ori_Data/code/filtering.py`
+- `Data_Preprocessing/Ori_Data/scripts/stage_release_gate.py`
+- `CLAUDE/memory/projects/adaligand.json`
