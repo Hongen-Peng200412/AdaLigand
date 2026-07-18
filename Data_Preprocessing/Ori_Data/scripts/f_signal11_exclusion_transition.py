@@ -40,7 +40,7 @@ PHASE2_ATTEMPT_IDS = (
     ("7ju4", "c985822080fc4ee7b0ea327c6933cfe1"),
     ("7kzm", "7414ace7c8d74fc9914c5a67640459a4"),
     ("7yiu", "281a1291f85d4afca8c5ab1cd434cf0b"),
-    ("7z8f", "31613197d46b47eb93e0d68df00b5e4"),
+    ("7z8f", "31613197d46b47eb93e0d68df00b5e4d"),
     ("7z8i", "15451e1c48b54576ae78cd2c969937fe"),
     ("8e45", "245e6281398f4ed6821530797fa7b148"),
     ("8j07", "d533b855bdf94aed88b8fbe346c787a2"),
@@ -209,10 +209,10 @@ DEFAULT_EXTENDED_CONTRACT = ExtendedExclusionTransitionContract(
             1942,
             "9b9e0ef47fc9effb1450bb371e724f04f96c403476f96b7a7dc4f45ba4ea4881",
             "scratch/adaligand_ag_20260711T154658_fsupp96_v2/stage_f/7z8f/"
-            "31613197d46b47eb93e0d68df00b5e4/correlation.stdout.log",
+            "31613197d46b47eb93e0d68df00b5e4d/correlation.stdout.log",
             "79ebaa70bbcdfe1d923362e5ddfb2f0a32561a26e3e6066b12e132ef03114f70",
             "scratch/adaligand_ag_20260711T154658_fsupp96_v2/stage_f/7z8f/"
-            "31613197d46b47eb93e0d68df00b5e4/correlation.stderr.log",
+            "31613197d46b47eb93e0d68df00b5e4d/correlation.stderr.log",
             "274f3df6a8474ad9f9b4b6abebb7650c8af199a895e50b4e059a9a950c9888e2",
         ),
         (
@@ -1380,9 +1380,10 @@ def _validate_phase2_evidence_identities(
         if type(line_number) is not int or not 1 <= line_number <= len(raw_lines):
             raise RuntimeError(f"phase-2 status line number drifted: {pdb_id}")
         raw_line = raw_lines[line_number - 1]
+        status_record = json.loads(raw_line)
         if (
             _sha256_bytes(raw_line) != identity["status_raw_line_sha256"]
-            or str(json.loads(raw_line).get("pdb_id", "")).lower() != pdb_id
+            or str(status_record.get("pdb_id", "")).lower() != pdb_id
         ):
             raise RuntimeError(f"phase-2 raw status line identity drifted: {pdb_id}")
         expected_attempt_dir = (
@@ -1402,6 +1403,15 @@ def _validate_phase2_evidence_identities(
                 or re.fullmatch(r"[0-9a-f]{64}", str(expected_sha256)) is None
             ):
                 raise RuntimeError(f"phase-2 {stream} evidence path/SHA drifted: {pdb_id}")
+            if pdb_id in PHASE2_SIGNAL11_IDS:
+                status_path = (
+                    f"/scratch/stage_f/{pdb_id}/{attempt_ids[pdb_id]}/"
+                    f"{Path(relative_path).name}"
+                )
+                if status_path not in str(status_record.get("error", "")):
+                    raise RuntimeError(
+                        f"phase-2 {stream} status path drifted: {pdb_id}"
+                    )
             frozen_path = evidence_dir / "small_logs" / pdb_id / f"{stream}.log"
             payload = _resolve_before_bytes(
                 root / relative_path,

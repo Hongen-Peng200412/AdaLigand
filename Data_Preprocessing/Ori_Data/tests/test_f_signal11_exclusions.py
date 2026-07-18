@@ -420,8 +420,18 @@ def test_extended_production_contract_keeps_phase1_bytes_and_freezes_v2_status()
     assert DEFAULT_CONTRACT.exclusion_cap == 30
     assert len(PHASE2_IDS) == 8
     assert len(PHASE2_ALL_EXCLUSION_IDS) == 14
+    assert all(
+        re.fullmatch(r"[0-9a-f]{32}", attempt_id)
+        for _pdb_id, attempt_id in PHASE2_ATTEMPT_IDS
+    )
     assert {item[0] for item in DEFAULT_EXTENDED_CONTRACT.evidence_identities} == set(
         PHASE2_IDS
+    )
+    attempt_ids = dict(PHASE2_ATTEMPT_IDS)
+    assert all(
+        f"/{attempt_ids[item[0]]}/" in item[3]
+        and f"/{attempt_ids[item[0]]}/" in item[5]
+        for item in DEFAULT_EXTENDED_CONTRACT.evidence_identities
     )
     assert all(item[1] > 0 for item in DEFAULT_EXTENDED_CONTRACT.evidence_identities)
     assert all(
