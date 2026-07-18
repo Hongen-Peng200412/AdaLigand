@@ -1404,10 +1404,7 @@ def _validate_phase2_evidence_identities(
             ):
                 raise RuntimeError(f"phase-2 {stream} evidence path/SHA drifted: {pdb_id}")
             if pdb_id in PHASE2_SIGNAL11_IDS:
-                status_path = (
-                    f"/scratch/stage_f/{pdb_id}/{attempt_ids[pdb_id]}/"
-                    f"{Path(relative_path).name}"
-                )
+                status_path = f"{stream}={(root / relative_path).resolve()}"
                 if status_path not in str(status_record.get("error", "")):
                     raise RuntimeError(
                         f"phase-2 {stream} status path drifted: {pdb_id}"

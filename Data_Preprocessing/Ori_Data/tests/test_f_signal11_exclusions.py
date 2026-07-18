@@ -165,6 +165,7 @@ def _prepare_phase2_root(
     v2_run_id = phase1.supplement_run_ids[1]
     status_path = stage_report_path(root, v2_run_id, "stage_f", 0, 1)
     attempt_ids = dict(PHASE2_ATTEMPT_IDS)
+    scratch_base = root / "scratch" / v2_run_id / "stage_f"
     status_rows = [
         {
             "pdb_id": pdb_id,
@@ -182,10 +183,10 @@ def _prepare_phase2_root(
             "reason": "nonzero_exit",
             "error_type": "ExternalToolError",
             "error": (
-                "external tool returned -11; stdout=/scratch/stage_f/"
-                f"{pdb_id}/{attempt_ids[pdb_id]}/correlation.stdout.log; "
-                "stderr=/scratch/stage_f/"
-                f"{pdb_id}/{attempt_ids[pdb_id]}/correlation.stderr.log"
+                "external tool returned -11; stdout="
+                f"{scratch_base / pdb_id / attempt_ids[pdb_id] / 'correlation.stdout.log'}; "
+                "stderr="
+                f"{scratch_base / pdb_id / attempt_ids[pdb_id] / 'correlation.stderr.log'}"
             ),
         }
         for pdb_id in PHASE2_SIGNAL11_IDS
