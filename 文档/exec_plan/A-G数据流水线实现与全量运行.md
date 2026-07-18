@@ -467,7 +467,7 @@
   Date/Author: 2026-07-18 / User + Codex
 
 - Decision: 后续 A–G 若出现不超过当前 run 用户授权上限的小批 `unknown_failed`，且已逐例证明根因闭合、影响边界有限、目标样本不再 in-flight、没有共享写入污染、科学契约不变，并能以公开产物完整性安全排除，则优先使用 **run-scoped controlled-failure waiver（受控失败放行）**，不得为“把 unknown 改成 known”而中断正在运行的 producer 或重放科学计算。raw status、原始错误与状态分母保持不变；gate 与 G 只在显式传入同一份、精确指纹绑定的 waiver overlay 时，把命中项列入独立的 `waived_controlled_failures` 并排除训练、推理和 G 候选，绝不能计为 success 或改写成原生 known。
-  Rationale: 这把“本次 run 可安全继续”与“生产分类器已经永久修复”解耦。waiver 必须逐 ID 绑定 run/stage、status 文件与原始行 SHA、attempt/job/node/tool/code 身份、诊断证据、公开产物 0/N 或 validator 快照、无活动 writer 证据、用户授权、累计数量/上限、`scientific_contract_unchanged=true`、`no_placeholder_artifacts=true`、下游排除策略和退出条件；任何未列 unknown、duplicate、silent missing/extra、schema/身份/manifest 漂移、部分损坏产物、系统性增长趋势或潜在科学污染仍 fail-closed。当前 cap=100 是硬上限而非可自动消费配额，每批仍须单独取证；strict smoke 不接受 waiver，A/B/C/D/G 也不得未经阶段专门证明自动套用。随后可异步“补票”：在不停止当前 producer 的前提下加入一般化、无 PDB allowlist 的原生分类/修复与测试，使未来 clean run 无 waiver 通过；补票闭合后按一次性脚手架规则退休当前 run 的适配入口，历史 manifest/summary 只作证据归档。
+  Rationale: 这把“本次 run 可安全继续”与“生产分类器已经永久修复”解耦。waiver 必须逐 ID 绑定 run/stage、status 文件与原始行 SHA、attempt/job/node/tool/code 身份、诊断证据、公开产物 0/N 或 validator 快照、无活动 writer 证据、用户授权、累计数量/上限、`scientific_contract_unchanged=true`、`no_placeholder_artifacts=true`、下游排除策略和退出条件；任何未列 unknown、duplicate、silent missing/extra、schema/身份/manifest 漂移、部分损坏产物、系统性增长趋势或潜在科学污染仍 fail-closed。这里的 fail-closed 只表示“Agent 不得自行放行”，绝不授权 Agent 擅自修改代码、终止 producer 或重跑；即使判断为系统性/科学风险，也要先冻结现场，向用户完整报告真实影响、证据、可接受风险、重跑成本和选项，由用户明确决定“接受瑕疵顾全大局”还是“严格阻断/修复重跑”。没有用户指令时保持现场，不把重跑当默认恢复动作。当前 cap=100 是硬上限而非可自动消费配额，每批仍须单独取证；strict smoke 不接受 waiver，A/B/C/D/G 也不得未经阶段专门证明自动套用。随后可异步“补票”：在不停止当前 producer 的前提下加入一般化、无 PDB allowlist 的原生分类/修复与测试，使未来 clean run 无 waiver 通过；补票闭合后按一次性脚手架规则退休当前 run 的适配入口，历史 manifest/summary 只作证据归档。
   Date/Author: 2026-07-18 / User + Codex
 
 ## Outcomes & Retrospective
@@ -740,3 +740,5 @@ Revision note 2026-07-18 16:33+08:00: 补算 v2 以 5,984 unique 完成计算，
 Revision note 2026-07-18 17:00+08:00: 用户把当前 run 的 exclusion cap 从 30 提升到 100。旧 30 不回写，继续标识首轮六例迁移的历史授权；Phase-2 contract 使用 100，并仍要求逐例绑定真实 status/raw-line/attempt/log/0-of-3 证据。该变化不授权自动消费剩余配额，不改变任何科学算法或未来 run。
 
 Revision note 2026-07-18 controlled-failure waiver: 用户冻结“少量、根因闭合、影响可控的 unknown 不应为状态改名而中断 producer 或重放科学计算”的运行纪律。后续采用 current-run-only、逐 ID/逐 raw-row SHA 绑定的 gate/G 共同 overlay：保留原始 unknown、状态分母和缺失产物，不伪造 success/known，命中项只进入独立 waived 集合并排除下游。duplicate/silent missing/schema/身份漂移、未列 unknown、活动 writer、系统性趋势和任何科学风险继续 fail-closed；cap100 不是自动配额。“补票”作为异步的一般化生产分类/修复任务，不阻塞当前 producer，闭合后退休 run-specific 脚手架。该项属于运维恢复规则，不回填 clean scientific spec；当前正在运行的补算 v2 未因本次记录而修改或中断。
+
+Revision note 2026-07-18 no-autonomous-rerun: 用户进一步澄清“fail-closed”只代表未经授权不放行，不代表 Agent 应自动修复或重跑。以后即使发现系统性故障、科学风险、身份/schema 漂移或根因不明，也先冻结证据并报告真实影响、范围、置信度、放行风险、修复方案及时间成本，由用户决定接受瑕疵还是严格阻断；没有明确指令不得终止当前 producer、改运行中代码或启动昂贵重跑。该审批纪律已加入 handoff、durable memory、README 与 heartbeat，不改变当前补算 v2。

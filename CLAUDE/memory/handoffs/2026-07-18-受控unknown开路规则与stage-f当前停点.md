@@ -20,6 +20,7 @@ Date: 2026-07-18
 - 仅当固定 ID、逐例根因闭合、样本已稳定终态、无活动 writer、无共享污染、科学契约不变、required artifact 明确 0/N 或完整通过 validator 且下游可安全排除时，才允许当前-run waiver。
 - cap=100 是硬上限而不是自动配额；每批仍需单独取证。错误签名增长或提示系统性问题时停止个例化并诊断。
 - duplicate、silent missing/extra、非法 schema、身份/SHA/manifest 漂移、未列 unknown、partial/损坏产物、系统性风险和 strict smoke 继续 fail-closed。其他 stage 不自动继承 E/F 经验。
+- 上一条的 fail-closed 只表示未经用户决定不得放行，不授权 Agent 自动修复或重跑。即使风险看起来系统性或涉及科学契约，也要先冻结现场，向用户报告范围、证据、置信度、接受风险、修复路径和时间成本；用户明确选择后才可接受瑕疵开路，或严格阻断/修复。没有指令时不得终止 producer、改运行中代码或发起昂贵重跑。
 - waiver 不修改运行中 producer、不改 raw status、不造占位产物。发布时必须绑定 status/row SHA、attempt/job/node/tool/code、日志/诊断 SHA、artifact 快照、无 writer 快照、授权、数量/cap、下游策略与退出条件。
 - “补票”可在 producer 继续运行时异步完成：实现无 PDB allowlist 的一般化分类/修复和回归，使未来 clean run 无 waiver 通过；补票完成后退休 run-specific 脚手架。
 
