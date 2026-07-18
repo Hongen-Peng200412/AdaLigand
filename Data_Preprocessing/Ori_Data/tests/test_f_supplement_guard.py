@@ -20,8 +20,12 @@ sys.path.insert(0, str(CODE_ROOT))
 import f_supplement_guard as guard_module
 from f_supplement_guard import (
     COLLISION_GUARD_EXIT_CODE,
+    FORMAL_HOLD_GUARD_EXIT_CODE,
+    FormalHoldViolation,
+    FormalHoldMonitor,
     latest_formal_completed_tasks,
     supervise_f_supplement,
+    validate_formal_hold_stop_marker,
     validate_supplement_guard_contract,
     validate_supplement_stop_marker,
 )
@@ -68,6 +72,55 @@ def _launcher_command() -> list[str]:
     """返回与生产 CLI 相同的 POSIX 启动屏障入口。"""
     script = Path(__file__).resolve().parents[1] / "scripts" / "f_supplement_guard.py"
     return [sys.executable, str(script)]
+
+
+def _formal_hold_monitor(
+    tmp_path: Path,
+    *,
+    active_stage_f_by_call: list[int] | None = None,
+) -> tuple[FormalHoldMonitor, Path, Path]:
+    """构造带精确 after+try inode 与可控 process probe 的 formal-held 守卫。"""
+    after_lock = tmp_path / "after_lock_316116"
+    try_lock = tmp_path / "try_lock_316116"
+    after_lock.write_text("after-owner\n", encoding="utf-8")
+    try_lock.write_text("try-owner\n", encoding="utf-8")
+    call_counts = list(active_stage_f_by_call or [0])
+    calls = 0
+
+    def _runner(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        nonlocal calls
+        active = call_counts[min(calls, len(call_counts) - 1)]
+        calls += 1
+        payload = {
+            "schema_version": 2,
+            "probe_contract": "test_probe_v1",
+            "node": "cnode04",
+            "active_stage_f_processes": active,
+            "active_inventory_or_cleanup_processes": 0,
+            "active_opaque_stdin_python_processes": 0,
+            "scan_error_count": 0,
+            "probe_script_sha256": "a" * 64,
+            "probe_module_sha256": "b" * 64,
+        }
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout=json.dumps(payload, sort_keys=True),
+            stderr="",
+        )
+
+    monitor = FormalHoldMonitor(
+        formal_job_id=316116,
+        formal_node="cnode04",
+        lock_root=tmp_path,
+        probe_argv=["srun", "--jobid=316116", "probe"],
+        expected_probe_contract="test_probe_v1",
+        expected_probe_script_sha256="a" * 64,
+        expected_probe_module_sha256="b" * 64,
+        probe_timeout_seconds=1.0,
+        command_runner=_runner,
+    )
+    return monitor, after_lock, try_lock
 
 
 def test_guard_contract_binds_plan_ids_runs_and_resources(tmp_path: Path) -> None:
@@ -167,6 +220,162 @@ def test_preflight_guard_stops_without_launching_command(tmp_path: Path) -> None
     assert record["result"].startswith("supplement_stopped")
 
 
+def test_formal_hold_ignores_historical_done_threshold_and_runs_child(
+    tmp_path: Path,
+) -> None:
+    """正式 after+try 与零 writer 成立时，旧日志 Done 超阈值也不能阻断 Phase2。"""
+    plan_path, ids_path, log_path, plan = _guard_fixture(tmp_path)
+    log_path.write_text("Done 22363 tasks\n", encoding="utf-8")
+    monitor, _after_lock, _try_lock = _formal_hold_monitor(tmp_path)
+    observation = tmp_path / "formal-held-ran.txt"
+    exit_code = supervise_f_supplement(
+        [
+            sys.executable,
+            "-c",
+            f"from pathlib import Path; Path({str(observation)!r}).write_text('ran')",
+        ],
+        plan=plan,
+        plan_path=plan_path,
+        ids_path=ids_path,
+        formal_log_path=log_path,
+        stop_marker_path=tmp_path / "formal-held-never-written.json",
+        child_pgid_path=tmp_path / "formal-held-child.pgid",
+        poll_seconds=0.01,
+        termination_grace_seconds=1.0,
+        launcher_command=_launcher_command(),
+        formal_hold_monitor=monitor,
+    )
+    assert exit_code == 0
+    assert observation.read_text(encoding="utf-8") == "ran"
+
+
+def test_formal_hold_runtime_writer_reaps_child_and_writes_strict_marker(
+    tmp_path: Path,
+) -> None:
+    """运行中正式 writer 出现必须回收 child group、返回76并留下严格 marker。"""
+    plan_path, ids_path, log_path, plan = _guard_fixture(tmp_path)
+    log_path.write_text("Done 22363 tasks\n", encoding="utf-8")
+    monitor, _after_lock, _try_lock = _formal_hold_monitor(
+        tmp_path,
+        active_stage_f_by_call=[0, 0, 1],
+    )
+    marker = tmp_path / "formal-hold-runtime.json"
+    exit_code = supervise_f_supplement(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        plan=plan,
+        plan_path=plan_path,
+        ids_path=ids_path,
+        formal_log_path=log_path,
+        stop_marker_path=marker,
+        child_pgid_path=tmp_path / "formal-hold-runtime.pgid",
+        poll_seconds=0.05,
+        termination_grace_seconds=1.0,
+        launcher_command=_launcher_command(),
+        formal_hold_monitor=monitor,
+    )
+    assert exit_code == FORMAL_HOLD_GUARD_EXIT_CODE
+    validated = validate_formal_hold_stop_marker(
+        marker,
+        plan=plan,
+        plan_path=plan_path,
+        ids_path=ids_path,
+        formal_log_path=log_path,
+        monitor=monitor,
+    )
+    assert validated["process_started"] is True
+    assert (
+        "formal_process_probe_active_stage_f_processes_drift"
+        in validated["violation"]["blockers"]
+    )
+
+
+def test_formal_hold_process_appears_before_final_return_blocks_release(
+    tmp_path: Path,
+) -> None:
+    """child 退出0后的末检若看到正式 writer，必须改为76而不能继续 release。"""
+    plan_path, ids_path, log_path, plan = _guard_fixture(tmp_path)
+    log_path.write_text("Done 22363 tasks\n", encoding="utf-8")
+    # initial、startup-barrier 两轮成功；child 退出后的第三轮出现正式 writer。
+    monitor, _after_lock, _try_lock = _formal_hold_monitor(
+        tmp_path,
+        active_stage_f_by_call=[0, 0, 1],
+    )
+    marker = tmp_path / "formal-hold-final.json"
+    exit_code = supervise_f_supplement(
+        [sys.executable, "-c", "raise SystemExit(0)"],
+        plan=plan,
+        plan_path=plan_path,
+        ids_path=ids_path,
+        formal_log_path=log_path,
+        stop_marker_path=marker,
+        child_pgid_path=tmp_path / "formal-hold-final.pgid",
+        poll_seconds=0.01,
+        termination_grace_seconds=1.0,
+        launcher_command=_launcher_command(),
+        formal_hold_monitor=monitor,
+    )
+    assert exit_code == FORMAL_HOLD_GUARD_EXIT_CODE
+    record = json.loads(marker.read_text(encoding="utf-8"))
+    assert "formal_process_probe_active_stage_f_processes_drift" in record["violation"]["blockers"]
+
+
+def test_formal_hold_rejects_same_content_try_lock_inode_replacement(
+    tmp_path: Path,
+) -> None:
+    """同名同内容的 try 锁重建也不能冒充最初冻结的精确归属锁。"""
+    monitor, _after_lock, try_lock = _formal_hold_monitor(tmp_path)
+    monitor.check()
+    replacement = tmp_path / "replacement.try"
+    replacement.write_bytes(try_lock.read_bytes())
+    os.replace(replacement, try_lock)
+    with pytest.raises(FormalHoldViolation) as caught:
+        monitor.check()
+    assert "formal_hold_lock_identity_drift_before_probe" in caught.value.snapshot["blockers"]
+
+
+def test_formal_hold_rejects_removed_try_lock(tmp_path: Path) -> None:
+    """冻结后的 try 锁消失必须直接成为 formal-held 阻断。"""
+    monitor, _after_lock, try_lock = _formal_hold_monitor(tmp_path)
+    monitor.check()
+    try_lock.unlink()
+    with pytest.raises(FormalHoldViolation) as caught:
+        monitor.check()
+    assert any("formal_try_absent" in value for value in caught.value.snapshot["blockers"])
+
+
+def test_formal_hold_marker_rejects_nested_probe_tamper(tmp_path: Path) -> None:
+    """只改内嵌 parsed probe 而不改 stdout 时，marker 必须因重算不一致而失败。"""
+    plan_path, ids_path, log_path, plan = _guard_fixture(tmp_path)
+    monitor, _after_lock, try_lock = _formal_hold_monitor(tmp_path)
+    try_lock.unlink()
+    marker = tmp_path / "formal-hold-tamper.json"
+    assert supervise_f_supplement(
+        [sys.executable, "-c", "raise SystemExit(0)"],
+        plan=plan,
+        plan_path=plan_path,
+        ids_path=ids_path,
+        formal_log_path=log_path,
+        stop_marker_path=marker,
+        child_pgid_path=tmp_path / "formal-hold-tamper.pgid",
+        poll_seconds=0.01,
+        termination_grace_seconds=1.0,
+        launcher_command=_launcher_command(),
+        formal_hold_monitor=monitor,
+    ) == FORMAL_HOLD_GUARD_EXIT_CODE
+    payload = json.loads(marker.read_text(encoding="utf-8"))
+    payload["violation"]["probe_payload"]["active_stage_f_processes"] = 99
+    marker.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="blocker recomputation drift"):
+        validate_formal_hold_stop_marker(
+            marker,
+            plan=plan,
+            plan_path=plan_path,
+            ids_path=ids_path,
+            formal_log_path=log_path,
+            monitor=monitor,
+        )
+
+
 def test_runtime_guard_terminates_active_supplement(tmp_path: Path) -> None:
     """补算启动后正式进度跨阈值时，守卫应终止子进程并记录运行中停止。"""
     plan_path, ids_path, log_path, plan = _guard_fixture(tmp_path)
@@ -250,6 +459,28 @@ def test_child_exit_75_cannot_masquerade_as_collision_guard(tmp_path: Path) -> N
     with pytest.raises(RuntimeError, match="reserved collision-guard exit code 75"):
         supervise_f_supplement(
             [sys.executable, "-c", "raise SystemExit(75)"],
+            plan=plan,
+            plan_path=plan_path,
+            ids_path=ids_path,
+            formal_log_path=formal_log,
+            stop_marker_path=marker,
+            child_pgid_path=child_pgid,
+            poll_seconds=0.01,
+            termination_grace_seconds=0.5,
+            launcher_command=_launcher_command(),
+        )
+    assert not marker.exists()
+    assert not child_pgid.exists()
+
+
+def test_child_exit_76_cannot_masquerade_as_formal_hold_guard(tmp_path: Path) -> None:
+    """工作负载自行返回76时没有 formal-held marker，必须视为安全错误。"""
+    plan_path, ids_path, formal_log, plan = _guard_fixture(tmp_path)
+    marker = tmp_path / "guard" / "child-76.json"
+    child_pgid = tmp_path / "child-76.pgid"
+    with pytest.raises(RuntimeError, match="reserved formal-hold exit code 76"):
+        supervise_f_supplement(
+            [sys.executable, "-c", "raise SystemExit(76)"],
             plan=plan,
             plan_path=plan_path,
             ids_path=ids_path,

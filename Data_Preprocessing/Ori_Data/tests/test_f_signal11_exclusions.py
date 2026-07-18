@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
@@ -20,12 +21,23 @@ sys.path.insert(0, str(CODE_ROOT))
 sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from exclusions import exclusion_status_fields, load_run_exclusions
+import f_signal11_exclusion_transition as transition_module
 from f_signal11_exclusion_transition import (
     DEFAULT_CONTRACT,
+    DEFAULT_EXTENDED_CONTRACT,
+    PHASE2_ALL_EXCLUSION_IDS,
+    PHASE2_ATTEMPT_IDS,
+    PHASE2_IDS,
+    PHASE2_MOLMAP_TIMEOUT_DETAILS,
+    PHASE2_MOLMAP_TIMEOUT_IDS,
+    PHASE2_SIGNAL11_IDS,
     SIGNAL11_IDS,
+    ExtendedExclusionTransitionContract,
     Signal11TransitionContract,
+    apply_or_validate_extended_exclusion_transition,
     apply_signal11_transition_with_preconditions,
     apply_or_validate_signal11_transition,
+    validate_formal_extended_readiness,
     validate_formal_signal11_readiness,
     validate_signal11_apply_preconditions,
 )
@@ -125,6 +137,176 @@ def _prepare_root(tmp_path: Path) -> tuple[Path, Signal11TransitionContract]:
     return root, contract
 
 
+def _prepare_phase2_root(
+    tmp_path: Path,
+) -> tuple[Path, ExtendedExclusionTransitionContract]:
+    """从已闭合旧六条迁移构造 formal11、v1旧六、v2旧六和八条 unknown。"""
+    root, phase1 = _prepare_root(tmp_path)
+    v2_ids_path = root / phase1.supplement_ids_relative_paths[1]
+    v2_ids_path.write_text(
+        "".join(f"{pdb_id}\n" for pdb_id in PHASE2_ALL_EXCLUSION_IDS),
+        encoding="utf-8",
+    )
+    phase1 = Signal11TransitionContract(
+        **{
+            **phase1.__dict__,
+            "expected_supplement_ids_sha256": (
+                phase1.expected_supplement_ids_sha256[0],
+                sha256_file(v2_ids_path),
+            ),
+            "expected_supplement_counts": (
+                phase1.expected_supplement_counts[0],
+                len(PHASE2_ALL_EXCLUSION_IDS),
+            ),
+        }
+    )
+    apply_or_validate_signal11_transition(root, mode="apply", contract=phase1)
+
+    v2_run_id = phase1.supplement_run_ids[1]
+    status_path = stage_report_path(root, v2_run_id, "stage_f", 0, 1)
+    attempt_ids = dict(PHASE2_ATTEMPT_IDS)
+    status_rows = [
+        {
+            "pdb_id": pdb_id,
+            "stage": "stage_f",
+            "status": "known_failed",
+            "reason": "run_policy_excluded",
+        }
+        for pdb_id in SIGNAL11_IDS
+    ]
+    status_rows.extend(
+        {
+            "pdb_id": pdb_id,
+            "stage": "stage_f",
+            "status": "unknown_failed",
+            "reason": "nonzero_exit",
+            "error_type": "ExternalToolError",
+            "error": (
+                "external tool returned -11; stdout=/scratch/stage_f/"
+                f"{pdb_id}/{attempt_ids[pdb_id]}/correlation.stdout.log; "
+                "stderr=/scratch/stage_f/"
+                f"{pdb_id}/{attempt_ids[pdb_id]}/correlation.stderr.log"
+            ),
+        }
+        for pdb_id in PHASE2_SIGNAL11_IDS
+    )
+    status_rows.extend(
+        {
+            "pdb_id": pdb_id,
+            "stage": "stage_f",
+            "status": "unknown_failed",
+            "reason": "timeout",
+            "error_type": "ExternalToolError",
+            "error": "external tool timed out after 3600.0s",
+        }
+        for pdb_id in PHASE2_MOLMAP_TIMEOUT_IDS
+    )
+    write_stage_results(status_path, status_rows)
+    status_lines = status_path.read_bytes().splitlines(keepends=True)
+    status_line_by_id = {
+        str(json.loads(raw_line).get("pdb_id", "")).lower(): (line_number, raw_line)
+        for line_number, raw_line in enumerate(status_lines, start=1)
+    }
+    evidence_identities = []
+    for pdb_id in PHASE2_IDS:
+        attempt_dir = (
+            root
+            / "scratch"
+            / v2_run_id
+            / "stage_f"
+            / pdb_id
+            / attempt_ids[pdb_id]
+        )
+        attempt_dir.mkdir(parents=True)
+        prefix = "correlation" if pdb_id in PHASE2_SIGNAL11_IDS else "molmap"
+        stdout_path = attempt_dir / f"{prefix}.stdout.log"
+        stderr_path = attempt_dir / f"{prefix}.stderr.log"
+        stdout_path.write_text(f"fixture stdout {pdb_id}\n", encoding="utf-8")
+        stderr_path.write_text(f"fixture stderr {pdb_id}\n", encoding="utf-8")
+        line_number, raw_line = status_line_by_id[pdb_id]
+        evidence_identities.append(
+            (
+                pdb_id,
+                line_number,
+                hashlib.sha256(raw_line).hexdigest(),
+                (stdout_path.relative_to(root)).as_posix(),
+                sha256_file(stdout_path),
+                (stderr_path.relative_to(root)).as_posix(),
+                sha256_file(stderr_path),
+            )
+        )
+
+    formal_manifest = (
+        root / "reports" / "runs" / phase1.formal_run_id / "exclusions.stage_f.jsonl"
+    )
+    v1_manifest = (
+        root
+        / "reports"
+        / "runs"
+        / phase1.supplement_run_ids[0]
+        / "exclusions.jsonl"
+    )
+    v2_manifest = (
+        root
+        / "reports"
+        / "runs"
+        / phase1.supplement_run_ids[1]
+        / "exclusions.jsonl"
+    )
+    contract = ExtendedExclusionTransitionContract(
+        phase1_contract=phase1,
+        authorization="user_explicit_fixture_phase2_cap100",
+        exclusion_cap=100,
+        expected_formal_before_sha256=sha256_file(formal_manifest),
+        expected_supplement_v1_sha256=sha256_file(v1_manifest),
+        expected_supplement_v2_before_sha256=sha256_file(v2_manifest),
+        status_before_relative_path=str(status_path.relative_to(root)),
+        expected_status_before_sha256=sha256_file(status_path),
+        timeout_details=PHASE2_MOLMAP_TIMEOUT_DETAILS,
+        evidence_identities=tuple(evidence_identities),
+    )
+    return root, contract
+
+
+def _write_supplement_release_for_ids(
+    root: Path,
+    contract: Signal11TransitionContract,
+    supplement_index: int,
+    expected_exclusion_ids: tuple[str, ...],
+) -> None:
+    """写入与指定 manifest 精确绑定的最小 supplement release 测试夹具。"""
+    run_id = contract.supplement_run_ids[supplement_index]
+    exclusions, digest = load_run_exclusions(root, run_id, "stage_f")
+    assert digest is not None and set(exclusions) == set(expected_exclusion_ids)
+    statuses = [
+        stage_result(
+            pdb_id,
+            "stage_f",
+            "known_failed",
+            **exclusion_status_fields(exclusions[pdb_id], manifest_sha256=digest),
+        )
+        for pdb_id in expected_exclusion_ids
+    ]
+    write_stage_results(stage_report_path(root, run_id, "stage_f", 0, 1), statuses)
+    write_report(
+        root / "reports" / "runs" / run_id / "f_supplement_release" / "summary.json",
+        {
+            "status": "success",
+            "run_id": run_id,
+            "gate_name": "f_supplement_release",
+            "stages": ["stage_f"],
+            "n_expected_pdb": len(expected_exclusion_ids),
+            "status_counts": {
+                "stage_f": {"known_failed": len(expected_exclusion_ids)}
+            },
+            "known_failure_reasons": {
+                "stage_f:run_policy_excluded": len(expected_exclusion_ids)
+            },
+            "exclusion_manifest_sha256": {"stage_f": digest},
+        },
+    )
+
+
 def _write_supplement_release(
     root: Path,
     contract: Signal11TransitionContract,
@@ -217,6 +399,257 @@ def test_production_contract_freezes_real_supplement_universes() -> None:
         path.endswith("pdb_ids.txt")
         for path in DEFAULT_CONTRACT.supplement_ids_relative_paths
     )
+
+
+def test_extended_production_contract_keeps_phase1_bytes_and_freezes_v2_status() -> None:
+    """生产 Phase-2 契约只扩展 formal/v2，仍精确冻结 base4、v1旧六与 v2 状态。"""
+    assert SIGNAL11_IDS == ("9bw7", "9c1k", "9dgr", "9fkb", "9mxv", "9nw3")
+    assert DEFAULT_EXTENDED_CONTRACT.expected_supplement_v1_sha256 == (
+        "6f3a0a880e6e38768e1e096b2bcb776087372be56987b4a930c88306b5527f35"
+    )
+    assert DEFAULT_EXTENDED_CONTRACT.expected_formal_before_sha256 == (
+        "10c5d923779645a6eeeeb5d277722e6f487593557c095cfcdef641553613c8ac"
+    )
+    assert DEFAULT_EXTENDED_CONTRACT.expected_supplement_v2_before_sha256 == (
+        "43da55a71885730458cab546f6eb96e38722b726445eaf3613873f23e74b7d40"
+    )
+    assert DEFAULT_EXTENDED_CONTRACT.expected_status_before_sha256 == (
+        "3231dfe56403444c37ac962835c7ced2b97b13eb49cde5a934ad74b2330bb23e"
+    )
+    assert DEFAULT_EXTENDED_CONTRACT.exclusion_cap == 100
+    assert DEFAULT_CONTRACT.exclusion_cap == 30
+    assert len(PHASE2_IDS) == 8
+    assert len(PHASE2_ALL_EXCLUSION_IDS) == 14
+    assert {item[0] for item in DEFAULT_EXTENDED_CONTRACT.evidence_identities} == set(
+        PHASE2_IDS
+    )
+    assert all(item[1] > 0 for item in DEFAULT_EXTENDED_CONTRACT.evidence_identities)
+    assert all(
+        re.fullmatch(r"[0-9a-f]{64}", digest)
+        for item in DEFAULT_EXTENDED_CONTRACT.evidence_identities
+        for digest in (item[2], item[4], item[6])
+    )
+
+
+def test_extended_transition_changes_only_formal_and_v2_with_true_failure_classes(
+    tmp_path: Path,
+) -> None:
+    """Phase-2 保留 base/v1 字节及旧记录，仅把正式和 v2 扩展为19/14条。"""
+    root, contract = _prepare_phase2_root(tmp_path)
+    phase1 = contract.phase1_contract
+    base_path = root / "reports" / "runs" / phase1.formal_run_id / "exclusions.jsonl"
+    formal_path = base_path.with_name("exclusions.stage_f.jsonl")
+    v1_path = (
+        root / "reports" / "runs" / phase1.supplement_run_ids[0] / "exclusions.jsonl"
+    )
+    v2_path = (
+        root / "reports" / "runs" / phase1.supplement_run_ids[1] / "exclusions.jsonl"
+    )
+    base_before = base_path.read_bytes()
+    v1_before = v1_path.read_bytes()
+    formal_before = {row["pdb_id"]: row for row in read_jsonl(formal_path)}
+    v2_before = {row["pdb_id"]: row for row in read_jsonl(v2_path)}
+
+    summary = apply_or_validate_extended_exclusion_transition(
+        root,
+        mode="apply",
+        contract=contract,
+    )
+    assert base_path.read_bytes() == base_before
+    assert v1_path.read_bytes() == v1_before
+    formal_after = {row["pdb_id"]: row for row in read_jsonl(formal_path)}
+    v2_after = {row["pdb_id"]: row for row in read_jsonl(v2_path)}
+    assert len(formal_after) == 19
+    assert len(v2_after) == 14
+    assert all(formal_after[pdb_id] == row for pdb_id, row in formal_before.items())
+    assert all(v2_after[pdb_id] == row for pdb_id, row in v2_before.items())
+    for pdb_id in PHASE2_SIGNAL11_IDS:
+        assert formal_after[pdb_id]["reason"] == "chimera_full_grid_cc_signal11"
+        assert formal_after[pdb_id]["evidence"]["failure_mode"] == "external_tool_signal_11"
+    timeout_details = dict(PHASE2_MOLMAP_TIMEOUT_DETAILS)
+    for pdb_id in PHASE2_MOLMAP_TIMEOUT_IDS:
+        record = formal_after[pdb_id]
+        assert record["reason"] == "chimera_molmap_timeout_3600s"
+        assert record["evidence"]["failure_mode"] == "external_tool_timeout"
+        assert record["evidence"]["timeout_seconds"] == 3600.0
+        assert record["evidence"]["diagnostic_detail"] == timeout_details[pdb_id]
+    assert summary["authorized_exclusion_cap"] == 100
+    assert summary["added_signal11_ids"] == list(PHASE2_SIGNAL11_IDS)
+    assert summary["added_molmap_timeout_ids"] == list(PHASE2_MOLMAP_TIMEOUT_IDS)
+    assert apply_or_validate_extended_exclusion_transition(
+        root,
+        mode="validate",
+        contract=contract,
+    ) == summary
+    for pdb_id in PHASE2_IDS:
+        assert not (root / "quality" / f"{pdb_id}.jsonl").exists()
+        assert not (root / "quality" / f"{pdb_id}.provenance.json").exists()
+        assert not (root / "quality_atoms" / f"{pdb_id}.npz").exists()
+
+
+def test_extended_transition_replays_after_second_target_replace_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """第二目标替换中断时保留可解释半提交，并能从 journal 幂等闭合。"""
+    root, contract = _prepare_phase2_root(tmp_path)
+    phase1 = contract.phase1_contract
+    formal_path = (
+        root / "reports" / "runs" / phase1.formal_run_id / "exclusions.stage_f.jsonl"
+    )
+    v1_path = (
+        root / "reports" / "runs" / phase1.supplement_run_ids[0] / "exclusions.jsonl"
+    )
+    v2_path = (
+        root / "reports" / "runs" / phase1.supplement_run_ids[1] / "exclusions.jsonl"
+    )
+    v1_before = v1_path.read_bytes()
+    original_replace = transition_module.os.replace
+    failed = False
+
+    def fail_once(source: str | Path, destination: str | Path) -> None:
+        """只在补算 v2 live target 的首次提交处模拟进程中断。"""
+        nonlocal failed
+        if Path(destination) == v2_path and not failed:
+            failed = True
+            raise OSError("fixture interrupted second live replacement")
+        original_replace(source, destination)
+
+    monkeypatch.setattr(transition_module.os, "replace", fail_once)
+    with pytest.raises(OSError, match="interrupted second live replacement"):
+        apply_or_validate_extended_exclusion_transition(
+            root,
+            mode="apply",
+            contract=contract,
+        )
+    assert len(read_jsonl(formal_path)) == 19
+    assert len(read_jsonl(v2_path)) == 6
+    assert v1_path.read_bytes() == v1_before
+    assert not list(formal_path.parent.glob("*.tmp.*"))
+    assert not list(v2_path.parent.glob("*.tmp.*"))
+
+    monkeypatch.setattr(transition_module.os, "replace", original_replace)
+    apply_or_validate_extended_exclusion_transition(
+        root,
+        mode="apply",
+        contract=contract,
+    )
+    assert len(read_jsonl(formal_path)) == 19
+    assert len(read_jsonl(v2_path)) == 14
+    assert v1_path.read_bytes() == v1_before
+
+
+def test_extended_validate_uses_frozen_status_after_live_rerun_overwrites_status(
+    tmp_path: Path,
+) -> None:
+    """补算重跑覆盖 live status 后，validate 必须回退到迁移时冻结的旧八例证据。"""
+    root, contract = _prepare_phase2_root(tmp_path)
+    expected = apply_or_validate_extended_exclusion_transition(
+        root,
+        mode="apply",
+        contract=contract,
+    )
+    live_status = root / contract.status_before_relative_path
+    write_stage_results(
+        live_status,
+        [
+            {
+                "pdb_id": "1abc",
+                "stage": "stage_f",
+                "status": "success",
+                "reason": "complete",
+            }
+        ],
+    )
+    assert sha256_file(live_status) != contract.expected_status_before_sha256
+    for item in contract.evidence_identities:
+        (root / item[3]).unlink()
+        (root / item[5]).unlink()
+    assert apply_or_validate_extended_exclusion_transition(
+        root,
+        mode="validate",
+        contract=contract,
+    ) == expected
+
+
+def test_extended_transition_rejects_status_or_public_artifact_before_live_write(
+    tmp_path: Path,
+) -> None:
+    """错误分类或任一公开产物均必须在 formal/v2 首次替换前 fail closed。"""
+    root, contract = _prepare_phase2_root(tmp_path)
+    phase1 = contract.phase1_contract
+    formal_path = (
+        root / "reports" / "runs" / phase1.formal_run_id / "exclusions.stage_f.jsonl"
+    )
+    v2_path = (
+        root / "reports" / "runs" / phase1.supplement_run_ids[1] / "exclusions.jsonl"
+    )
+    before = (formal_path.read_bytes(), v2_path.read_bytes())
+    artifact = root / "quality" / "7yiu.jsonl"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("real artifact\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="existing public quality artifact"):
+        apply_or_validate_extended_exclusion_transition(
+            root,
+            mode="apply",
+            contract=contract,
+        )
+    assert (formal_path.read_bytes(), v2_path.read_bytes()) == before
+    assert artifact.read_text(encoding="utf-8") == "real artifact\n"
+
+
+def test_extended_transition_rejects_small_log_content_drift_before_live_write(
+    tmp_path: Path,
+) -> None:
+    """八例任一受检 stdout/stderr 内容漂移时，不得写 formal 或 supplement v2。"""
+    root, contract = _prepare_phase2_root(tmp_path)
+    phase1 = contract.phase1_contract
+    formal_path = (
+        root / "reports" / "runs" / phase1.formal_run_id / "exclusions.stage_f.jsonl"
+    )
+    v2_path = (
+        root / "reports" / "runs" / phase1.supplement_run_ids[1] / "exclusions.jsonl"
+    )
+    before = (formal_path.read_bytes(), v2_path.read_bytes())
+    first_stdout = root / contract.evidence_identities[0][3]
+    first_stdout.write_text("drifted evidence\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="missing immutable pre-transition bytes"):
+        apply_or_validate_extended_exclusion_transition(
+            root,
+            mode="apply",
+            contract=contract,
+        )
+    assert (formal_path.read_bytes(), v2_path.read_bytes()) == before
+
+
+def test_extended_readiness_requires_v1_old_six_and_v2_new_fourteen_releases(
+    tmp_path: Path,
+) -> None:
+    """正式恢复门分别验证 v1 旧六条与 v2 新十四条真实 manifest-bound release。"""
+    root, contract = _prepare_phase2_root(tmp_path)
+    apply_or_validate_extended_exclusion_transition(
+        root,
+        mode="apply",
+        contract=contract,
+    )
+    phase1 = contract.phase1_contract
+    _write_supplement_release_for_ids(root, phase1, 0, SIGNAL11_IDS)
+    _write_supplement_release_for_ids(
+        root,
+        phase1,
+        1,
+        PHASE2_ALL_EXCLUSION_IDS,
+    )
+    readiness = validate_formal_extended_readiness(root, contract=contract)
+    assert readiness["supplement_v1"]["n_run_policy_known"] == 6
+    assert readiness["supplement_v2"]["n_run_policy_known"] == 14
+
+    v2_status = stage_report_path(root, phase1.supplement_run_ids[1], "stage_f", 0, 1)
+    rows = read_jsonl(v2_status)
+    rows[0]["exclusion_reason"] = "timeout"
+    write_stage_results(v2_status, rows)
+    with pytest.raises(RuntimeError, match="provenance mismatch"):
+        validate_formal_extended_readiness(root, contract=contract)
 
 
 def test_transition_preserves_base_and_creates_three_legal_manifests(
@@ -909,16 +1342,53 @@ def test_signal11_resume_scripts_validate_then_run_real_stage_f() -> None:
         SCRIPTS_ROOT / "f_signal11_exclusion_transition.py"
     )
     assert 'expected_job_id="318350"' in supplement
-    assert "--mode validate" in supplement
-    assert "resume_f_supplement_318350_accel_v2.sh" in supplement
-    assert "exec bash" in supplement
-    assert "stage_release_gate.py" not in supplement
+    assert "--mode validate-extended" in supplement
+    assert "resume_f_supplement_318350_accel_v2.sh" not in supplement
+    assert "_f_supplement_stage.sh" not in supplement
+    assert "run_adaligand_f_supplement_stage" not in supplement
+    assert "scripts/f_supplement_guard.py" in supplement
+    assert "--formal_hold_node" in supplement
+    assert 'expected_formal_node="cnode04"' in supplement
+    assert "check-formal-hold" in supplement
+    assert "--poll_seconds 10" in supplement
+    assert "--formal_hold_probe_timeout_seconds 30" in supplement
+    assert "stop.formal_hold.${guard_attempt_id}.json" in supplement
+    assert "stop.formal_hold.pre_gate.${guard_attempt_id}.json" in supplement
+    assert 'if [[ "${v2_exit}" -eq 76 ]]' in supplement
+    assert "exit 76" in supplement
+    assert "v2 collision guard stopped cleanly" not in supplement
+    assert '"${ADALIGAND_F_SUPPLEMENT_V2_RUN_ID}"' in supplement
+    assert '"${ADALIGAND_RUN_ID}" \\' not in supplement
+    assert '"${F_N_JOBS:-12}" != "12"' in supplement
+    assert '"${SLURM_CPUS_PER_TASK:-}" != "96"' in supplement
+    assert DEFAULT_CONTRACT.expected_supplement_ids_sha256[1] in supplement
+    assert "116084c321c60d8802780457d2cbad86dbb058e2001f7b7f5c3e820111f464fc" in supplement
+    assert 'expected_formal_run_id="adaligand_ag_20260711T154658"' in supplement
+    assert 'expected_formal_job_id="316116"' in supplement
+    assert 'expected_formal_log="/storage/penghongen/AdaLigand/Ori_Data/logs/f/adaligand_f_316116.err"' in supplement
+    assert "stage_f_tail_supplement_20260716_v2/pdb_ids.txt" in supplement
+    assert "stage_f_tail_supplement_20260716_v2/plan.json" in supplement
+    assert supplement.count("stage_release_gate.py") == 1
+    assert "--gate_name f_supplement_release" in supplement
+    pinned_guard_files = {
+        "expected_supplement_guard_script_sha256": SCRIPTS_ROOT / "f_supplement_guard.py",
+        "expected_supplement_guard_module_sha256": CODE_ROOT / "f_supplement_guard.py",
+        "expected_process_probe_script_sha256": SCRIPTS_ROOT / "stage_f_process_audit.py",
+        "expected_process_probe_module_sha256": CODE_ROOT / "stage_f_process_audit.py",
+    }
+    for variable, path in pinned_guard_files.items():
+        match = re.search(
+            rf'readonly {variable}="([0-9a-f]{{64}})"',
+            supplement,
+        )
+        assert match is not None
+        assert match.group(1) == sha256_file(path)
     assert 'formal_job_id="316116"' in formal
     assert '"${F_N_JOBS:-12}" != "12"' in formal
     assert '"${SLURM_CPUS_PER_TASK:-}" != "96"' in formal
-    assert "ADALIGAND_SIGNAL11_SUPPLEMENT_RUN_CMD_SHA256" in formal
-    assert "--mode readiness" in formal
-    assert "--expected_supplement_run_cmd_sha256" in formal
+    assert "ADALIGAND_SIGNAL11_SUPPLEMENT_RUN_CMD_SHA256" not in formal
+    assert "--mode readiness-extended" in formal
+    assert "--expected_supplement_run_cmd_sha256" not in formal
     assert formal.count('scripts/f_quality.py') == 1
     assert "--n_jobs \"${F_N_JOBS:-12}\"" in formal
     assert "--overwrite" not in formal

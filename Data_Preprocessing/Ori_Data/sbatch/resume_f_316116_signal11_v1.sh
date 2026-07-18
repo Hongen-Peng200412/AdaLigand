@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# 本入口只在六条 signal-11 决策已闭合后恢复正式 F；不会创建占位质量三件套。
+# 本入口只在 v1旧六条与 v2扩展十四条均真实 release 后恢复正式 F；不会创建占位质量三件套。
 set -euo pipefail
-
-: "${ADALIGAND_SIGNAL11_SUPPLEMENT_RUN_CMD_SHA256:?trusted supplement run_cmd SHA-256 is required}"
 
 readonly formal_run_id="adaligand_ag_20260711T154658"
 readonly formal_job_id="316116"
 readonly transition_script="${CODE_ROOT}/scripts/f_signal11_exclusion_transition.py"
-readonly expected_transition_sha256="55e81acc46326e766c0a7c44d7b5d89d213a7d26e17938eb2447a1e9c70a3dfb"
+readonly expected_transition_sha256="12495e5180ad1736270a554fcfecdb0c4e086bca93a0aab369e39d08f19ec7e6"
 
 if [[ "${SLURM_JOB_ID:-}" != "${formal_job_id}" || \
       "${ADALIGAND_RUN_ID:-}" != "${formal_run_id}" ]]; then
@@ -37,9 +35,7 @@ fi
 
 "${PYTHON}" "${transition_script}" \
     --root "${DATA_ROOT}" \
-    --mode readiness \
-    --expected_supplement_run_cmd_sha256 \
-      "${ADALIGAND_SIGNAL11_SUPPLEMENT_RUN_CMD_SHA256}"
+    --mode readiness-extended
 cd "${CODE_ROOT}"
 
 "${PYTHON}" scripts/f_quality.py \
