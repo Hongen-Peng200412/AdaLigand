@@ -6,7 +6,8 @@ Date: 2026-07-18
 
 - 正式 A–G run 为 `adaligand_ag_20260711T154658`。A–E 与独立 E3 已闭合；正式 Stage F job `316116` 仍是 22,386 行 status 与 `f_release` 的唯一 writer，G job `316117` 继续只等待正式 `f_release` 并只允许 analyze。
 - Stage F Phase-2 已原子迁移闭合：正式 exclusion 19 条，SHA-256 `f9482353f6f8a2ee574fbdc881715a1d3b5258fc6f397271294152b5665ffea8`；补算 v2 exclusion 14 条，SHA-256 `c1755825ee9d1bee5bff84eaa6a1318c3a39af6092403385527507c632f86d45`。Stage E base4、补算 v1 和历史 cap 证据不变。
-- `318350/cnode01` 已在原 CPU96 allocation 以 F12、MapQ np8、no-overwrite 重放补算 v2；`316116/cnode04` 继续保留精确 after+try、零 F writer，等待补算 v2 gate。不得修改运行中补算代码/命令，也不得提前释放正式 F。
+- `318350/cnode01` 的补算 v2 已 `COMPLETED 0:0`：5,984/5,984 unique，5,970 skipped + 14 known，unknown/duplicate/silent missing 均为 0；status/release SHA-256 为 `8babca24…d0c` / `123bed2c…fd69`，8 个 Phase-2 样本继续保持公开质量三件套 0/3。补算锁与 child PGID 已由 core 清理，禁止重复运行。
+- fresh 跨节点进程审计与独立复核通过后，2026-07-18 21:53:48+08 只删除精确 `try_lock_316116`，保留 `after_lock_316116`；正式 `316116/cnode04` 已由原 CPU96 allocation 复用 run_cmd `0ff22ef9…e131`、F12、no-overwrite 自行恢复。readiness、Loky12 与首批真实进度均已确认，`316117` 继续依赖等待。
 - 本次用户新增的是后续事件的运维规则；它未追溯替代已完成的 Phase-2 迁移，也没有改变当前运行命令或科学契约。
 
 ## Completed
@@ -31,11 +32,10 @@ Date: 2026-07-18
 
 ## Next Actions
 
-1. 继续只读监控 `318350` 的进度、child PGID/formal-held guard、14 条 known、8 例 0/3 和 `f_supplement_release`；任何未列 unknown 仍按默认门禁阻断。
-2. 补算 v2 达到 5,984 unique、unknown/duplicate/silent missing=0 且 release 成功后，做独立验收，再只删除精确 `try_lock_316116` 恢复正式 F。
-3. 正式 F 完成后审计 22,386 四终态、19 条 run-only provenance、排除样本 0/3、四 CC、配体/6 Å 口袋 Q、MapQ 参数与 provenance；`f_release` 成功后才接受 G analyze。
-4. 若后续出现新的小批 raw unknown，先按本规则判断是否满足 waiver 全部前置条件；满足时不停止仍在正常工作的 producer，并行准备受检 gate/G overlay 和异步补票。不满足时继续 fail-closed。
-5. A–G 最终收口时盘点并退休所有 run-specific waiver、repair、supplement 与恢复脚手架，保留不可变证据和可复用、默认关闭且有完整测试的运维层。
+1. 只读监控正式 `316116` 的 squeue/sacct、日志与 heartbeat 增量、F12/外部工具进程、精确锁和 scratch；运行中不得 safe sync 或修改代码/命令。
+2. 正式 F 完成后审计 22,386 四终态、19 条 run-only provenance、排除样本 0/3、四 CC、配体/6 Å 口袋 Q、MapQ 参数与 provenance；`f_release` 成功后才接受 G analyze。
+3. 若出现任何新异常，先冻结并向用户报告范围、置信度、科学影响、接受风险和修复/重跑成本；未经用户决定不得自动停止 producer、开路或重跑。用户选择 current-run waiver 时才建立 gate/G 共用 overlay，并异步补票。
+4. A–G 最终收口时盘点并退休所有 run-specific waiver、repair、supplement 与恢复脚手架，保留不可变证据和可复用、默认关闭且有完整测试的运维层。
 
 ## Files To Reopen
 
