@@ -32,7 +32,7 @@
 - [x] (2026-07-11 15:04+08:00) 按用户新增需求实现 occurrence 级 6 Å 受体口袋 Q：复用同一次全模型 MapQ，保存有序 pocket atom_site.id/逐原子 Q 与 mean/median/min/count/radius；固定包络并集、零口袋失败和合成端到端已进入 90 项全套回归。
 - [x] (2026-07-11 11:17+08:00) 通过无删除安全同步上传代码；在用户目录安装并验证 Chimera 1.19 OSMesa、MapQ 2.9.7 固定包与 mrcfile 1.5.4，工具清单落在 `/home/penghongen/.local/opt/adaligand_tools_manifest.json`。
 - [x] (2026-07-11 15:45+08:00) 真实 smoke `adaligand_smoke_20260711T113733` / job `316073` 最终 `COMPLETED 0:0`：三 PDB 的 C/D/E/F 严格门禁通过，99 occurrence 中 97 个正常口袋、2 个显式空口袋；job `316109` 的 12 Å 错位 CC 负对照也 `COMPLETED 0:0`。
-- [ ] (2026-07-11 15:47+08:00) 全量 run `adaligand_ag_20260711T154658` 已提交：ABC `316114` → DE `316115` → F `316116` → G analyze `316117`；ABC 与 DE 已完成。Stage F scratch v4、确定性适配恢复与六例 signal-11 的 run-only 收口均已闭合。补算 v1 已通过 2,990 行终态 gate 并进入独立 v2；正式 F `316116` 已于 2026-07-17 14:16+08:00 在原 CPU96 allocation 受检恢复，二者均为 F12、MapQ `sigma=0.4,np=8`。六例只写真实 known 状态，公开质量三件套保持 0/3；`316117` 继续只等待正式 `f_release` 并只运行 analyze，整条 DAG 尚未完成。
+- [ ] (2026-07-11 15:47+08:00) 全量 run `adaligand_ag_20260711T154658` 已提交：ABC `316114` → DE `316115` → F `316116` → G analyze `316117`；ABC 与 DE 已完成。Stage F scratch v4、确定性适配恢复与首轮六例 signal-11 的 run-only 收口均已闭合。补算 v2 已完成 5,984 行扫描，但因新增 8 个真实工具边界失败尚未发布 release；正式 F 为避免再次撞入同一边界已受检停写。当前 `316116/318350` 均保留精确 `after+try`、零 F/Chimera/MapQ 进程，等待 Phase-2 将正式视图 11→19、补算 v2 视图 6→14 后依次恢复；合法既有质量三件套只校验并 `skipped`，不重算科学量。`316117` 继续只等待正式 `f_release` 并只运行 analyze，整条 DAG 尚未完成。
 - [x] (2026-07-12 00:24+08:00) 长周期监控改为阶段感知策略：Codex heartbeat 从每 30 分钟降为每 2 小时；正常运行只静默记录，阶段切换、失败或契约异常才通知，并在 release gate、异常诊断和最终 QC 时临时启用多智能体独立审计。
 - [x] (2026-07-12 02:58+08:00) 用户确认保留原 Job ID 的原地调度方案：pending core 支持预置普通文件 run_cmd，并在首次及每次 retry 前拒绝 symlink、检查非空/`0700`/`bash -n`、记录 SHA-256；本地全套增至 97 tests passed，shell/sbatch 语法与 `git diff --check` 通过。
 - [x] (2026-07-12 02:58+08:00) 不取消或重提既有 DAG；原子预置 `316115` 的 D64/E24 run_cmd（SHA-256 `54658b7a4c2819793a22282ac21a005bfdc6fe1f6c48d4a006c760be2cd380b0`）和 `316116` 的 F12 run_cmd（SHA-256 `8399d571bab44881facbeaa9dd1e738594255a4b4212605cfe418878744f7d13`），将 `316115/316116/316117` 原地改为 `TimeLimit=UNLIMITED` 后 release `316115`；提交时间、CPU 数与 afterok 链均保持不变。
@@ -93,6 +93,9 @@
 - [x] (2026-07-17 12:50+08:00) 六项 run-scoped manifest 工程由 `879f2be/aec286b/ebbef37` 闭合半迁移恢复、进程门和 Windows MAX_PATH；最终 transition/supplement resume/formal resume/test SHA-256 分别为 `55e81acc46326e766c0a7c44d7b5d89d213a7d26e17938eb2447a1e9c70a3dfb` / `3da2b388acdbf599ab2f4d0ae7876c2b277cc74d6c346a8f2ab1c5f30cb0fc43` / `f8adf31fec1cdc45bed338abda58027931b3d4894ccd88d63e438d9b81476a95` / `eed82818901df13ebb901db6f69b2a300376aa1b53b103832a0f7d6553b7b335`。独立复核无阻断；本地专项 18 passed、全套 377 passed+10 skipped，远端 Linux 全套 387 passed。端到端 fixture 证明六例只写真实 known 状态，质量三件套保持 0/3，G 可按完整性自然排除，不生成任何占位产物。
 - [x] (2026-07-17 12:59+08:00) 新鲜 master+cnode04+cnode01 进程门以 schema v3/status success 闭合，audit SHA-256 为 `697bcb28d0d3cf43bbd883e5e0247d4241630a84a87ae6ffb716de75e3ebd063`；当时双 job 仍为精确 `after+try` 且无 writer。受检 apply/replay 后，正式共享 4 条 manifest 仍为 `380844d0…325f`，正式 Stage F 视图从 `3b10abb5…8ee8` 原子追加为 11 条、SHA-256 `10c5d923779645a6eeeeb5d277722e6f487593557c095cfcdef641553613c8ac`；补算 v1/v2 各自六条 manifest SHA-256 为 `6f3a0a880e6e38768e1e096b2bcb776087372be56987b4a930c88306b5527f35` / `43da55a71885730458cab546f6eb96e38722b726445eaf3613873f23e74b7d40`，六例 canonical 质量产物仍恰为 0/3。
 - [x] (2026-07-17 14:16+08:00) 补算 v1 以 2,990 unique 闭合为 2,984 skipped + 6 manifest-bound known，unknown/duplicate/silent missing 均为 0；status/release SHA-256 为 `04d6474e…39a7` / `9a445fa4…9426`，六例公开质量三件套仍为 0/3，且补算未写正式 status/`f_release`。wrapper 随后进入独立 v2，5,984-ID/plan SHA-256 为 `7f427993…17c6c` / `116084c3…64fc`，guard、child PGID `165143`、F12 与首个真实进度均通过。受检 release 两次复核这些事实后，原子替换正式 run_cmd 为 SHA-256 `6c1f89a5…c00d`，仅删除精确 `try_lock_316116`；正式 F 已在原 CPU96 allocation 恢复，`after` 保留、`try/kill/pre` 不存在。manifest 的退出条件仍是正式 F status/`f_release`、Stage G analyze 与最终 A–G 审计闭合；依赖它的一次性脚手架须在最终维护收口中审查、归档或移出生产入口。
+- [x] (2026-07-18 16:33+08:00) 补算 v2 已完成 5,984/5,984 并写出 5,984 行唯一状态，但 `f_supplement_release` 因 8 个真实 unknown 未形成：2,984 skipped + 2,986 success + 6 已有 known + 8 unknown，status SHA-256 为 `3231dfe5…23e`。五例 `7ju4/7kzm/7z8f/7z8i/8olb` 在 molmap 与 contour CC 后于祖传 full-grid ALL 路径 signal 11；三例 `7yiu/8e45/8j07` 在 molmap 运行满 3,600 秒后 timeout，其中前两例是缺失 CCD 模板抓取，`8j07` 才是巨大模型/网格。八例公开质量三件套均为 0/3，attempt 只剩小日志，没有大 MRC/MAP/CIF 残留。为避免正式 F 在约 17k–19k 位置再次撞到同一边界，已对精确 `316116` 创建 kill-lock；core 自行移除 kill 并创建 try。当前 `316116/318350` 均保留 `after+try`，`kill/pre/child_pgid` 不存在，cnode04/cnode01 无 F/Loky/Chimera/MapQ 进程，`316117` 仍严格等待 `afterok:316116`。Phase-2 只允许把正式 F 视图从 11 条追加为 19 条、补算 v2 从 6 条追加为 14 条；共享 Stage E base4 与补算 v1 六条必须逐字节冻结。
+- [x] (2026-07-18 17:00+08:00) 用户把当前正式 run 的 run-only exclusion 上限从 30 进一步放宽到 100。旧 30 继续作为 2026-07-17 首轮六例迁移的历史证据，不回写旧 manifest；Phase-2 与此后的当前-run门使用 100。该上限只表示最多可容纳多少条经过逐例取证的决策，不是自动排除配额，也不允许把系统性失败拆成无上限 PDB 特判。
+- [x] (2026-07-18 17:45+08:00) Phase-2 本地工程 checkpoint `a397e45` 已闭合。独立终审发现旧 v2 plan 的 `collision_stop_completed_tasks=14386` 已低于正式日志历史进度，直接复用会让补算在启动前以 75 退出且永远不形成 release；服务器尚未同步或解锁，因此没有产生写入。修复保留旧 progress guard 默认语义，只为本次 v2 显式启用 formal-held：冻结 `316116` 的 after+try 文件身份、要求 kill/pre/child 缺失并用 canonical cnode04 probe 证明零 writer；启动屏障前、运行中、child 末检和 release gate 前均复核，漂移以独立非零 76 回收精确 PGID 并写唯一严格 marker。专项为 59 passed、8 个 Linux/POSIX 项 skipped，`py_compile`、两 wrapper `bash -n`、占位扫描和 `git diff --check` 通过；Windows 默认 Python 缺 `rdkit/gemmi`，全套在 collection 明确失败，必须由远端 Linux 全套补齐，不能冒充本地全套通过。formal 11→19 / v2 6→14 仍未 apply，双 writer 继续处于 `after+try` 停点。
 - [ ] 持续监控、自动诊断/修复/重提，只在科学契约变化或外部不可恢复阻塞时请求用户。
 - [ ] 完成全量验收、计划漂移收口、mapping/契约 README/项目记忆更新和最终报告。
 
@@ -244,6 +247,9 @@
 
 - Observation: classic Chimera 1.19 的 ALL 路径会先把实验图全部非零 grid 点物化为 `float32 (N,3)` 世界坐标，再生成权重和插值向量，峰值工作集随非零体素数线性增长；这解释了故障为何只聚集在超大图，但 signal 11 本身仍不是修改四 CC 科学公式的授权。
   Evidence: 安装版 `FitMap/fitmap.py` 的 `map_points_and_weights(..., above_threshold=False)` 调用 `grid_indices(m.shape[::-1], float32)`、按 `m.ravel()!=0` 取点，再由 `map2.interpolated_values` 三线性插值；最终 `overlap_and_correlation` 仍用 `_volume.inner_product_64` 与 float64 mean 计算 `cc_all/cc_all_about_mean`。若采用分块实现，必须保持非零点 C-ravel 顺序、float32 点/权重、原世界变换、原插值及最终 reducer；单纯流式 sufficient statistics 因改变浮点归约顺序不能自动宣称祖传结果等价。
+
+- Observation: 补算 v2 新增的 8 个 unknown 不是一个同质的“大图长尾”集合。五个 952³–1168³ 网格与既有六例相同，稳定落在祖传 full-grid ALL 的 signal-11 边界；`7yiu/8e45` 是小网格下缺失 CCD 模板抓取直至 3,600 秒，只有 `8j07` 同时具有约 3.07 GiB 网格和 353,362,726 B 原始 CIF。三类必须分别记录，不能把模板网络/缓存边界伪装成大图或笼统人工超时。
+  Evidence: v2 status SHA-256 `3231dfe5…23e` 的 8 条原始 unknown、各自 Chimera stdout/stderr、网格 shape/字节、raw CIF 大小、attempt 目录与 0/3 公开产物快照；独立审计确认五例都在 `ADALIGAND_CC_ALL_BEGIN` 后返回 `-11`，而三例都在 molmap 阶段达到 3,600 秒。
 
 ## Decision Log
 
@@ -453,6 +459,10 @@
   Rationale: 六者已由单进程 6/6 fail、有效 fresh ALL 正/负控制、signal 11 与非 OOM 证据逐项闭合；继续改四 CC 或无限等待不优于把约万分之 4.9 的已取证运行失败显式排除。该决定只改变本次运行的完成策略，不新增通用 known-failure 科学类别。生产路径只能通用读取 run-scoped manifest，禁止把六个 PDB 写进代码 allowlist；manifest 必须绑定授权、证据、run id、阶段、下游策略、退出条件与最终脚手架审查。六者不得产生占位 JSON/NPZ：状态分母保留真实 known failure，而训练、推理和 G 通过公开质量三件套完整性自然排除。
   Date/Author: 2026-07-17 / User + Codex
 
+- Decision: 依照用户已授权的当前 run exclusion cap=100 和“少数已取证外部工具边界可显式忽略”的运行策略，Phase-2 对新增八例按真实原因追加 run-only 决策：五例为 `chimera_full_grid_cc_signal11`，三例为 `chimera_molmap_timeout_3600s`；迁移后累计 19/22,386（约 0.084874%）。共享 Stage E base4 和已经 release 的补算 v1 六条逐字节不变；只原子更新正式 Stage F 视图与失败的补算 v2 视图。八例保留在状态分母，公开质量三件套继续 0/3，不进入训练、推理或 G，且未来 run 不继承这些 ID。旧 cap30 只保留为首轮迁移历史身份，不重写旧记录。
+  Rationale: 五例与已经独立复现的祖传 ALL 工具边界同型，三例有精确 3,600 秒 molmap 证据；继续让正式 F 运行到对应位置只会再次失败并浪费约一天以上。分层 manifest 能保留历史 release 身份和真实失败原因，同时不修改四 CC、molmap、MapQ、Q-score 或成功产物算法。
+  Date/Author: 2026-07-18 / User + Codex
+
 ## Outcomes & Retrospective
 
 尚未完成。Stage C v4、ABC gate、MRC 放行及正式 D/E 已闭合；`316115` 于 2026-07-14 01:26:42 `COMPLETED 0:0`，D/E 四终态、风险分层 artifact、四条 Stage E run-only exclusion 与 2zhc frame mismatch 均已通过独立审计。Stage F scratch v4 已完成零删除 audit、4,341 条 transient 的 journal/fsync apply 和定向独立验收；10,260 条 nontransient 与 2,568 条 public trio 后验通过，`apply_summary` SHA-256 为 `4dfd0853…2f649`，v1/v3 继续永久作废。2026-07-16 19:03–19:07 依次恢复 `318350→316116`：补算以受检 run_cmd SHA-256 `ca04f4f…25f3e` 顺序执行 v1/v2，正式 F 继续以 `bd7edb94…5ffa` 运行；两台 CPU96、各 12 个外层 worker 与 MapQ `np=8` 均已实机确认，guard/child PGID 已登记，正式 `316116` 仍是唯一 22,386 行 status/release writer。全量 F 状态、五条 Stage F exclusion 终态与总体质量分布仍待完成。Stage G 单一 map-level schema v2 已实现，`316117` 仍只安排 analyze。显式阈值配置和 `keep_list` 仍不属于本轮无人值守终点。
@@ -464,6 +474,8 @@ E3 的 Pocket 祖传半体素修复及 source-aware release runner 已实现并�
 2026-07-17 的最新 Stage F 状态覆盖上文早期“双 writer 停写”的时间点：补算 v1 已把 353 个旧 unknown 先归因为四类确定性适配误拒，再把最终六个稳定 signal-11 样本按用户授权写成真实 run-only known failure。最终 v1 为 2,990 unique、2,984 skipped + 6 known，unknown/duplicate/silent missing 均为 0；六例公开质量三件套严格保持 0/3。补算 wrapper 已进入 5,984-ID 的独立 v2，正式 `316116` 也在 v2 guard/child PGID/F12 门闭合后恢复为唯一 22,386 行 status/`f_release` writer。因此 A–G 仍未完成，但已不存在科学决策阻塞；`316117` 继续只等待正式 `f_release`。
 
 随后完成的重跑把旧 353 unknown 收敛到六个大网格 PDB。六者在 `n_jobs=1` 仍 6/6 fail；有效 ALL-only v2 以 `9hhl` 逐位复现 canonical 的正控制排除了 harness/公式漂移，同时以 `9fkb` fresh 子进程 signal 11 复现故障。约 2 TB 节点没有 OOM 证据，继续增加 RAM/worker 不是已有证据支持的修复。用户选择只对本 run 的六者使用 `run_policy_excluded:chimera_full_grid_cc_signal11`，并把本 run 上限放宽到 30；累计 11/22,386（约 0.049138%）。本地/远端全套、三份 manifest 原子迁移、补算 v1 gate、v2 进程门和正式 F 恢复现已全部闭合；六例仍为 0/3，未生成伪装产物。G 尚未开始。
+
+2026-07-18 的补算 v2 完成了全部 5,984 个目标，但 gate 暴露五个同型 ALL signal-11 和三个 molmap 3,600 秒 timeout。八例均为 0/3 且 scratch 异常安全清理有效；因此这不是质量产物内容漂移。正式与补算 writer 已按精确锁顺序安全停下，Phase-2 正在本地实现并验证 formal 19 条 / v2 14 条、v1/base4 冻结的两目标迁移。当前 A–G 仍未完成，G 尚未开始；在 v2 release 成功前不得恢复正式 F，在正式 `f_release` 前不得接受 `316117`。
 
 ## Context and Orientation
 
@@ -644,7 +656,7 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 
 ### Unfinished scope
 
-- C source repair、全量 C、ABC gate 与正式 D/E 已完成；D–G 代码已实现。DE→F 的 status/gate、E artifact 风险分层和 exclusion/frame-mismatch 三路审计均通过。Stage F scratch v4、adapter recovery、六个大网格 signal-11 样本的本 run 授权/manifest 迁移、补算 v1 gate、v2 进程门及正式 F 恢复均已闭合，六例仍为 0/3。当前未完成的是补算 v2 与正式 F 全量计算、正式 F 四终态和质量审计、11 条 Stage F exclusion 传播复核、F→G release gate、G analyze 分布和最终独立 QC。
+- C source repair、全量 C、ABC gate 与正式 D/E 已完成；D–G 代码已实现。DE→F 的 status/gate、E artifact 风险分层和 exclusion/frame-mismatch 三路审计均通过。Stage F scratch v4、adapter recovery、首轮六个 signal-11 的本 run 授权/manifest 迁移与补算 v1 gate 已闭合。补算 v2 计算完成但因新增 8 个真实外部工具 failure 未 release；双 writer 已安全停下，正在闭合 formal 11→19、v2 6→14 且 v1/base4 冻结的 Phase-2。其后仍需补算 v2 零 unknown gate、正式 F 全量计算、22,386 四终态与质量审计、19 条 Stage F exclusion 传播复核、F→G release、G analyze 分布和最终独立 QC。
 - G 的 map-level 算法、比较边界、空口袋分母和整 map 保留规则已冻结；最终分辨率、选定 CC、配体 Q、口袋 Q 与比例数值仍须先看正式分布后以 schema v2 配置显式给出。当前示例不写入默认值，正式 filter/`keep_list` 尚未执行。
 - E3 代码、独立 runner、source-aware validator、本地/远端全套、多图 Pocket oracle、22,309-ID 全量迁移、独立 gate 与 canonical writer release 均已通过；77 个旧 known failure 未复活，旧 E status/de_release/exclusion/pair-list 始终只读。独立 48 CPU header 审计中的 182/22,309 个小范围风险候选继续只作证据，不修改祖传实现或排除样本。E3 已无未完成生产范围；未使用的 `mrc.py::grid_world_bounds` 仍是 P2 维护项，最终一次性脚手架收口时一并分类。
 
@@ -712,3 +724,7 @@ Revision note 2026-07-17 六项 run-only 授权: 用户选择不修改祖传 ALL
 Revision note 2026-07-17 12:59+08:00: 六项授权实现经追加工程修复与最终独立复核闭合，本地全套 377 passed+10 skipped、远端 Linux 全套 387 passed。新鲜跨节点 process audit 通过后，正式 Stage F 视图原子迁移为 11 条、补算 v1/v2 各自迁移为六条；正式共享 4 条历史 manifest 和六例 0/3 质量产物均不变。随后只恢复 `318350` 重跑 v1，正式 `316116` 继续停写，等待 v1 gate 与 v2 guard/PGID 门；该修订只更新运行现实，不改变四 CC 或 clean spec。
 
 Revision note 2026-07-17 14:16+08:00: 补算 v1 以 status/release SHA-256 `04d6474e…39a7` / `9a445fa4…9426` 通过 2,990 行 gate，六例为真实 known failure 且公开质量三件套保持 0/3；补算未触碰正式 status/`f_release`。wrapper 自动进入独立 v2，5,984-ID/plan SHA-256 为 `7f427993…17c6c` / `116084c3…64fc`。两次 validate-only/正式 release 绑定 v1/v2、进程树、六例 0/3 和锁 inode，正式证据 SHA-256 为 `b7d70433…5477`；随后原子发布正式 run_cmd `6c1f89a5…c00d` 并只删除精确 `try_lock_316116`。正式 F 与补算 v2 现各用 CPU96/F12 继续运行；14:26–14:32 的独立只读双快照分别为正式 457→661 outer tasks、v2 104→121/5,984，且现场 v2 MapQ 命令均显式 `sigma=0.4,np=8`。本次记录强调 known failure 不生成占位产物，训练、推理和 G 按完整性自然排除。
+
+Revision note 2026-07-18 16:33+08:00: 补算 v2 以 5,984 unique 完成计算，但 status SHA-256 `3231dfe5…23e` 含五个 full-grid ALL signal-11 与三个 molmap 3,600 秒 timeout，因而没有 `f_supplement_release`。八例均为 0/3，且无大 scratch 残留。独立碰撞审计确认正式 F 尚未触达它们后，只对 `316116` 使用精确 kill-lock；core 自行转为 try-lock。当前 `316116/318350` 都为 `after+try`、双节点零 writer，`316117` 仍等待依赖。Phase-2 采用 formal/v2 两目标原子迁移，补算 v1 与 Stage E base4 永久冻结；完成代码、测试、远端 gate 和证据前不恢复任何 writer。
+
+Revision note 2026-07-18 17:00+08:00: 用户把当前 run 的 exclusion cap 从 30 提升到 100。旧 30 不回写，继续标识首轮六例迁移的历史授权；Phase-2 contract 使用 100，并仍要求逐例绑定真实 status/raw-line/attempt/log/0-of-3 证据。该变化不授权自动消费剩余配额，不改变任何科学算法或未来 run。
