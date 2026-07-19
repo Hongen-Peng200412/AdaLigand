@@ -33,54 +33,32 @@
 
 ## 2. 推荐代码布局
 
-新生产代码集中到 AdaLigand 命名空间，减少与旧推理主线混杂：
+不新建 `src/adaligand` 或 `configs/adaligand`，也不保留旧推理主线的兼容入口。按稳定职责放入 Pocket_Plus 现有顶层目录；每个目录控制在少量可冷读模块，避免再次把契约、执行、评估、保存和可视化混在同一个包里：
+
+| 职责 | 目录 | 推荐模块 |
+|---|---|---|
+| Stage1 请求、BOX 池、Dataset/Collator | `src/datasets/` | `stage1_requests.py`、`stage1_box_pool.py`、`stage1_dataset.py`、`stage1_collate.py` |
+| checkpoint、概率入口、完整图、居中、生产编排 | `src/inference/` | `checkpoint.py`、`probability.py`、`full_map.py`、`centered.py`、`runner.py` |
+| 树对象、森林、CLG、overlap | `src/component_lineage/` | `structures.py`、`forest.py`、`clg.py`、`overlap.py` |
+| calibration 与评估 | `src/evaluation/` | `calibration.py`、`voxel_metrics.py`、`instance_metrics.py`、`report.py` |
+| 路径、状态与 NPZ IO | `src/artifacts/` | `paths.py`、`states.py`、`io.py` |
+| Selector 顶层入口 | `src/selector/` | `dataset.py`、`wrapper.py`、`train.py`、`inference.py` |
+| Selector 模型 | `src/selector/model/` | `input_fusion.py`、`density_munet_lite.py`、`ccln.py` |
+| Selector 结构化算法 | `src/selector/structured/` | `oracle.py`、`antichain_dp.py`、`decode.py` |
+
+通用模型能力继续留在 `src/model` 和 `src/wrappers`；producer 训练继续走现有 `src/train.py`，除 CPC checkpoint hook 和本文明确要求的模型接口外不做泛化重构。新生产链通过测试后，可以删除不再被调用的旧 Dataset、旧推理/评估/可视化编排、`src/legacy` 及仅服务这些旧入口的测试；CPC、sparse-refine、ranking 等未实例化的通用模型能力仍保留。
+
+配置沿用现有 Hydra 分组。正式 producer 实验配置固定为：
 
 ```text
-Pocket_Plus/
-  src/adaligand/
-    stage1/
-      data_preparation.py
-      dataset.py
-      collate.py
-      requests.py
-      checkpoint_loader.py
-      full_map.py
-      calibration.py
-      component_forest.py
-      clg.py
-      centered.py
-      artifact_io.py
-    selector/
-      dataset.py
-      input_adapter.py
-      v5d.py
-      ccln.py
-      antichain_dp.py
-      train.py
-      decode.py
-  configs/adaligand/
-    dataset/
-    model/
-    experiment/
-    inference/
-    selector/
+configs/experiment/CPC1/Find_0.yaml
+configs/experiment/CPC1/Find_1.yaml
+configs/experiment/CPC2/Find_0.yaml
+configs/experiment/CPC2/Find_1.yaml
+configs/experiment/unet_c1.yaml
 ```
 
-这不是强制文件树；如果 Pocket_Plus 当前包结构要求把文件放进既有 `src/datasets` 或 `src/inference`，可以调整路径，但应保留一个清晰的 AdaLigand 生产入口。模型通用能力仍留在 `src/model` 和 `src/wrappers`，不要复制一套模型。
-
-建议配置文件：
-
-```text
-configs/adaligand/dataset/stage1.yaml
-configs/adaligand/model/find0.yaml
-configs/adaligand/model/find1.yaml
-configs/adaligand/model/unet_c1.yaml
-configs/adaligand/experiment/find0_cpc1.yaml
-configs/adaligand/experiment/find0_cpc2.yaml
-configs/adaligand/experiment/find1_cpc1.yaml
-configs/adaligand/experiment/find1_cpc2.yaml
-configs/adaligand/experiment/unet_c1.yaml
-```
+Selector 继续使用现有 `dataset/model/experiment/train` 配置组，不为它修改 producer 的 `src/train.py`。每个正式 config 必须 resolve 后保存完整 56D 通道名、global batch、loss、调度和 model dimensions；不要让关键值只存在于命令行 override。
 
 每个正式 config 必须 resolve 后保存完整 56D 通道名、global batch、loss、调度和 model dimensions；不要让关键值只存在于命令行 override。
 
@@ -101,7 +79,7 @@ configs/adaligand/experiment/unet_c1.yaml
 
 ### 3.2 冻结数据准备
 
-按顺序实现并运行：eligibility → split → train pool → validation selection。先用少量真实 PDB 冷读上游 `readme.md`，再实现全量入口。held-out 去冗余不在本轮执行。
+按顺序实现并运行：PDB 分组 split → validation/calibration 三轴检查 → train BOX pool → validation selection。train pool 只发布能够得到真实 80³ crop 的记录，不新建 eligibility 工程或排除清单。先用少量真实 PDB 冷读上游 `readme.md`，再实现全量入口；held-out 尺寸检查与去冗余不在本轮执行。
 
 ### 3.3 Dataset/Collator
 
@@ -111,8 +89,8 @@ configs/adaligand/experiment/unet_c1.yaml
 upstream assets
   → ResolvedStage1Crop
   → density_input
-  → 10 Å receptor table
-  → 8 Å Find view + core scatter mask
+  → core+8 Å receptor table
+  → core scatter mask
   → targets
   → collate
 ```
@@ -124,13 +102,13 @@ upstream assets
 实现顺序建议：
 
 1. `unet_c1` 单通道 + ligand/aux heads；
-2. `Find_0` 无 embed + core hard scatter；
-3. `Find_1` block=0 的非块式 embed/scatter；
+2. 两个 Find 共用 `[8,4,0]` point embed；
+3. `Find_0` raw49 core hard scatter 与 `Find_1` 无 voxel Transformer 的非块式 embed/scatter；
 4. 公共二值 target/loss 适配；
 5. CPC2 model-only hook 修补；
 6. batch preflight 后冻结五套 config。
 
-完成单 BOX 梯度和 validation 指标后再启动全量训练。
+完成单 BOX 梯度、validation 指标和配置 compose 后即达到训练前置条件；正式训练提交仍须用户另行授权。
 
 ### 3.5 完整图与居中推理
 
@@ -163,40 +141,37 @@ class ResolvedStage1Crop:
         - pdb_id: str, 当前整图身份
         - box_start_zyx: tuple[int, int, int], (3,), 合法 ZYX 整数起点
         - require_targets: bool, 是否构造训练/验证监督
-        - source_kind: str, 请求来源类别
-        - source_index: tuple[int, ...], 可变长度, 来源内部身份
     """
 ```
 
-起点 resolver 只接受 eligible full shape；调用者在请求生成后立即解析，Dataset 不再决定 padding 或 skip。
+起点 resolver 只接受三轴不小于 80 的 full shape；调用者在请求生成后立即解析，Dataset 不再决定 padding 或 skip。对同一个 `pdb_id + box_start_zyx`，`require_targets=True/False` 只能改变监督字段是否存在，全部模型输入必须逐元素一致。
 
-### 4.2 10 Å、8 Å与 core
+### 4.2 8 Å加载与 core
 
-建议 Dataset 一次返回所有 10 Å atoms 与两个 bool mask：
+Dataset 直接返回 core+8 Å 的 atom 表与一个 bool mask：
 
 ```text
 atom_is_in_core_box[N_A]
-atom_is_in_find_view[N_A]
 ```
 
 模型入口据此构造：
 
 ```text
 scatter atoms = atoms[atom_is_in_core_box]
-point atoms   = atoms[atom_is_in_find_view]
+point atoms   = all loaded atoms
 ```
 
-`atom_is_in_find_view` 应包含 core 且最多扩展 8 Å；它不能简单等于“Dataset 已加载”。保留原始 `atom_global_indices`，旋转只改变局部坐标，不改变全局 identity。
+不建立 `atom_is_in_find_view` 或 10→8 Å 二次对齐。保留原始 `atom_global_indices`；旋转同步改变 density、targets 和局部几何，但不改变全局 identity。下游 centered 的 A-pocket 另按“来源 blob 的 10 Å包络 ∩ 当前 80³ BOX”从这些 BOX 内原子中选取，不再读取 BOX 外 receptor。
 
 ### 4.3 hardmask 与 target
 
-先对 core atoms 计算唯一 home voxel；`hardmask` 是这些 voxel 的 bool 并集。`voxel_label` 只在同一 home-voxel 集合上把任一 `binding_atom=True` 的位置置正。auxiliary loss 的有效位置为 hardmask；不要把 hardmask 当密度通道或 ligand mask。
+先对 core atoms 计算唯一 home voxel；`hardmask` 是这些 voxel 的 bool 并集。`voxel_label` 只在同一 home-voxel 集合上把任一 `binding_atom=True` 的位置置正。auxiliary loss 的有效位置为 hardmask；训练 target/loss 不把它当 ligand mask。新推理层则在 sigmoid 之后遮蔽两个 Find 的 ligand probability；unet_c1 不遮蔽。
 
 unet Dataset recipe 可省去 Find 的 56D 构造和 model-view features，但不能省去生成 auxiliary target 所需的 core receptor 查询。
 
 ### 4.4 缓存
 
-worker 缓存优先保留轻量点对象和已打开的只读索引，例如 receptor coordinates、49D features、atom labels 与 occurrence sparse indices。不要把多张完整 density/voxel label 数组作为默认高优先级缓存；实际容量按总字节数限制并通过 profiling 调整。
+worker 缓存优先保留轻量点对象和已打开的只读索引，例如 receptor coordinates、49D features、atom labels 与 occurrence sparse indices。不要把多张完整 density/voxel label 数组作为默认高优先级缓存；实际容量按总字节数限制并通过 profiling 调整。完整图 worker 使用有界的“读取/前处理 → GPU forward → float32 融合/写盘”队列，不让待写整图或窗口 batch 无界堆积；记录 Dataset wait、GPU utilization、吞吐、峰值内存和磁盘速率。
 
 ---
 
@@ -204,24 +179,21 @@ worker 缓存优先保留轻量点对象和已打开的只读索引，例如 rec
 
 ### 5.1 Find_0
 
-若现有 `VolumePointStage1Model` 强制实例化 `Stage1EmbedHead`，最小修改是允许 `embed_head=None`，并让：
+Find_0 与 Find_1 都实例化同一 point-side `Stage1EmbedHead`：atom MLP `49→128→128`，point value `Linear(128→64)+Linear(49→64)`，trunk/voxel block 数为 0，point block radii 为 `[8.0,4.0,0.0]`。Find_0 只在 voxel receptor grid 构造处使用 raw49：
 
 ```text
-point_input = raw_atom_feat_49
 voxel_receptor = hard_scatter_sum(raw_core_atom_feat_49)
 ```
 
-不要通过创建一个全零输出的 embed 模块来伪装“无 embed”。测试参数名中不应出现 embed head 参数。
+point path 仍运行共同 embed 并提供 A_feat_L1–L4；voxel path 不消费这些 learned point features。不要为了 raw49 voxel 基线删除或绕过 point path。
 
 ### 5.2 Find_1
 
-现有 `Stage1EmbedHead` 已有 MLP/residual/centroid/soft scatter 结构。应允许 `num_trunk_blocks=num_voxel_blocks=num_point_blocks=0` 后仍执行非块式投影。不要把 `point_buffer_radii=[8.0]` 当作 8 Å model view；block list 为空，8 Å由输入 mask 实现。
+现有 `Stage1EmbedHead` 已有 MLP/residual/centroid/soft scatter 结构。应允许 `num_trunk_blocks=num_voxel_blocks=0` 后仍执行 voxel 的非块式投影，并保留共同 `num_point_blocks=3` 与 `point_buffer_radii=[8.0,4.0,0.0]`。Dataset 已直接限定输入为 core+8 Å；三个 radius 表示 point blocks 的逐层 buffer，不再承担第二次 model-view 筛选。
 
 ### 5.3 core-only scatter 的落点
 
-最小改动优先放在 `stage1_model.py` 构造 voxel receptor grid 之前：从 batch 的 10 Å atom 表按 `atom_is_in_core_box` 筛出局部视图，再调用现有 hard/soft scatter。这样 Find_0 与 Find_1 自动共用 core-only 语义，也不会给 config 增加开关。
-
-point path 在进入 embed point projection/point backbone 前按 `atom_is_in_find_view` 筛选；两次筛选都保留对应的 batch index 和 global index。
+最小改动优先放在 `stage1_model.py` 构造 voxel receptor grid 之前：从 core+8 Å atom 表按 `atom_is_in_core_box` 筛出 scatter 输入，再调用 Find_0 hard scatter 或 Find_1 soft splat。该行为是 AdaLigand Find 的固定默认，不增加配置开关。point path 直接消费 Dataset 的全 atom 表；两条路径都保留对应的 batch index 和 global index。
 
 ---
 
@@ -231,7 +203,7 @@ point path 在进入 embed point projection/point backbone 前按 `atom_is_in_fi
 
 `compute_voxel_ligand_loss_term` 应优先明确接收 `batch["ligand_area_target"]`，不再让 loss module从 `ligand_dist_map` 隐式生成 target。P target 从相同 tensor 按 P 的 batch index 和 home-voxel ZYX gather。
 
-auxiliary loss 应接收 `hardmask` 作为 validity mask；若现有 loss API 不能限定位置，在 wrapper 的 loss adapter 处先 gather 有效 logits/target，避免改变通用分类 loss 数学定义。
+auxiliary loss 接收 `hardmask` 作为 validity mask；wrapper 的 loss adapter 先 gather hardmask 内的 logits/target，再调用通用分类 loss，避免改变该 loss 的数学定义。
 
 ### 6.2 CPC2 最小修补
 
@@ -267,26 +239,23 @@ load_stage1_wrapper(checkpoint_path):
 
 ### 7.2 voxel-only 伪代码
 
-建议把共享 voxel 链抽成模型内部私有方法，而不是复制 forward：
+严格保持现有训练 `forward` 原样；不要抽共享 `_forward_voxel_branch`，也不要借此重排 model/wrapper。新增独立入口，只复制得到最终 ligand logits 所需的短 voxel 构造与三次 recycle：
 
 ```text
-_forward_voxel_branch(batch, recycle_passes):
-    receptor_grid / point_seed = build_embed_and_scatter(batch)
-    voxel_input = build_voxel_input(batch.density_input, receptor_grid)
-    voxel_state, voxel_exports = run_voxel_recycles(voxel_input, recycle_passes)
-    voxel_logits_ligand, voxel_logits_aux = run_voxel_heads(voxel_state)
-    return voxel_state, voxel_exports, logits
-
 forward_voxel_probability(batch):
-    _, _, logits = _forward_voxel_branch(batch, recycle_passes=3)
-    return logits.voxel_ligand
-
-forward(batch):
-    voxel_state, exports, logits = _forward_voxel_branch(...)
-    ... point / A / P ...
+    if unet_c1:
+        voxel_input = density_input
+    if Find_0:
+        receptor_grid = hard_scatter_sum(raw49[core])
+        voxel_input = concat(density56, receptor_grid)
+    if Find_1:
+        receptor_grid = voxel_mlp_centroid_residual_soft_splat(raw49[core])
+        voxel_input = concat(density56, receptor_grid)
+    run exactly three voxel recycles
+    return final ligand logits
 ```
 
-如果 Find embed 的 point projection 与 voxel scatter 共用 MLP，可以执行产生 voxel grid 所需的共享部分，但不得继续跑 point backbone/A/P heads。
+如果当前 `Stage1EmbedHead` 的 API 会无条件运行 point blocks，可增加一个默认保持旧行为的内部 branch 参数，使 voxel-only 调用只执行 Find_1 voxel MLP/centroid/residual/soft-splat 所需部分。普通训练不传该参数。等价性测试不仅比较数值，还用调用计数或 hook 证明两个 Find 的 `[8,4,0]` point blocks、point backbone、P candidate、A/P heads 与 sparse-refine 均未执行；另覆盖空原子、边界原子、checkpoint 恢复和 batch>1。
 
 ---
 
@@ -294,34 +263,35 @@ forward(batch):
 
 ### 8.1 任务扫描
 
-不要建立数据库。每次启动：
+不要建立数据库。每次启动先只读快速判断 PDB 是否已经满足本次目标；仍有工作时，对 `(stage1_model_name, split, pdb_id)` 的目录原子 `mkdir _RUNNING`。抢占成功后重新检查各 role，并在同一个 `try/finally` 中顺序补齐缺失项：
 
 ```text
-enumerate expected (model, split, pdb, role)
-  → remove units whose target directory has valid _COMPLETE
-  → sort/repartition remaining units for current cards
-  → run each unit into sibling temporary directory
-  → validate
-  → atomically publish
-  → write _COMPLETE last
+enumerate expected (model, split, pdb)
+  → skip if requested roles already complete or PDB is _BLOB_EXCEED
+  → atomically mkdir pdb/_RUNNING; failure means another worker owns it
+  → recheck probability/components/F1_centered/CLG_centered/Selected role states
+  → write each missing role to its own temporary file
+  → validate, atomically replace the formal role NPZ, write role _COMPLETE last
+  → finally remove only the _RUNNING created by this worker
 ```
 
-卡数变化时停止旧 worker、重新扫描并提交未完成单元即可。一个 PDB 的重复 attempt 只能有一个最终原子发布者；其它 attempt 发现目标已完成后丢弃自己的临时目录。
+其它 GPU 看到 `_RUNNING` 立即跳过。异常终止留下的锁与临时文件只由显式、低权重且能核对锁年龄/所有者的运维入口清理；科学 runner 不猜 stale。若 `N_F1_eligible>200`，保留 probability 的 `_COMPLETE`，写 `_BLOB_EXCEED`，不发布 components 或 centered，并在 finally 释放 `_RUNNING`。卡数变化时停止旧 worker、重新扫描和重分尚未完成 PDB 即可。
 
 ### 8.2 两阶段入口
 
-推荐两个明确子命令：
+推荐三个明确生产入口，共用同一底层 runner：
 
 ```text
-calibration-full-map-and-freeze-thresholds
-val-train-produce-centered
+calibrate-full-map-and-freeze-thresholds
+cal-produce-F1-CLG
+val-produce-Prob-F1-CLG / train-produce-Prob-F1-CLG
 ```
 
-第二阶段 worker 取得一个 PDB 后依次尝试 probability → components → F1 → CLG；每一步完成即发布。它不要求所有卡具有固定编号。validation 份额优先，但每张卡也带 train 份额，资源减少后剩余任务可重新分配。
+第一入口只对 calibration 100 生成完整图 probability、冻结阈值并汇报；阈值冻结后第二入口复用这些 probability 回填 calibration 的 components/F1/CLG。其后的每个 worker 分配 validation、calibration 尚缺 role 的份额以及 train 份额，先消费自己的 validation 与 calibration，再消费 train。worker 数和份额不写死；资源增减时重扫状态后重新分配即可。
 
 ### 8.3 selector 输入冻结
 
-selector Dataset 构造时扫描一次 `CLG_centered/_COMPLETE`，把 PDB 清单写入当前 selector 输出目录，然后在整个 run 中只使用该清单。不要在 epoch 中途重扫。
+selector Dataset 构造时扫描一次 `CLG_centered/_COMPLETE`，按固定顺序同时冻结逐 split 的 PDB inventory 和逐 `(split,pdb_id,CLG_id)` items，并写入当前 selector run 的独立 `input_CLG_list.json`，然后在整个 run 中只使用该清单。零 CLG PDB 保留在 inventory 中但不产生 Dataset item。若显式提供既有清单，逐 PDB、逐 CLG 要求同一 producer 的来源存在且完整，不取交集、不使用共享“latest”，也不在 epoch 中途重扫。训练 loader 用确定性的 PDB-grouped batch sampler：先打乱 PDB，再打乱该 PDB 内 CLG，单 batch 不跨 PDB；这使每 worker 的小型 PDB bundle cache 不会在相邻 CLG 间反复解压。
 
 ---
 
@@ -329,25 +299,19 @@ selector Dataset 构造时扫描一次 `CLG_centered/_COMPLETE`，把 PDB 清单
 
 ### 9.1 树对象
 
-推荐一个专属结构：
+盘上仍是纯数值 ragged，加载后立即重建专属对象：
 
 ```text
-ComponentArborescence:
-    node arrays
-    parent_node_id[N]
-    children_offsets[N+1]
-    children_node_id[L]
-
-WorkingArborescence:
-    original tree reference
-    active[N]
-    frontier state
-    current CLG membership
+ComponentNode(parent, children, read_only_voxel_payload)
+ComponentTree(nodes, roots)
+ComponentForest(trees)
+CLG(seed_node, oldest_node, candidate_nodes)
+WorkingTree(original_tree, topology_only_nodes, active_state)
 ```
 
-所有 ancestor/subtree/sister/LCA 操作集中在该结构中。不要在 CLG 枚举器各处手写 parent while-loop 与“不能穿过”布尔组合。
+`ComponentNode.parent` 与 `children:list[ComponentNode]` 直接表达拓扑；`WorkingTree` 只复制拓扑/状态并回指原只读 node，不复制 voxel payload。所有 ancestors/subtree/sisters/LCA/D(g) 操作集中在对象接口中；CLG 枚举业务逻辑不直接操纵 offsets，也不散落 parent while-loop。
 
-### 9.2 cap 与 D(G)
+### 9.2 cap 与 D(g)
 
 原子事件先在临时 candidate list 上计算加入后节点数。若 `new_count>cap`：
 
@@ -356,13 +320,13 @@ reject entire current CLG attempt
 increment n_CLG_rejected_by_node_cap
 do not allocate clg_id
 do not write candidate arrays
-apply D(G) to current selected seed on WorkingArborescence
+apply D(g) to current selected seed on WorkingTree
 continue scan
 ```
 
-不要为失败尝试计算 tentative `CLG_cover_node`；成功后才从候选集合验证唯一 cover node。
+不要为失败尝试计算 tentative oldest node；成功后才从候选集合验证唯一 `CLG_oldest_node`。每个成功 CLG 只保存本次唯一 `CLG_seed_node_id`；事件中加入的 sisters 只是普通 candidates。
 
-成功 CLG 完成发布后，也对本次当前 selected seed 在同一 `WorkingArborescence` 上执行同一个 D(G)；成功与 node-cap 失败不得使用两套删除函数。
+成功 CLG 完成发布后，也对本次当前 selected seed 在同一 `WorkingTree` 上执行同一个 D(g)；成功与 node-cap 失败不得使用两套删除函数。
 
 ---
 
@@ -370,9 +334,9 @@ continue scan
 
 ### 10.1 feature hooks
 
-V/P/A 的 hook 应位于主文档定义的真实层出口，具名返回 dict。每个字段在 Docstring 中写清 `torch.Tensor` shape、实体对齐和层语义。Find_0 的返回 dict 不应含 `receptor_feat_L1` key；unet 不应含 P/A key。
+V/P/A 的 hook 应位于主文档定义的真实层出口，具名返回 dict。每个字段在 Docstring 中写清 `torch.Tensor` shape、实体对齐和层语义。两个 Find 都返回 A_feat_L1–L4；A_feat_L0 是按 `A_global_index` 从每 PDB 49D receptor 基础表现场读取的 float32 输入，不在每个 BOX 重复保存。unet 不含 P/A key。
 
-四张低分辨率 V grid 在 forward 中各保留一份 native tensor；`voxel_final` 只按权威 voxel index gather。概率在 sigmoid 后转 float32；learning features 转 float16 后写盘。
+四张低分辨率 V grid 在 forward 中各保留一份 native tensor；`voxel_final` 只按权威 voxel index gather。概率在 sigmoid 后转 float32；learning features 转 float16 后写盘。Selected 聚合时只堆叠 success entry 的四张固定网格，并写 `feature_entry_index` 映射；失败 entry 的 ragged 段为空且不造零网格占位。
 
 ### 10.2 residual_swiglu
 
@@ -380,9 +344,9 @@ V/P/A 的 hook 应位于主文档定义的真实层出口，具名返回 dict。
 
 ### 10.3 V5+D
 
-低分辨率 grid sampling 使用 `grid_sample` 或等价可微三线性采样，在消费模型内部把 BOX voxel centers 映射到各层规范化坐标。SmallDensityUNet 只读取现场构造的 `exp_clipnorm_nopost`，其参数属于当前 selector/Stage2/Stage3 checkpoint。
+低分辨率 grid sampling 使用 `grid_sample` 或等价可微三线性采样，在消费模型内部把 BOX voxel centers 映射到各层规范化坐标。`DensityMUNetLite` 只读取现场构造的 `exp_clipnorm_nopost[B,1,80,80,80]`，使用 80→40→20→10、通道 `[32,64,64,128]`、每层一个 residual convolution block；encoder/decoder 无 Transformer，只在 10³ bottleneck 使用 4-head、1-layer Transformer。decoder 的 32D 全分辨率结果仅在实际 V 坐标 gather 后投影 32→48，不生成或落盘 dense48；参数属于当前 selector/Stage2/Stage3 checkpoint。
 
-V48、V5、V5+D 应共用同一 V adapter 接口；通过显式 branch config 关闭 `m/c`，测试关闭后输出逐元素等于 V48 路径。
+V48、V5、V5+D 共用同一 V adapter 接口；显式关闭 `m/c` 后必须逐元素退化为 V48。首版实现 V5+D；是否因真实训练速度改试 mini/V48 由人后续决定，不自动降级。
 
 ---
 
@@ -393,39 +357,38 @@ V48、V5、V5+D 应共用同一 V adapter 接口；通过显式 branch config �
 ### 11.1 数据与几何
 
 ```text
-tests/adaligand/test_stage1_eligibility_split.py
-tests/adaligand/test_stage1_pool.py
-tests/adaligand/test_stage1_geometry_parity.py
-tests/adaligand/test_stage1_dataset_modes.py
-tests/adaligand/test_stage1_receptor_views.py
-tests/adaligand/test_stage1_rotation.py
+tests/datasets/test_stage1_split_pool.py
+tests/datasets/test_stage1_geometry_parity.py
+tests/datasets/test_stage1_dataset_modes.py
+tests/datasets/test_stage1_receptor_view.py
+tests/datasets/test_stage1_rotation_collate.py
 ```
 
-覆盖：小图训练前排除、同 PDB 不跨 split、bias 30/重复保留、起点 clamp、同一 crop parity、10 Å/8 Å/core 集合包含关系、旋转同步、validation 确定性。
+覆盖：validation/calibration 小图选择时排除、train pool 不物化非法 crop、同 PDB 不跨 split、bias 30/重复保留、context 池为 0/1/2 时不崩且行为固定、起点 clamp、同一 crop parity、8 Å/core 集合关系、targets 开/关时模型输入逐元素一致、训练/完整图/居中模式同构、各向异性 voxel size 下旋转同步交换轴尺度、collate 同步、validation 确定性和真实一步反传。
 
 ### 11.2 模型与训练
 
 ```text
-tests/adaligand/test_find0_contract.py
-tests/adaligand/test_find1_contract.py
-tests/adaligand/test_unet_c1_contract.py
-tests/adaligand/test_stage1_binary_losses.py
-tests/adaligand/test_cpc_model_only_restore.py
-tests/adaligand/test_voxel_probability_forward.py
+tests/model/test_find0_contract.py
+tests/model/test_find1_contract.py
+tests/model/test_unet_c1_contract.py
+tests/wrappers/test_stage1_binary_losses.py
+tests/test_cpc_model_only_restore.py
+tests/model/test_voxel_probability_forward.py
 ```
 
-覆盖：105/107/1 输入通道、Find_0 无 embed 参数、Find_1 block 全 0、core-only scatter、direct 1×1 heads、aux hardmask、总损失权重、CPC1→CPC2 state、voxel-only 逐元素等价。
+覆盖：105/107/1 voxel 输入通道、两个 Find 的共同 point embed、Find_0 raw49 hard scatter、Find_1 trunk/voxel block 为 0 且 point radii `[8,4,0]`、core-only scatter、direct 1×1 heads、aux hardmask、总损失权重、CPC1→CPC2 state、voxel-only 逐元素等价及 skipped-branch 调用计数。
 
 ### 11.3 推理与树
 
 ```text
-tests/adaligand/test_full_map_fusion.py
-tests/adaligand/test_threshold_calibration.py
-tests/adaligand/test_component_arborescence.py
-tests/adaligand/test_clg_enumerator.py
-tests/adaligand/test_clg_node_cap.py
-tests/adaligand/test_centered_roles.py
-tests/adaligand/test_atomic_resume.py
+tests/inference/test_full_map_fusion.py
+tests/evaluation/test_threshold_calibration.py
+tests/component_lineage/test_structures.py
+tests/component_lineage/test_clg_enumerator.py
+tests/component_lineage/test_clg_node_cap.py
+tests/artifacts/test_centered_roles.py
+tests/artifacts/test_atomic_resume.py
 ```
 
 重点构造极小人工树验证：
@@ -434,7 +397,7 @@ tests/adaligand/test_atomic_resume.py
 - unary、split、merge 预算；
 - 32/64 恰好允许，超过后整组失败；
 - 失败没有 CLG ID/半成品；
-- 当前 seed 的 D(G) 从工作副本计算；
+- 当前 seed 的 D(g) 从工作副本计算；
 - 原始树不变；
 - F1/CLG 忽略局部额外组件；
 - Selected 原阈值与 max-IoU source 匹配。
@@ -442,14 +405,14 @@ tests/adaligand/test_atomic_resume.py
 ### 11.4 Selector 与存储
 
 ```text
-tests/adaligand/test_box_contract_roundtrip.py
-tests/adaligand/test_residual_swiglu.py
-tests/adaligand/test_v5d.py
-tests/adaligand/test_antichain_dp.py
-tests/adaligand/test_selector_input_freeze.py
+tests/artifacts/test_box_contract_roundtrip.py
+tests/selector/test_residual_swiglu.py
+tests/selector/test_v5d.py
+tests/selector/test_antichain_dp.py
+tests/selector/test_input_freeze.py
 ```
 
-覆盖：ragged round-trip、dtype/shape、缺模态不补零、V5+D→V48 退化、DP 与穷举 partition/MAP/gradient、启动后 Dataset 不增长。
+覆盖：ragged round-trip、必需字段缺失即失败、Selected success-only `feature_entry_index`、缺模态不补零、V5+D→V48 退化、DP 与穷举 partition/MAP/gradient、启动后 Dataset 不增长、零 CLG PDB inventory/空 scores、跨 CLG 重复 node 的 max-gate 校正与有序去重、PDB-grouped sampler。
 
 ---
 
@@ -459,8 +422,8 @@ tests/adaligand/test_selector_input_freeze.py
 
 1. 一个真实 PDB 的三个 Dataset recipe 冷读与单步 forward/backward；
 2. 一个 Find 的 CPC1 checkpoint → CPC2 第一次更新前对照；
-3. 一个真实 PDB 的完整图融合、component forest、F1/CLG centered round-trip；
+3. 一个真实 PDB 的完整图融合、component forest、F1/CLG centered 聚合 NPZ round-trip；
 4. 一个小型 selector batch 的 online oracle、forward、DP 和 selection；
 5. 中断一次 per-PDB 推理，再重扫续跑，确认半成品不被读取。
 
-新链通过这些检查并完成科学等价性证据后，才清理旧 Dataset/推理编排。清理前确认没有运行任务、恢复任务或审计仍依赖旧入口；清理后重跑相关单元、全套测试和真实 smoke。通用 model/wrapper、CPC、sparse-refine、ranking 能力继续保留。
+新链通过这些检查并完成科学等价性证据后，才清理旧 Dataset/推理编排。清理前确认没有运行任务、恢复任务或审计仍依赖旧入口；清理后重跑相关单元、全套测试和真实 smoke。通用 model/wrapper、CPC、sparse-refine、ranking 能力继续保留。本轮 smoke 不提交正式训练。

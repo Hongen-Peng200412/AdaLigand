@@ -19,6 +19,10 @@ Small bug fixes do not need a new plan, mapping entry, or contract README unless
 - Mapping indexes live under `文档/mapping/`. They link plans to logs, code, contracts, coverage status, and open threads.
 - Code-near contract README files may live beside code or artifacts when the current interface, output schema, or run contract should be readable without inspecting all code.
 
+## Project Document Self-Containment
+
+Project documents MUST explain each new term, function or operator, status, enum, field, and directory role when it first appears. Every schema table MUST state the meaning of each field. Every offsets field MUST name the corresponding arrays it slices. A primary planning document MUST contain the formulas and definitions necessary to understand and implement its contract; an external reference may supplement, but MUST NOT replace, that essential content.
+
 ## Drift And Closeout
 
 Agents MUST NOT silently rewrite a planning document after discovering implementation drift. First summarize beneficial, neutral, harmful, and unfinished differences, then ask the user which changes should update the clean specification.
