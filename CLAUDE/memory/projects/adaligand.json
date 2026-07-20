@@ -53,11 +53,10 @@
     "2026-07-18：Stage F Phase-2已按cap100完成formal 11→19与supplement v2 6→14的受检迁移，正式/补算manifest SHA为f9482353…fea8/c1755825…6d45；旧base4与补算v1不变。318350已在cnode01以CPU96/F12/no-overwrite重放v2，316116继续after+try停写等待v2 gate。用户同时冻结run-scoped controlled-failure waiver规则：后续少量、根因闭合、下游可安全排除的unknown保留raw状态，以精确gate/G overlay先放行当前run，补票异步完成；不得伪造success/known、造占位产物或自动消费cap100。",
     "2026-07-18：用户进一步冻结审批纪律：即使出现系统性故障、科学风险、身份/schema漂移或根因不明，fail-closed也只表示未经决定不放行，不授权Agent自动修复或重跑。必须先冻结证据并报告范围、风险、置信度、修复路径和时间成本，由用户选择接受瑕疵顾全大局或严格阻断；没有明确指令不得终止producer、修改运行中代码或发起昂贵重跑。",
     "2026-07-18：补算318350/fsupp96_v2最终以5984 unique、5970 skipped+14 known和零unknown/duplicate/silent missing通过gate，status/release SHA为8babca24…d0c/123bed2c…fd69，八例继续0/3。fresh跨节点进程门与独立复核通过后，仅删除精确try_lock_316116并保留after-lock；正式F于21:53:48在原cnode04 CPU96 allocation复用run_cmd 0ff22ef9…e131恢复F12/no-overwrite，316117继续等待正式f_release。",
-    "2026-07-20：正式F已完成22386/22386，raw状态为16944 skipped+5323 success+74 known+45 unknown；45例全部0/3且无活动writer。用户批准保留raw unknown、不重跑、不造占位，由gate/G共用逐行SHA绑定waiver自然排除，并把当前run cap由100提升为200；既有19条原生exclusion保持不变。默认严格的本地实现已通过专项65 passed+2 skipped、全套402 passed+10 skipped和独立审查，待服务器manifest、远端测试、gate-only release与G analyze。"
+    "2026-07-20：正式F已完成22386/22386，raw状态为16944 skipped+5323 success+74 known+45 unknown；45例全部0/3且无活动writer。用户批准保留raw unknown、不重跑、不造占位，由gate/G共用逐行SHA绑定waiver自然排除，并把当前run cap由100提升为200；既有19条原生exclusion保持不变。默认严格的本地实现已通过专项65 passed+2 skipped、全套402 passed+10 skipped和独立审查。",
+    "2026-07-20：正式A-G analyze-only任务最终闭合。316114/316115/316116/316117全部COMPLETED 0:0；f_release成功绑定waiver SHA 805f4c49…0a04。G形成22386行状态（22251 success+90 known+45 raw unknown）、662078条候选且keep_list缺失。独立审计job321031重算集合、候选和全部分位数通过，summary SHA为3a2fa87e…9d00；45例继续0/3。代码重组与run-specific脚手架物理归档是后续维护任务，不影响本次科学产物完成。"
   ],
-  "blockers": [
-    "当前无待用户科学决定。正式316116的F producer已完成22386行并在45条raw unknown的严格gate处保持after+try；用户已批准cap200和gate/G共用waiver，本地实现通过测试。当前操作阻塞仅是服务器manifest、远端测试、gate-only release和G analyze尚未闭合；不得重启F producer、伪造状态或生成占位产物。最终G数值配置/filter须在质量分布后另行显式执行。"
-  ],
+  "blockers": [],
   "failures": [
     "2026-07-12 Stage C gate 事件：366/22,386 为 unknown_failed，涉及 43,175 occurrences、506 object_keys；这是系统性工程/契约问题，不能按小比例忽略。",
     "2026-07-12 source audit 安全阻断：5 条缺 CCD cache，9 条 N/UNK coverage（其中 7 条可 exact、2 条改名在 6MZ），14 条为 5GP ligand-side source revision；没有任何 receptor 写入。",

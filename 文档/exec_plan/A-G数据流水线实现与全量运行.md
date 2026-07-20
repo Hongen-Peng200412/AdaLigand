@@ -32,7 +32,7 @@
 - [x] (2026-07-11 15:04+08:00) 按用户新增需求实现 occurrence 级 6 Å 受体口袋 Q：复用同一次全模型 MapQ，保存有序 pocket atom_site.id/逐原子 Q 与 mean/median/min/count/radius；固定包络并集、零口袋失败和合成端到端已进入 90 项全套回归。
 - [x] (2026-07-11 11:17+08:00) 通过无删除安全同步上传代码；在用户目录安装并验证 Chimera 1.19 OSMesa、MapQ 2.9.7 固定包与 mrcfile 1.5.4，工具清单落在 `/home/penghongen/.local/opt/adaligand_tools_manifest.json`。
 - [x] (2026-07-11 15:45+08:00) 真实 smoke `adaligand_smoke_20260711T113733` / job `316073` 最终 `COMPLETED 0:0`：三 PDB 的 C/D/E/F 严格门禁通过，99 occurrence 中 97 个正常口袋、2 个显式空口袋；job `316109` 的 12 Å 错位 CC 负对照也 `COMPLETED 0:0`。
-- [ ] (2026-07-11 15:47+08:00) 全量 run `adaligand_ag_20260711T154658` 已提交：ABC `316114` → DE `316115` → F `316116` → G analyze `316117`；ABC 与 DE 已完成。Stage F scratch v4、确定性适配恢复、补算 v1/v2 和 19 条正式 run-only exclusion 均已闭合。正式 F producer 已完成 22,386/22,386，raw status 为 16,944 skipped、5,323 success、74 known、45 unknown；原严格 gate 因 45 条 unknown 进入精确 try-lock，`f_release` 尚未形成。用户已批准保留 raw unknown、不重跑、不造占位，并让 gate/G 共用同一份精确 waiver；本地实现与测试已通过，服务器 manifest、远端测试和 gate-only 放行尚待闭合。`316117` 继续只等待正式 `f_release` 并只运行 analyze，整条 DAG 尚未完成。
+- [x] (2026-07-20 22:09+08:00) 正式全量 run `adaligand_ag_20260711T154658` 已按原 DAG `316114→316115→316116→316117` 全部 `COMPLETED 0:0`。F 保留 22,386 行 raw 四终态与 45 条精确 waiver，`f_release` 成功；G 仅运行 analyze，形成 22,386 行状态、662,078 条候选 occurrence 和质量分布，未运行数值 filter、未写 `keep_list`。独立审计 job `321031` 重算集合、候选与全部分位数并 `COMPLETED 0:0`，summary SHA-256 为 `3a2fa87e…9d00`。
 - [x] (2026-07-12 00:24+08:00) 长周期监控改为阶段感知策略：Codex heartbeat 从每 30 分钟降为每 2 小时；正常运行只静默记录，阶段切换、失败或契约异常才通知，并在 release gate、异常诊断和最终 QC 时临时启用多智能体独立审计。
 - [x] (2026-07-12 02:58+08:00) 用户确认保留原 Job ID 的原地调度方案：pending core 支持预置普通文件 run_cmd，并在首次及每次 retry 前拒绝 symlink、检查非空/`0700`/`bash -n`、记录 SHA-256；本地全套增至 97 tests passed，shell/sbatch 语法与 `git diff --check` 通过。
 - [x] (2026-07-12 02:58+08:00) 不取消或重提既有 DAG；原子预置 `316115` 的 D64/E24 run_cmd（SHA-256 `54658b7a4c2819793a22282ac21a005bfdc6fe1f6c48d4a006c760be2cd380b0`）和 `316116` 的 F12 run_cmd（SHA-256 `8399d571bab44881facbeaa9dd1e738594255a4b4212605cfe418878744f7d13`），将 `316115/316116/316117` 原地改为 `TimeLimit=UNLIMITED` 后 release `316115`；提交时间、CPU 数与 afterok 链均保持不变。
@@ -101,8 +101,8 @@
 - [x] (2026-07-20 06:43+08:00) 正式 F producer 完成 22,386/22,386；状态集合与 pair-list 精确一致，重复、silent missing 和 extra 均为 0。四终态为 16,944 skipped、5,323 success、74 known、45 raw unknown，status SHA-256 `4280757c…f503d`。45 条与正式 19 条 `run_policy_excluded` 无交集，公开质量三件套全部为 0/3，最终 attempt 未留 MRC/MAP/CIF；严格 gate 按原契约阻断并创建精确 try-lock，`f_release` 不存在，cnode04 无 F/Loky/Chimera/MapQ writer，`316117` 继续等待依赖。
 - [x] (2026-07-20) 用户明确授权保留这 45 条原始 `unknown_failed`，不伪造 success/known、不重跑科学计算、不生成占位产物；gate 与 G 必须消费同一份逐状态行/证据/0-of-3/代码/进程门 SHA 绑定的 waiver，自然排除训练、推理与 G 候选。当前 run 的硬上限由 100 提升到 200；既有 19 条 exclusion 加 45 条 waiver 的累计为 64，但两类集合和历史 manifest 必须保持分离。
 - [x] (2026-07-20) 本地完成默认严格的 waiver schema v1：无参数时所有 unknown 仍阻断；只有 Stage F 非 strict-smoke gate 可显式使用 waiver，G analyze 必须匹配成功 `f_release` 中同一 SHA 并在输出中保留 raw unknown。独立审查补齐 attempt→process-audit job/node 绑定、canonical schema v3/15 分钟进程门、单次字节 hash+parse 与 gate-A/G-B 负例；专项 65 passed、2 skipped，本地全套 402 passed、10 skipped，compileall 与 diff check 通过；尚未安全同步服务器或释放正式锁。
-- [ ] 持续只读监控；任何可能阻断 gate 的异常先冻结证据并向用户报告范围、风险、置信度、修复/重跑成本与选项。未经用户明确决定不得自动终止 producer、修改代码、开路、重跑或重提。
-- [ ] 完成全量验收、计划漂移收口、mapping/契约 README/项目记忆更新和最终报告。
+- [x] (2026-07-20 18:47+08:00) `316117` 仅以 `g_filter.py --mode analyze` 完成，`candidates.pending.jsonl` 与 `quality_distribution.json` 落盘；`keep_list.jsonl` 保持不存在。
+- [x] (2026-07-20 22:09+08:00) 完成独立全量验收；本次记录随后同步收口 mapping、契约 README、项目记忆、handoff 与脚手架分类。
 
 ## Surprises & Discoveries
 
@@ -475,7 +475,7 @@
   Date/Author: 2026-07-18 / User + Codex
 
 - Decision: 后续 A–G 若出现不超过当前 run 用户授权上限的小批 `unknown_failed`，且已逐例证明根因闭合、影响边界有限、目标样本不再 in-flight、没有共享写入污染、科学契约不变，并能以公开产物完整性安全排除，则优先使用 **run-scoped controlled-failure waiver（受控失败放行）**，不得为“把 unknown 改成 known”而中断正在运行的 producer 或重放科学计算。raw status、原始错误与状态分母保持不变；gate 与 G 只在显式传入同一份、精确指纹绑定的 waiver overlay 时，把命中项列入独立的 `waived_controlled_failures` 并排除训练、推理和 G 候选，绝不能计为 success 或改写成原生 known。
-  Rationale: 这把“本次 run 可安全继续”与“生产分类器已经永久修复”解耦。waiver 必须逐 ID 绑定 run/stage、status 文件与原始行 SHA、attempt/job/node/tool/code 身份、诊断证据、公开产物 0/N 或 validator 快照、无活动 writer 证据、用户授权、累计数量/上限、`scientific_contract_unchanged=true`、`no_placeholder_artifacts=true`、下游排除策略和退出条件；任何未列 unknown、duplicate、silent missing/extra、schema/身份/manifest 漂移、部分损坏产物、系统性增长趋势或潜在科学污染仍 fail-closed。这里的 fail-closed 只表示“Agent 不得自行放行”，绝不授权 Agent 擅自修改代码、终止 producer 或重跑；即使判断为系统性/科学风险，也要先冻结现场，向用户完整报告真实影响、证据、可接受风险、重跑成本和选项，由用户明确决定“接受瑕疵顾全大局”还是“严格阻断/修复重跑”。没有用户指令时保持现场，不把重跑当默认恢复动作。当前 cap=100 是硬上限而非可自动消费配额，每批仍须单独取证；strict smoke 不接受 waiver，A/B/C/D/G 也不得未经阶段专门证明自动套用。随后可异步“补票”：在不停止当前 producer 的前提下加入一般化、无 PDB allowlist 的原生分类/修复与测试，使未来 clean run 无 waiver 通过；补票闭合后按一次性脚手架规则退休当前 run 的适配入口，历史 manifest/summary 只作证据归档。
+  Rationale: 这把“本次 run 可安全继续”与“生产分类器已经永久修复”解耦。waiver 必须逐 ID 绑定 run/stage、status 文件与原始行 SHA、attempt/job/node/tool/code 身份、诊断证据、公开产物 0/N 或 validator 快照、无活动 writer 证据、用户授权、累计数量/上限、`scientific_contract_unchanged=true`、`no_placeholder_artifacts=true`、下游排除策略和退出条件；任何未列 unknown、duplicate、silent missing/extra、schema/身份/manifest 漂移、部分损坏产物、系统性增长趋势或潜在科学污染仍 fail-closed。这里的 fail-closed 只表示“Agent 不得自行放行”，绝不授权 Agent 擅自修改代码、终止 producer 或重跑；即使判断为系统性/科学风险，也要先冻结现场，向用户完整报告真实影响、证据、可接受风险、重跑成本和选项，由用户明确决定“接受瑕疵顾全大局”还是“严格阻断/修复重跑”。没有用户指令时保持现场，不把重跑当默认恢复动作。当前最终授权 cap=200 是硬上限而非可自动消费配额；旧 cap100 只保留为历史决策证据，每批仍须单独取证。strict smoke 不接受 waiver，其他 stage 也不得未经阶段专门证明自动套用。随后可异步“补票”：在不停止当前 producer 的前提下加入一般化、无 PDB allowlist 的原生分类/修复与测试，使未来 clean run 无 waiver 通过；补票闭合后按一次性脚手架规则退休当前 run 的适配入口，历史 manifest/summary 只作证据归档。
   Date/Author: 2026-07-18 / User + Codex
 
 - Decision: 正式 F 当前 45 条 raw unknown 全部采用上述 waiver，并把当前 run 的累计硬上限从 100 提升到 200。45 条保持原始状态、错误和 0/3 公开质量产物；既有 19 条 `run_policy_excluded` manifest 不追加、不改写。正式 gate summary 与 Stage G analyze 必须报告同一 manifest SHA、45 条 raw unknown 与独立 waived 集合；64 只表示 cap 校验中的累计受控数量，不能冒充 64 条原生 exclusion 或成功样本。
@@ -484,7 +484,7 @@
 
 ## Outcomes & Retrospective
 
-尚未完成。Stage C v4、ABC gate、MRC 放行及正式 D/E 已闭合；`316115` 于 2026-07-14 01:26:42 `COMPLETED 0:0`，D/E 四终态、风险分层 artifact、四条 Stage E run-only exclusion 与 2zhc frame mismatch 均已通过独立审计。Stage F scratch v4 已完成零删除 audit、4,341 条 transient 的 journal/fsync apply 和定向独立验收；10,260 条 nontransient 与 2,568 条 public trio 后验通过，`apply_summary` SHA-256 为 `4dfd0853…2f649`，v1/v3 继续永久作废。2026-07-16 19:03–19:07 依次恢复 `318350→316116`：补算以受检 run_cmd SHA-256 `ca04f4f…25f3e` 顺序执行 v1/v2，正式 F 继续以 `bd7edb94…5ffa` 运行；两台 CPU96、各 12 个外层 worker 与 MapQ `np=8` 均已实机确认，guard/child PGID 已登记，正式 `316116` 仍是唯一 22,386 行 status/release writer。全量 F 状态、五条 Stage F exclusion 终态与总体质量分布仍待完成。Stage G 单一 map-level schema v2 已实现，`316117` 仍只安排 analyze。显式阈值配置和 `keep_list` 仍不属于本轮无人值守终点。
+最终状态为已完成；以下段落保留执行过程中曾经未完成的历史停点。Stage C v4、ABC gate、MRC 放行及正式 D/E 均已闭合；Stage F scratch v4、adapter recovery、补算 v1/v2 与 run-scoped 失败处理也已分别验收。显式数值阈值配置和 `keep_list` 从始至终不属于本轮 analyze-only 终点。
 
 E3 的 Pocket 祖传半体素修复及 source-aware release runner 已实现并完成服务器迁移：`75d8f42/92fc2e8/e90fccc/1780942/7202bc9/97a9c07` 依次冻结祖传中心、删除 Agent 自研候选边界、收敛 Pocket BOX、建立 22,309 目标快照与让 validator 从当前 Stage C 原子逐 mask 重建。三项独立终验、本地/远端全套、真实 Pocket oracle 和全量 header 风险审计均已闭合；严格 Z/X padding-shift 风险命中 182/22,309（约 0.816%），按用户边界只记录、不修改祖传实现或排除样本。`318882→318883` 已使 22,309 个冻结目标全部成为合法 schema v3 压缩产物，gate SHA-256 `796bc90c…be37`；canonical snapshot/intent/release SHA-256 为 `f9705efe…32d8` / `0657c85b…e25d` / `fdcef799…bb3e`，全局 writer lock 已受检释放。F/G 不消费 E3，当前继续独立推进；Stage1 训练就绪只等待 A–G gate。
 
@@ -496,7 +496,14 @@ E3 的 Pocket 祖传半体素修复及 source-aware release runner 已实现并�
 
 2026-07-18 的补算 v2 首轮完成全部 5,984 个目标后暴露五个同型 ALL signal-11 和三个 molmap 3,600 秒 timeout；八例均为 0/3，scratch 异常安全清理有效。Phase-2 随后完成 formal 19 条 / v2 14 条、v1/base4 冻结的两目标迁移，并以 no-overwrite 重放闭合为 5,984 unique、5,970 skipped + 14 known、零 unknown/duplicate/silent missing；status/release SHA-256 为 `8babca24…d0c` / `123bed2c…fd69`。fresh 跨节点进程审计与独立复核通过后，2026-07-18 21:53:48+08 保留 `after_lock_316116`、只删除精确 try-lock，正式 F 由原 CPU96 allocation 复用 run_cmd `0ff22ef9…e131`、F12、no-overwrite 自行恢复；readiness 与首批真实进度均已确认。当前 A–G 仍未完成，G 尚未开始；在正式 `f_release` 前不得接受 `316117`。
 
-2026-07-20 正式 F producer 已完成全量计算，但严格 gate 因 45 条 raw unknown 停在 after+try；四终态为 16,944 skipped、5,323 success、74 known、45 unknown，且 45 条均为 0/3、无活动 writer。用户批准 cap200 与 gate/G 共用 waiver；本地实现保持 raw status、默认严格和 strict-smoke 禁用，专项 65 passed+2 skipped、全套 402 passed+10 skipped，独立代码审查 PASS。当前尚未完成服务器 manifest、远端测试、gate-only 原地 release 和 G analyze，因此不得把本段视为 A–G 最终完成；它只把“不重跑科学计算的受控放行路径”实现到了本地可验证停点。
+2026-07-20 最终收口覆盖上述停点：正式 waiver SHA-256 为 `805f4c49…0a04`，`f_release` SHA-256 为 `18a8ba38…1e5c`；`316116` 于 12:27:46、`316117` 于 18:47:51 依次 `COMPLETED 0:0`。G 状态为 22,251 success、90 known_failed、45 raw unknown_failed；2 个 PDB（`1zku/6r8n`）同时属于上游 known 集合和 F waiver 集合，互斥 G 终态按已实现的 waiver-first 优先级记 raw unknown，但两个报告集合仍分别保留。G 生成 662,078 条候选 occurrence，候选 SHA-256 `86c9cfc7…786e`，分布 SHA-256 `9bf8e7cf…c7dd`，`keep_list` 不存在。独立审计 job `321031` 在 21 秒内重算 22,386 主键集合、known/waived/eligible、候选排序唯一性与全部数值分位数并 `COMPLETED 0:0`；summary SHA-256 `3a2fa87e…9d00`，stderr 为空。由此，A–G analyze-only 正式目标实质完成。
+
+### 一次性脚手架收口分类
+
+- **长期生产主线**：`code/` 中 A–G 科学产物构建与 validator、`scripts/a_*` 至 `scripts/g_filter.py`、正式 release gate、`sbatch/abc_full.sbatch`、`de_full.sbatch`、`f_full.sbatch`、`g_analyze.sbatch` 与 `_adaligand_job_core.sh`。这些入口定义未来 clean run 的默认行为。
+- **可复用但默认关闭的运维工具**：`controlled_failure_waiver.py`、Stage F process-audit、scratch inventory/recovery 与相关 validator。继续保留的价值是可审计恢复；边界是必须显式 run/manifest/SHA，不能成为默认科学分类器或自动放行入口。
+- **本 run 专用历史脚手架**：`f_signal11_exclusion_transition.py`、Stage E/F long-tail cutoff、`resume_*` sbatch、F supplement planner/guard、E3 migration/launch control。它们的退出条件已满足，只能作为本 run 证据入口，不得用于新 run 的默认路径。
+- **后续维护动作**：本次先冻结分类而不在最终证据提交中搬动或批量删除 Python/sbatch 文件；原因是用户要求先讨论代码重组，且删除/迁移需另做依赖审阅、完整回归与真实 smoke。下一维护任务应把 run-specific 文件移出活跃入口或归档，并合并重复 process-audit validator；在该维护完成前，README 和本节的“非默认、不可复用为新 run”声明是强制边界。这一剩余维护项不影响已经冻结的 A–G 科学产物或正式 run 完成结论。
 
 ## Context and Orientation
 
@@ -681,9 +688,9 @@ Python 依赖包括 `numpy`、`scipy`、`gemmi`、`rdkit`、`requests`、`joblib
 
 ### Unfinished scope
 
-- C source repair、全量 C、ABC gate 与正式 D/E 已完成；D–G 代码已实现。DE→F 的 status/gate、E artifact 风险分层和 exclusion/frame-mismatch 三路审计均通过。Stage F scratch v4、adapter recovery、补算 v1/v2 和 19 条原生 run-only exclusion 均已闭合；旧 v1/base4 与历史授权证据保持不变。正式 `316116` 已完成 22,386 行科学计算并形成 16,944 skipped、5,323 success、74 known、45 raw unknown；严格 gate 按设计停在 after+try。未完成范围是：安全同步 waiver 实现、冻结 45 条逐行 manifest 与 fresh process audit、远端全套、gate-only `f_release`、G analyze、22,386/F/G 最终独立 QC，以及 run-specific 脚手架审查。19 条原生 exclusion 与 45 条 waiver 必须分开报告，均不得被改写成 success。
-- G 的 map-level 算法、比较边界、空口袋分母和整 map 保留规则已冻结；最终分辨率、选定 CC、配体 Q、口袋 Q 与比例数值仍须先看正式分布后以 schema v2 配置显式给出。当前示例不写入默认值，正式 filter/`keep_list` 尚未执行。
-- E3 代码、独立 runner、source-aware validator、本地/远端全套、多图 Pocket oracle、22,309-ID 全量迁移、独立 gate 与 canonical writer release 均已通过；77 个旧 known failure 未复活，旧 E status/de_release/exclusion/pair-list 始终只读。独立 48 CPU header 审计中的 182/22,309 个小范围风险候选继续只作证据，不修改祖传实现或排除样本。E3 已无未完成生产范围；未使用的 `mrc.py::grid_world_bounds` 仍是 P2 维护项，最终一次性脚手架收口时一并分类。
+- A–G analyze-only 正式运行、E3 迁移、F release、G 分布和最终独立 QC 均已完成，没有未完成的科学产物范围。
+- 数值 filter/`keep_list` 仍须用户依据本次正式分布另行提供显式 schema v2 配置；它从未属于本轮 DAG 的完成条件。
+- 代码库的人类可读性重组、run-specific 脚手架物理归档/删除、重复 process-audit validator 合并和未使用的 `mrc.py::grid_world_bounds` 属于下一维护任务。它们已分类但尚未改动，不能反向否定本轮产物完成。
 
 Revision note 2026-07-10 14:38+08:00: 创建本 ExecPlan，记录已确认边界、旧产物证据、科学语义、资源/许可纪律和从实现到服务器全量验收的恢复路径。
 
@@ -759,5 +766,7 @@ Revision note 2026-07-18 controlled-failure waiver: 用户冻结“少量、根�
 Revision note 2026-07-18 no-autonomous-rerun: 用户进一步澄清“fail-closed”只代表未经授权不放行，不代表 Agent 应自动修复或重跑。以后即使发现系统性故障、科学风险、身份/schema 漂移或根因不明，也先冻结证据并报告真实影响、范围、置信度、放行风险、修复方案及时间成本，由用户决定接受瑕疵还是严格阻断；没有明确指令不得终止当前 producer、改运行中代码或启动昂贵重跑。该审批纪律已加入 handoff、durable memory、README 与 heartbeat，不改变当前补算 v2。
 
 Revision note 2026-07-18 21:54+08:00: 补算 v2 以 5,984 unique、5,970 skipped + 14 known、零 unknown/duplicate/silent missing 通过 `f_supplement_release`，status/release SHA-256 为 `8babca24…d0c` / `123bed2c…fd69`；八例继续 0/3。fresh process audit `eb6f8638…ac6f6` 与独立审计 PASS 后，原子 intent/result `8d0caa57…2ee6` / `bc5006a2…60d2` 仅解除 `try_lock_316116`，保留 after-lock；正式 F 于 21:53:48 由原 CPU96 allocation 复用 run_cmd `0ff22ef9…e131` 恢复 F12/no-overwrite，readiness 与首批真实进度通过。未取消、重提或改写正式 DAG，`316117` 继续等待正式 `f_release`。
+
+Revision note 2026-07-20 22:09+08:00: 正式 `316116/316117` 均已 `COMPLETED 0:0`；G 只执行 analyze，22,386 行状态、662,078 条候选、正式质量分布与 `keep_list` 缺失均通过独立重算。最终审计 job `321031` 为 `COMPLETED 0:0`，summary SHA-256 `3a2fa87eeea8267e9e12396910ad388ae044bc8c84f9d3e374d1c1f5e31a9d00`。本轮同时完成脚手架角色分类；物理代码重组留给用户要求的下一次只读讨论与后续维护，不改变 A–G 完成结论。
 
 Revision note 2026-07-20 controlled-failure waiver v1: 回填正式 F 22,386/22,386 计算完成、45 条 raw unknown 的四类真实分解、0/3 产物与零 writer 停点。记录用户明确批准“不重跑、不改状态、不造占位、gate/G 共用精确 waiver”并把当前 run cap 从 100 提升到 200；本地实现以逐 status-row、全部分片、pair-list、进程门、代码和 artifact 快照绑定，默认路径及 strict smoke 仍严格。本次只更新执行日志、契约 README、mapping 与记忆，不修改 clean scientific spec；服务器放行和 G 仍待实际证据。
