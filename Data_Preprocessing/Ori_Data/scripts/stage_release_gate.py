@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "code"))
 
-from filtering import load_stage_statuses
+from controlled_failure_waiver import CONTROLLED_FAILURE_WAIVER_STAGE, load_stage_status_view
 from exclusions import (
     ALLOWED_EXCLUSION_STAGES,
     exclusion_status_fields,
@@ -33,6 +33,8 @@ def main() -> None:
     parser.add_argument("--stages", required=True)
     parser.add_argument("--gate_name", required=True)
     parser.add_argument("--pdb_ids_file", type=Path)
+    parser.add_argument("--controlled_failure_waiver", type=Path)
+    parser.add_argument("--controlled_failure_waiver_sha256")
     parser.add_argument(
         "--require_success",
         action="store_true",
@@ -43,6 +45,15 @@ def main() -> None:
     stages = [item.strip() for item in args.stages.split(",") if item.strip()]
     if not stages:
         raise ValueError("--stages cannot be empty")
+    if (args.controlled_failure_waiver is None) != (
+        args.controlled_failure_waiver_sha256 is None
+    ):
+        raise ValueError("waiver path and SHA-256 must be provided together")
+    if args.controlled_failure_waiver is not None:
+        if args.require_success:
+            raise RuntimeError("strict smoke gate does not accept controlled-failure waiver")
+        if stages != [CONTROLLED_FAILURE_WAIVER_STAGE]:
+            raise RuntimeError("controlled-failure waiver gate must target only stage_f")
     pairs = read_jsonl(args.root / "raw" / "pair_list.jsonl")
     requested = read_pdb_id_filter(args.pdb_ids_file)
     expected = {
@@ -55,9 +66,47 @@ def main() -> None:
     status_counts: dict[str, dict[str, int]] = {}
     known_reason_counts: Counter[str] = Counter()
     exclusion_manifest_sha256: dict[str, str] = {}
+    raw_unknown_counts: dict[str, int] = {}
+    waived_controlled_failures: dict[str, list[dict[str, str | None]]] = {}
+    controlled_failure_waiver: dict[str, object] | None = None
     for stage in stages:
-        statuses, _ = load_stage_statuses(args.root, run_id, stage, expected)
+        view = load_stage_status_view(
+            args.root,
+            run_id,
+            stage,
+            expected,
+            controlled_failure_waiver_path=(
+                args.controlled_failure_waiver
+                if stage == CONTROLLED_FAILURE_WAIVER_STAGE
+                else None
+            ),
+            controlled_failure_waiver_sha256=(
+                args.controlled_failure_waiver_sha256
+                if stage == CONTROLLED_FAILURE_WAIVER_STAGE
+                else None
+            ),
+        )
+        statuses = view.records_by_pdb
         status_counts[stage] = dict(sorted(Counter(item["status"] for item in statuses.values()).items()))
+        raw_unknown_counts[stage] = len(view.raw_unknown_by_pdb)
+        waived_controlled_failures[stage] = [
+            {
+                "pdb_id": pdb_id,
+                "raw_reason": statuses[pdb_id].get("reason"),
+                "classification": record["classification"],
+            }
+            for pdb_id, record in sorted(view.waived_by_pdb.items())
+        ]
+        if view.waiver is not None:
+            controlled_failure_waiver = {
+                "path": view.waiver.path.relative_to(args.root.resolve()).as_posix(),
+                "sha256": view.waiver.sha256,
+                "authorized_cap": view.waiver.authorized_cap,
+                "n_waived": len(view.waived_by_pdb),
+                "cumulative_controlled_failure_count": (
+                    view.waiver.cumulative_controlled_failure_count
+                ),
+            }
         for record in statuses.values():
             if record["status"] == StageStatus.KNOWN_FAILED.value:
                 known_reason_counts[f"{stage}:{record.get('reason', 'known_failed')}"] += 1
@@ -106,11 +155,19 @@ def main() -> None:
             "n_expected_pdb": len(expected),
             "status_counts": status_counts,
             "known_failure_reasons": dict(sorted(known_reason_counts.items())),
+            "raw_unknown_counts": raw_unknown_counts,
+            "waived_controlled_failures": waived_controlled_failures,
+            "controlled_failure_waiver": controlled_failure_waiver,
             "exclusion_manifest_sha256": exclusion_manifest_sha256,
             "policy": (
                 "success/skipped only; known/unknown/duplicate/silent missing blocks"
                 if args.require_success
-                else "known_failed continues explicitly; unknown/duplicate/silent missing blocks"
+                else (
+                    "known_failed and exact manifest-bound waived unknown continue; "
+                    "unlisted unknown/duplicate/silent missing blocks"
+                    if controlled_failure_waiver is not None
+                    else "known_failed continues explicitly; unknown/duplicate/silent missing blocks"
+                )
             ),
         },
     )

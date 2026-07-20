@@ -14,6 +14,11 @@ from typing import Any
 
 import numpy as np
 
+from controlled_failure_waiver import (
+    CONTROLLED_FAILURE_WAIVER_STAGE,
+    StageStatusView,
+    load_stage_status_view,
+)
 from io_utils import read_jsonl, sha256_file, sha256_manifest, write_jsonl
 from qc import cc_value_errors
 from reports import StageStatus, stage_report_path, stage_result, write_report, write_stage_results
@@ -64,42 +69,15 @@ def load_stage_statuses(
 
     缺分片、重复样本、silent missing、额外样本、错误 stage/status 都直接阻塞 release。
     """
-    stage_dir = root / "reports" / "runs" / run_id / stage
-    paths = sorted(stage_dir.glob("status.part_*_of_*.jsonl"))
-    if not paths:
-        raise RuntimeError(f"no run-scoped status files for {run_id}/{stage}")
-    records_by_pdb: dict[str, dict[str, Any]] = {}
-    for path in paths:
-        for record in read_jsonl(path):
-            pdb_id = str(record.get("pdb_id", "")).lower()
-            if record.get("stage") != stage:
-                raise RuntimeError(f"wrong stage in {path}: {record.get('stage')!r}")
-            try:
-                StageStatus(str(record.get("status")))
-            except ValueError as exc:
-                raise RuntimeError(f"invalid status in {path}: {record.get('status')!r}") from exc
-            if not pdb_id or pdb_id in records_by_pdb:
-                raise RuntimeError(f"duplicate/empty PDB status for {stage}: {pdb_id!r}")
-            records_by_pdb[pdb_id] = record
-    actual = set(records_by_pdb)
-    if actual != expected_pdb_ids:
-        missing = sorted(expected_pdb_ids.difference(actual))
-        extra = sorted(actual.difference(expected_pdb_ids))
-        raise RuntimeError(
-            f"silent/extra samples in {stage}: missing={missing[:20]}, extra={extra[:20]}"
-        )
-    unknown = [
-        record
-        for record in records_by_pdb.values()
-        if record["status"] == StageStatus.UNKNOWN_FAILED.value
-    ]
-    if unknown:
-        examples = [
-            {"pdb_id": item["pdb_id"], "reason": item.get("reason"), "error": item.get("error")}
-            for item in unknown[:20]
-        ]
-        raise RuntimeError(f"{stage} has {len(unknown)} unknown failures: {examples}")
-    return records_by_pdb, paths
+    view = load_stage_status_view(
+        root,
+        run_id,
+        stage,
+        expected_pdb_ids,
+        controlled_failure_waiver_path=None,
+        controlled_failure_waiver_sha256=None,
+    )
+    return view.records_by_pdb, view.status_paths
 
 
 def load_filter_config(path: Path) -> dict[str, Any]:
@@ -334,13 +312,15 @@ def run_stage_g(
     *,
     mode: str,
     config_path: Path | None = None,
+    controlled_failure_waiver_path: Path | None = None,
+    controlled_failure_waiver_sha256: str | None = None,
 ) -> dict[str, Any]:
     """
     执行质量分布分析或正式过滤。
 
     ``mode=analyze`` 只写 run-scoped 分布和 ``candidates.pending.jsonl``，绝不写正式
-    ``keep_list.jsonl``。``mode=filter`` 必须提供显式配置，且所有 D/E/F unknown/silent
-    missing 已清零后才原子写正式 keep list。
+    ``keep_list.jsonl``。``mode=filter`` 必须提供显式配置。默认要求 D/E/F unknown/silent
+    missing 全部清零；显式 Stage F waiver 只把精确命中 raw unknown 排除在下游之外。
     """
     if mode not in {"analyze", "filter"}:
         raise ValueError("mode must be analyze or filter")
@@ -351,13 +331,34 @@ def run_stage_g(
         raise RuntimeError("pair_list contains duplicate PDB ids")
     expected = set(pdb_ids)
     status_by_stage: dict[str, dict[str, dict[str, Any]]] = {}
+    stage_f_view: StageStatusView | None = None
     manifest_paths = [pair_path]
     for stage in UPSTREAM_STAGES:
-        statuses, paths = load_stage_statuses(root, run_id, stage, expected)
-        status_by_stage[stage] = statuses
-        manifest_paths.extend(paths)
+        if stage == CONTROLLED_FAILURE_WAIVER_STAGE:
+            stage_f_view = load_stage_status_view(
+                root,
+                run_id,
+                stage,
+                expected,
+                controlled_failure_waiver_path=controlled_failure_waiver_path,
+                controlled_failure_waiver_sha256=controlled_failure_waiver_sha256,
+                require_fresh_process_audit=False,
+            )
+            status_by_stage[stage] = stage_f_view.records_by_pdb
+            manifest_paths.extend(stage_f_view.status_paths)
+        else:
+            statuses, paths = load_stage_statuses(root, run_id, stage, expected)
+            status_by_stage[stage] = statuses
+            manifest_paths.extend(paths)
+    assert stage_f_view is not None
+    if stage_f_view.waiver is not None:
+        manifest_paths.append(stage_f_view.waiver.path)
+        manifest_paths.append(
+            _require_f_release_waiver_identity(root, run_id, stage_f_view)
+        )
 
     known_failures: dict[str, list[str]] = {}
+    waived_failures: dict[str, dict[str, Any]] = {}
     eligible_pdb_ids: list[str] = []
     for pdb_id in sorted(expected):
         reasons = []
@@ -367,7 +368,9 @@ def run_stage_g(
                 reasons.append(f"{stage}:{record.get('reason', 'known_failed')}")
         if reasons:
             known_failures[pdb_id] = reasons
-        else:
+        if pdb_id in stage_f_view.waived_by_pdb:
+            waived_failures[pdb_id] = stage_f_view.waived_by_pdb[pdb_id]
+        if not reasons and pdb_id not in waived_failures:
             eligible_pdb_ids.append(pdb_id)
 
     quality_records: list[dict[str, Any]] = []
@@ -440,9 +443,17 @@ def run_stage_g(
         "n_pair_pdb": len(pdb_ids),
         "n_eligible_pdb": len(eligible_pdb_ids),
         "n_known_failed_pdb": len(known_failures),
+        "n_raw_unknown_pdb": len(stage_f_view.raw_unknown_by_pdb),
+        "n_waived_controlled_failure_pdb": len(waived_failures),
+        "controlled_failure_waiver_sha256": (
+            stage_f_view.waiver.sha256 if stage_f_view.waiver is not None else None
+        ),
         "n_candidate_occurrences": len(quality_records),
         "known_failure_reasons": dict(
             sorted(Counter(reason for reasons in known_failures.values() for reason in reasons).items())
+        ),
+        "waived_controlled_failure_reasons": dict(
+            sorted(Counter(str(item["classification"]) for item in waived_failures.values()).items())
         ),
         "type_tag_counts": dict(sorted(Counter(item["type_tag"] for item in pending_records).items())),
         "pocket_status_counts": dict(
@@ -459,7 +470,22 @@ def run_stage_g(
     if mode == "analyze":
         stage_records = []
         for pdb_id in sorted(expected):
-            if pdb_id in known_failures:
+            if pdb_id in waived_failures:
+                raw_record = stage_f_view.records_by_pdb[pdb_id]
+                stage_records.append(
+                    stage_result(
+                        pdb_id,
+                        "stage_g_analysis",
+                        StageStatus.UNKNOWN_FAILED,
+                        reason=raw_record.get("reason"),
+                        error=raw_record.get("error"),
+                        error_type=raw_record.get("error_type"),
+                        waived_controlled_failure=True,
+                        waiver_classification=waived_failures[pdb_id]["classification"],
+                        controlled_failure_waiver_sha256=stage_f_view.waiver.sha256,
+                    )
+                )
+            elif pdb_id in known_failures:
                 stage_records.append(
                     stage_result(
                         pdb_id,
@@ -478,6 +504,7 @@ def run_stage_g(
             "status": "analysis_complete_filter_pending",
             "distribution": str((analysis_dir / "quality_distribution.json").relative_to(root)),
             "n_candidates": len(pending_records),
+            "n_waived_controlled_failures": len(waived_failures),
         }
 
     if config_path is None:
@@ -513,6 +540,10 @@ def run_stage_g(
             int(item["n_empty_pocket_occurrences"]) for item in map_diagnostics
         ),
         "n_known_failed_pdb": len(known_failures),
+        "n_waived_controlled_failure_pdb": len(waived_failures),
+        "controlled_failure_waiver_sha256": (
+            stage_f_view.waiver.sha256 if stage_f_view.waiver is not None else None
+        ),
         "map_exclusion_reason_counts": dict(
             sorted(Counter(reason for item in excluded_maps for reason in item["reasons"]).items())
         ),
@@ -524,7 +555,22 @@ def run_stage_g(
     write_jsonl(root / "keep_list.jsonl", kept)
     stage_records = []
     for pdb_id in sorted(expected):
-        if pdb_id in known_failures:
+        if pdb_id in waived_failures:
+            raw_record = stage_f_view.records_by_pdb[pdb_id]
+            stage_records.append(
+                stage_result(
+                    pdb_id,
+                    "stage_g",
+                    StageStatus.UNKNOWN_FAILED,
+                    reason=raw_record.get("reason"),
+                    error=raw_record.get("error"),
+                    error_type=raw_record.get("error_type"),
+                    waived_controlled_failure=True,
+                    waiver_classification=waived_failures[pdb_id]["classification"],
+                    controlled_failure_waiver_sha256=stage_f_view.waiver.sha256,
+                )
+            )
+        elif pdb_id in known_failures:
             stage_records.append(
                 stage_result(
                     pdb_id,
@@ -542,6 +588,42 @@ def run_stage_g(
         "n_excluded_maps": summary["n_excluded_maps"],
         "n_kept_occurrences": len(kept),
     }
+
+
+def _require_f_release_waiver_identity(
+    root: Path,
+    run_id: str,
+    stage_f_view: StageStatusView,
+) -> Path:
+    """要求 G 使用已经由正式 ``f_release`` 放行的同一份 waiver。"""
+    if stage_f_view.waiver is None:
+        raise RuntimeError("Stage F waiver identity is unavailable")
+    summary_path = root / "reports" / "runs" / run_id / "f_release" / "summary.json"
+    if summary_path.is_symlink() or not summary_path.is_file():
+        raise RuntimeError("Stage G waiver mode requires a successful formal f_release")
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("formal f_release summary is not valid UTF-8 JSON") from exc
+    expected_identity = {
+        "path": stage_f_view.waiver.path.relative_to(root.resolve()).as_posix(),
+        "sha256": stage_f_view.waiver.sha256,
+        "authorized_cap": stage_f_view.waiver.authorized_cap,
+        "n_waived": len(stage_f_view.waived_by_pdb),
+        "cumulative_controlled_failure_count": (
+            stage_f_view.waiver.cumulative_controlled_failure_count
+        ),
+    }
+    if (
+        not isinstance(summary, dict)
+        or summary.get("status") != "success"
+        or summary.get("run_id") != run_id
+        or summary.get("gate_name") != "f_release"
+        or summary.get("stages") != [CONTROLLED_FAILURE_WAIVER_STAGE]
+        or summary.get("controlled_failure_waiver") != expected_identity
+    ):
+        raise RuntimeError("Stage G waiver identity does not match successful formal f_release")
+    return summary_path
 
 
 def _numeric_distribution(values: list[Any]) -> dict[str, Any]:
