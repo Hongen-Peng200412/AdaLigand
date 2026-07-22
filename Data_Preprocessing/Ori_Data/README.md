@@ -118,7 +118,7 @@ python -m adaligand_preprocessing.cli.stage_g --help
 | `coords` | `float32 (3,)` | 固定为零的占位值，不是沉积坐标 |
 | `ref_pos` | `float32 (3,)` | CCD 或 RDKit 参考构象坐标，单位 Å，不是真实位置 |
 | `is_present` | `bool` | 此模板文件中固定为 `False`；实际存在性见 `present_{cid}` |
-| `chirality` | `bool (7,)` | 手性类别的独热编码 |
+| `chirality` | `bool (7,)` | 手性类别独热编码，顺序为 `CHI_OTHER`、`CHI_OCTAHEDRAL`、`CHI_TETRAHEDRAL_CW`、`CHI_TRIGONALBIPYRAMIDAL`、`CHI_UNSPECIFIED`、`CHI_TETRAHEDRAL_CCW`、`CHI_SQUAREPLANAR` |
 | `in_ring` | `bool (4,)` | 是否位于 3、4、5、6 元环 |
 | `residue_id` | `int32` | 所属 `components.index` |
 
@@ -169,8 +169,8 @@ python -m adaligand_preprocessing.cli.stage_g --help
 | `0:6` | 元素独热编码，顺序为 `C, N, O, S, P, X`；`X` 表示其他元素 |
 | `6:31` | 残基独热编码，顺序为上面的 20 种氨基酸、`A, U, C, G, X`；常见修饰残基先映射到标准母体，其他残基使用 `X` |
 | `31:39` | 八个残基理化标记，顺序为极性、非极性、酸性、碱性、中性、正电、负电、无电 |
-| `39` | 按元素取原子质量并除以 32；其他元素使用 0 |
-| `40:49` | 以当前原子为中心的九个距离壳层内其他受体原子数，经 `log1p` 变换；壳层依次为 `[0,2)`、`[2,4)`、…、`[16,18)` Å |
+| `39` | 按元素取原子质量并除以 32；未知或其他元素 `X` 使用 `14.0/32.0` |
+| `40:49` | 以当前原子为中心的九个距离壳层内其他受体原子数，经 `log1p` 变换并排除当前原子自身；壳层依次为 `d <= 2`、`2 < d <= 4`、…、`16 < d <= 18` Å |
 
 ### `ligand_descriptors/{safe_object_key}.npz`
 
@@ -366,7 +366,27 @@ C/N/O/P/S 的范德华半径分别为 1.70/1.55/1.52/1.80/1.80 Å，其他有效
 分析模式写入：
 
 - `reports/runs/{run_id}/stage_g_analysis/candidates.pending.jsonl`：每条记录含 `pdb_id`、`candidate_id`、`type_tag`、`pocket_status`，以及 `q_score`、`q_score_median`、`q_score_min`、`pocket_q_score`、`pocket_q_score_median`、`pocket_q_score_min`、`pocket_n_atoms`、`map_resolution` 和四个 `cc_*` 字段。字段类型和空值含义与 `quality/{pdb_id}.jsonl` 相同。
-- `reports/runs/{run_id}/stage_g_analysis/quality_distribution.json`：顶层含 `run_id`、`input_manifest_sha256`，PDB 与配体实例计数，已知失败和受控失败原因计数，`type_tag_counts`、`pocket_status_counts`、`fields`、`threshold_status`。`fields` 对上述 12 个数值字段逐一保存 `n_finite`、`n_null` 和固定分位点 `0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 1`。
+- `reports/runs/{run_id}/stage_g_analysis/quality_distribution.json`：汇总全部可进入分析的质量记录，完整字段见下表。
+
+| `quality_distribution.json` 字段 | JSON 类型 | 含义 |
+|---|---|---|
+| `run_id` | `str` | 本次 A–G 运行编号 |
+| `input_manifest_sha256` | `str` | 配对清单、D/E/F 状态、质量文件、occurrence 和 provenance 的稳定 SHA-256 |
+| `n_pair_pdb` | `int` | `pair_list.jsonl` 中的 PDB 数 |
+| `n_eligible_pdb` | `int` | D/E/F 已成功且可进入 Stage G 的 PDB 数 |
+| `n_known_failed_pdb` | `int` | D/E/F 中至少一个阶段为已解释失败的 PDB 数 |
+| `n_raw_unknown_pdb` | `int` | Stage F 原始状态为未解释失败的 PDB 数，包含随后受控放行的样本 |
+| `n_waived_controlled_failure_pdb` | `int` | 由指定受控失败清单精确放行的 PDB 数 |
+| `controlled_failure_waiver_sha256` | `str \| null` | 受控失败清单 SHA-256；未使用时为 `null` |
+| `n_candidate_occurrences` | `int` | 纳入分布统计的配体实例数 |
+| `known_failure_reasons` | `object[str,int]` | 已解释失败原因到出现次数的映射 |
+| `waived_controlled_failure_reasons` | `object[str,int]` | 受控失败分类到放行 PDB 数的映射 |
+| `type_tag_counts` | `object[str,int]` | `type_tag` 到配体实例数的映射 |
+| `pocket_status_counts` | `object[str,int]` | `pocket_status` 到配体实例数的映射 |
+| `fields` | `object` | 12 个质量数值字段各自的计数和分位点，嵌套结构见下文 |
+| `threshold_status` | `str` | 固定为 `explicit_schema_v2_filter_config_required`，表示分析结果尚未应用用户阈值 |
+
+`fields` 的键固定为 `q_score`、`q_score_median`、`q_score_min`、`pocket_q_score`、`pocket_q_score_median`、`pocket_q_score_min`、`pocket_n_atoms`、`map_resolution`、`cc_contour`、`cc_contour_about_mean`、`cc_all`、`cc_all_about_mean`。每个键的值都是 `{"n_finite": int, "n_null": int, "quantiles": object[str,float]}`；`quantiles` 在没有有限值时为空对象，否则键固定为字符串 `0`、`0.01`、`0.05`、`0.1`、`0.25`、`0.5`、`0.75`、`0.9`、`0.95`、`0.99`、`1`。
 
 分析模式不会创建 `keep_list.jsonl`。过滤模式需要显式提供 schema 2 配置：
 
@@ -392,8 +412,28 @@ C/N/O/P/S 的范德华半径分别为 1.70/1.55/1.52/1.80/1.80 Å，其他有效
 
 - `reports/runs/{run_id}/stage_g/map_filter_diagnostics.jsonl`：每个 PDB 一条记录，含 `pdb_id`、`n_occurrences`、`n_empty_pocket_occurrences`、`cc_field`、`cc_value`、`cc_pass`、`resolution`、`resolution_pass`、`n_pair_pass`、`qualified_fraction`、`qualified_fraction_pass`、`map_pass`、`reasons`、`occurrences`。其中 `occurrences` 的每项含 `candidate_id`、`q_score`、`pocket_q_score`、`pocket_status`、`pair_pass`、`reasons`。
 - `reports/runs/{run_id}/stage_g/excluded_maps.jsonl`：每个未通过 PDB 含 `pdb_id`、`reasons`、`n_occurrences`、`n_pair_pass`、`qualified_fraction`。
-- `reports/runs/{run_id}/stage_g/summary.json`：含 `run_id`、输入与过滤摘要、配置路径和原文、PDB 与配体实例计数、已知/受控失败计数以及 `map_exclusion_reason_counts`。
+- `reports/runs/{run_id}/stage_g/summary.json`：过滤完成后的固定字段如下。
 - `keep_list.jsonl`：每条记录只含 `pdb_id: str` 和 `candidate_id: int`，按二者升序排列。它是过滤成功后的完成标记；分析模式不会创建它。
+
+| `summary.json` 字段 | JSON 类型 | 含义 |
+|---|---|---|
+| `run_id` | `str` | 本次 A–G 运行编号 |
+| `input_manifest_sha256` | `str` | 与分析文件相同的输入集合 SHA-256 |
+| `filter_manifest_sha256` | `str` | `input_manifest_sha256` 与过滤配置 SHA-256 组合后的稳定摘要 |
+| `config_path` | `str` | 实际读取的 schema 2 过滤配置路径 |
+| `config_sha256` | `str` | 过滤配置文件 SHA-256 |
+| `config` | `object` | 上文示例所列 11 个 schema 2 字段及本次实际值 |
+| `n_input_maps` | `int` | 进入过滤判断的 PDB 数 |
+| `n_passing_maps` | `int` | 通过全部 PDB 级条件的 PDB 数 |
+| `n_excluded_maps` | `int` | 未通过的 PDB 数 |
+| `n_input_occurrences` | `int` | 进入过滤判断的配体实例数 |
+| `n_kept_occurrences` | `int` | 写入 `keep_list.jsonl` 的配体实例数 |
+| `n_pair_pass_occurrences` | `int` | 同时通过配体 Q-score 与口袋 Q-score 条件的配体实例数 |
+| `n_empty_pocket_occurrences` | `int` | `pocket_q_score=null` 的配体实例数 |
+| `n_known_failed_pdb` | `int` | D/E/F 已解释失败的 PDB 数 |
+| `n_waived_controlled_failure_pdb` | `int` | 受控放行的 Stage F PDB 数 |
+| `controlled_failure_waiver_sha256` | `str \| null` | 受控失败清单 SHA-256；未使用时为 `null` |
+| `map_exclusion_reason_counts` | `object[str,int]` | PDB 排除原因到出现次数的映射 |
 
 ## 运行状态与诊断文件
 

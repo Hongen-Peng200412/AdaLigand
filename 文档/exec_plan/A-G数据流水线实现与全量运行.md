@@ -2,7 +2,7 @@
 
 本 ExecPlan 是动态文档。执行期间必须持续维护 `Progress`、`Surprises & Discoveries`、`Decision Log` 与 `Outcomes & Retrospective`，使只持有当前工作树和本文件的新手工程师或无上下文 AI agent 能够继续完成任务。
 
-上游规格是 `文档/规划文档/数据处理_v2.md`；本计划与它的关系为 **implements and updates**。覆盖范围是现有 22,386-PDB 样本宇宙的 A–C 增量契约迁移、D–G 实现、Chimera/MapQ 集成、自动质量门、服务器全量运行和 G `analyze` 质量分布。最终 `keep_list.jsonl` 只有在正式分布产出、用户显式确认 schema v2 数值配置（含 `cc_field` 与全部阈值）后才进入后续授权，不属于本轮无人值守终点。旧执行日志 `文档/exec_plan/数据下载与解析.md` 只记录历史 A–C 实现，本文件从该基线继续推进。代码旁契约是 `Data_Preprocessing/Ori_Data/code/readme.md`，映射索引是 `文档/mapping/计划执行映射.md`。
+上游规格是 `文档/规划文档/数据处理_v2.md`；本计划与它的关系为 **implements and updates**。覆盖范围是现有 22,386-PDB 样本宇宙的 A–C 增量契约迁移、D–G 实现、Chimera/MapQ 集成、自动质量门、服务器全量运行和 G `analyze` 质量分布。最终 `keep_list.jsonl` 只有在正式分布产出、用户显式确认 schema v2 数值配置（含 `cc_field` 与全部阈值）后才进入后续授权，不属于本轮无人值守终点。旧执行日志 `文档/exec_plan/数据下载与解析.md` 只记录历史 A–C 实现，本文件从该基线继续推进。本计划执行时的代码旁契约位于 `Data_Preprocessing/Ori_Data/code/readme.md`；维护整理后的当前契约位于 `Data_Preprocessing/Ori_Data/README.md`。映射索引是 `文档/mapping/计划执行映射.md`。
 
 本轮不切 BOX，不实现 BOX 第 2/3 层，不修改或重训 Stage 1，也不处理 Stage 2/3。Stage 1 重训将在 A–G 与后续 BOX 接缝完成后另行授权。
 
