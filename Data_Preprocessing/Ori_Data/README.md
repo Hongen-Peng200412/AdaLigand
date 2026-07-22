@@ -422,7 +422,7 @@ C/N/O/P/S 的范德华半径分别为 1.70/1.55/1.52/1.80/1.80 Å，其他有效
 | `filter_manifest_sha256` | `str` | `input_manifest_sha256` 与过滤配置 SHA-256 组合后的稳定摘要 |
 | `config_path` | `str` | 实际读取的 schema 2 过滤配置路径 |
 | `config_sha256` | `str` | 过滤配置文件 SHA-256 |
-| `config` | `object` | 上文示例所列 11 个 schema 2 字段及本次实际值 |
+| `config` | `object` | 由输入配置规范化得到的 15 个固定字段，完整结构见下文 |
 | `n_input_maps` | `int` | 进入过滤判断的 PDB 数 |
 | `n_passing_maps` | `int` | 通过全部 PDB 级条件的 PDB 数 |
 | `n_excluded_maps` | `int` | 未通过的 PDB 数 |
@@ -434,6 +434,26 @@ C/N/O/P/S 的范德华半径分别为 1.70/1.55/1.52/1.80/1.80 Å，其他有效
 | `n_waived_controlled_failure_pdb` | `int` | 受控放行的 Stage F PDB 数 |
 | `controlled_failure_waiver_sha256` | `str \| null` | 受控失败清单 SHA-256；未使用时为 `null` |
 | `map_exclusion_reason_counts` | `object[str,int]` | PDB 排除原因到出现次数的映射 |
+
+`summary.json.config` 的字段固定为：
+
+| 字段 | JSON 类型 | 含义 |
+|---|---|---|
+| `schema_version` | `int` | 固定为 2 |
+| `cc_field` | `str` | 本次选择的 `cc_contour`、`cc_contour_about_mean`、`cc_all` 或 `cc_all_about_mean` |
+| `cc_min` | `float` | 相关系数下限 |
+| `cc_comparison` | `str` | 固定为 `inclusive`，即相关系数包含等于下限的情况 |
+| `selected_cc_null` | `str` | 固定为 `fail_map`，即所选相关系数为 `null` 时该 PDB 不通过 |
+| `resolution_max` | `float` | 分辨率上限，单位 Å |
+| `resolution_comparison` | `str` | 固定为 `inclusive`，即分辨率包含等于上限的情况 |
+| `ligand_q_min` | `float` | 配体 Q-score 严格下限 |
+| `pocket_q_min` | `float` | 口袋 Q-score 严格下限 |
+| `pair_q_comparison` | `str` | 固定为 `strict`，即两种 Q-score 都必须严格大于对应下限 |
+| `qualified_pair_fraction_min` | `float` | 一个 PDB 内合格配体实例比例的下限 |
+| `qualified_pair_fraction_comparison` | `str` | 固定为 `inclusive`，即合格比例包含等于下限的情况 |
+| `empty_pocket` | `str` | 固定为 `fail_and_count_denominator`，空口袋不通过且计入比例分母 |
+| `keep_only_maps_that_pass` | `bool` | 固定为 `true` |
+| `keep_all_occurrences_in_passing_map` | `bool` | 固定为 `true`，通过的 PDB 保留其中全部配体实例 |
 
 ## 运行状态与诊断文件
 
