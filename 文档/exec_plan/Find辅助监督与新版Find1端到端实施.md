@@ -16,10 +16,12 @@
 - [x] (2026-07-23 00:20+08:00) 读取 AdaLigand `AGENTS.md` 触发的规划、代码结构、表达、双线 Git、ExecPlan、项目记忆与服务器交互 skills。
 - [x] (2026-07-23 00:30+08:00) 冻结两个累计学习基点并建立隔离实现工作树：AdaLigand `799293c`，Pocket_Plus `de6a89f`。
 - [x] (2026-07-23 01:10+08:00) 建立距离标签字段契约、纯计算、原子写入、校验、命令行入口、README 与 5 项专项测试；Linux 完整依赖环境验证仍在后续里程碑执行。
+- [x] (2026-07-23 03:20+08:00) 完成 Pocket_Plus Dataset、固定类别契约、精确比例抽样、五个固定输出头、损失、验证指标、Find_1 两阶段配置和完整 `src/` 快照；实现提交为 `c462825`、`acfb018`。
+- [x] (2026-07-23 03:20+08:00) 受限 subagent 完成 checkpoint 快照推理、可变 `voxel_final` 通道产物和 Selector 惰性输入，主 agent 审查后提交为 `b54a28d`。
+- [x] (2026-07-23 03:20+08:00) 完成独立只读审计并修复缺失原子 NaN、比例抽样总数与元数据、空类别 PR-AUC、固定类别单一来源、输出头宽度、Find_1 专属学习率和 DDP 快照竞争；审计结论为无剩余代码级阻断或科学契约漂移。
+- [x] (2026-07-23 03:25+08:00) 本地合并回归为 Pocket_Plus `78 passed`、AdaLigand 距离专项 `5 passed`，两个仓库 `compileall` 与 `git diff --check` 通过。Windows 全量收集缺少服务器专用依赖，保留到 Linux 环境执行。
 - [ ] 在代表性 PDB 上生成和核对 `ligand_dist.npz`，再安全运行全量 CPU 生产。
-- [ ] 实现 Dataset 固定类别标签、`box_sample_fraction`、五个输出头、损失、指标、配置和完整代码快照。
-- [ ] 由受限 subagent 实现 checkpoint 快照推理、可变 `voxel_final` 通道产物和 Selector 输入适配，由主 agent 审查合入。
-- [ ] 完成本地 Windows、服务器 Linux、真实 Dataset 和完整前向—反向验证。
+- [ ] 完成服务器 Linux 全套测试、真实 Dataset 和完整前向—反向验证。
 - [ ] 形成两个仓库的实现端点与学习端点，验证允许差异后推进各自 `Learn/CUMULATIVE`。
 - [ ] 核实并接管 Job `321540`，启动新版 Find_1 CPC1→CPC2，完成短期检查和 heartbeat 监控。
 - [ ] 收口映射索引、README、ExecPlan、`CLAUDE/memory/`、运行证据和 heartbeat。
@@ -36,6 +38,12 @@
   Evidence: `configs/experiment/CPC2/Find_1.yaml` 从同名 CPC1 最佳 checkpoint 初始化，`configs/frozen_module/adaligand_stage2.yaml` 冻结体素主干，`configs/loss/stage1_find_cpc2.yaml` 把现有体素损失权重设为零。
 - Observation: 当前 Windows 默认 Python 有 NumPy 与 SciPy，但没有 RDKit；原计划中的本地 `AdaLigand_stage1_py310` Conda 环境也不存在。
   Evidence: `python -m pytest tests/test_ligand_distance.py` 在把 Stage C 导入延迟到文件读取边界后为 `5 passed`；导入现有 Stage C 完整契约会因 `ModuleNotFoundError: rdkit` 中止。完整 A–G 测试必须使用服务器既有依赖环境。
+- Observation: Stage C 允许 `present=False` 的配体坐标保存 NaN，距离生产只能检查 `present=True` 坐标是否有限。
+  Evidence: 独立审计用 A–G 契约核对后发现第一版在应用 `present` 掩码前检查全部坐标；修正提交 `e5234c9` 使用真实 NaN 测试覆盖缺失原子。
+- Observation: 单个 Slurm task 内运行两张 GPU 时，Lightning 子进程共享 `SLURM_PROCID=0`，必须优先使用 `RANK` 或 `LOCAL_RANK` 判断代码快照写入者。
+  Evidence: 独立审计发现第二个 DDP 子进程可能重复创建 `src_snapshot`；`ExperimentManager` 现按 `RANK → LOCAL_RANK → SLURM_PROCID` 解析，并有继承组合测试。
+- Observation: Job `321540` 仍为 `RUNNING`，`after_lock` 保留；同一 allocation 再次运行 Find_1 时，默认 `job321540` 标记会与旧运行目录重名。
+  Evidence: 2026-07-23 02:55+08:00 的只读 `scontrol` 与 allocation 脚本检查确认两张 H100 和锁循环仍在。新版启动必须显式设置唯一 `POCKET_RUN_STAMP`，在触碰 `kill_lock` 前打印并证明新旧运行目录不同。
 
 ## Decision Log
 
@@ -72,7 +80,7 @@
 
 ## Outcomes & Retrospective
 
-当前只完成设计收敛、规则加载和隔离工作树建立。代码、标签、服务器作业和正式训练尚未改变。
+距离标签代码、Pocket_Plus 新版训练代码、完整快照和推理适配已经完成本地实现、测试与独立审计。正式数据目录、服务器代码、历史运行快照和 Job `321540` 尚未修改；下一阶段从 Linux 全套测试与代表性真实样本开始。
 
 ## Context and Orientation
 
@@ -80,11 +88,13 @@ AdaLigand 实现工作树是 `C:\Users\15919\.codex\worktrees\019f8834-aux\AdaLi
 
 Pocket_Plus 实现工作树是 `C:\Users\15919\.codex\worktrees\019f8834-aux\Pocket_Plus`，分支同为 `codex/auxiliary-supervision-find1`，共同基点是新建的 `Learn/CUMULATIVE@de6a89f`。Dataset 位于 `src/datasets/stage1_dataset.py`，模型位于 `src/model/`，训练 wrapper 位于 `src/wrappers/`，正式产物位于 `src/artifacts/`，推理位于 `src/inference/`，Selector 位于 `src/selector/`。
 
-“home voxel”指包含指定受体原子世界坐标的唯一体素。蛋白和核酸标签不是只在这些体素上计算损失；目标原子所在体素为相应前景类别，BOX 内其余体素为背景。一个体素包含多个目标原子的极少数情况不建立专门分支，普通写入顺序留下的类别即可。
+受体原子局部坐标向下取整后得到该原子所属的唯一体素。蛋白和核酸标签不是只在这些体素上计算损失；目标原子所在体素为相应前景类别，BOX 内其余体素为背景。一个体素包含多个目标原子的极少数情况不建立专门分支，普通写入顺序留下的类别即可。
 
 `ligand_dist.npz` 位于服务器正式数据根的 `density/{pdb_id}/ligand_dist.npz`。主数组 `distance` 形状为 `(1,Z,Y,X)`、类型为 `float16`，每个数值是对应实验密度体素中心到最近实际配体重原子的欧氏距离，单位 Å。实际配体重原子来自全部成功 occurrence 中 `present=True` 的原子。
 
 Job `321540` 当前持有两张 H100。只有标签、代码、推理、测试和历史快照补齐全部完成后，才重新核实它仍在运行且实际承载旧 Find_1；核实通过后使用该运行目录的 `kill_lock` 停止旧进程，保留 `after_lock` 和 allocation，再启动新版 Find_1。不得执行 `scancel`。
+
+复用 Job `321540` 时必须为新版训练显式设置唯一 `POCKET_RUN_STAMP`。启动脚本在创建 `kill_lock` 前先打印计划运行目录，并与旧 Find_1 路径比较；相同则停止，不允许覆盖旧运行目录或放宽快照拒绝覆盖保护。
 
 ## Plan of Work
 
@@ -170,3 +180,5 @@ Pocket_Plus 最终必须在 Dataset batch 中提供两个整数分类张量和�
 Revision note 2026-07-23：根据用户最终授权初始化本文，并记录隔离工作树、完整范围、固定科学定义、服务器资源纪律和验收要求。
 
 Revision note 2026-07-23 01:10+08:00：记录距离标签第一版、5 项专项测试和 Windows 环境缺少 RDKit 的真实限制，并把 AdaLigand 本地命令改为当前能够执行的轻依赖检查。
+
+Revision note 2026-07-23 03:25+08:00：记录 Pocket_Plus 实现、推理 subagent、独立审计修复、本地合并测试、实现提交和复用 Job `321540` 时必须使用唯一运行标记的启动门槛。
