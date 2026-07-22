@@ -1,6 +1,6 @@
-# 原子文件写入、基础读取、哈希和文件锁。
+# JSON、JSONL 与 NPZ 的原子读写。
 # 主要输入：JSON/JSONL/文本路径、内容和锁/原子替换参数。
-# 主要输出：原子落盘文件、追加报告、文件锁与一致性读取。
+# 主要输出：原子落盘文件、追加报告与一致性读取。
 # 关键边界：先写临时文件再替换；并发状态文件不能靠非原子覆盖更新。
 """文件读写工具（原子写 + 并发安全）。
 
@@ -16,75 +16,22 @@
 from __future__ import annotations
 
 import json
-import hashlib
 import os
 import re
 import time
-from contextlib import contextmanager
 from pathlib import Path
-from collections.abc import Callable, Iterator
-from typing import IO, Any
+from collections.abc import Callable
+from typing import Any
 from uuid import uuid4
 
 import numpy as np
 
-
-def sha256_file(path: Path, block_size: int = 1024 * 1024) -> str:
-    """
-    流式计算文件 SHA-256，用于派生产物的输入 provenance。
-
-    输入参数:
-        - path: Path, 要读取的文件
-        - block_size: int, 单次读取字节数，默认 1 MiB
-
-    输出:
-        - digest: str, 64 位小写十六进制摘要
-    """
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(block_size), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def sha256_manifest(paths: list[Path], *, base: Path | None = None) -> str:
-    """
-    对一组文件的稳定名称和内容摘要再做 SHA-256。
-
-    输入参数:
-        - paths: list[Path], 输入文件；调用方负责限定在当前样本范围
-        - base: Path | None, 提供时把名称写成相对路径，便于跨机器复现
-
-    输出:
-        - digest: str, 与输入顺序无关的 manifest 摘要
-    """
-    manifest = hashlib.sha256()
-    named_paths = []
-    for path in paths:
-        name = str(path.relative_to(base)) if base is not None else path.name
-        named_paths.append((name.replace("\\", "/"), path))
-    for name, path in sorted(named_paths):
-        manifest.update(name.encode("utf-8"))
-        manifest.update(b"\0")
-        manifest.update(sha256_file(path).encode("ascii"))
-        manifest.update(b"\n")
-    return manifest.hexdigest()
-
-
-def sha256_named_values(values: dict[str, Any]) -> str:
-    """
-    对可 JSON 序列化的命名值做稳定 SHA-256，用于组合大文件已有摘要与小文件 manifest。
-
-    字典按 key 排序、无空白编码；调用方不得传 NaN/Infinity。
-    """
-    payload = json.dumps(
-        values,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
+from adaligand_preprocessing.utils.hashing import (  # 保留既有公开导入路径
+    sha256_file,
+    sha256_manifest,
+    sha256_named_values,
+)
+from adaligand_preprocessing.utils.locking import file_lock, locked_file
 
 
 def atomic_save_npz(path: Path, **arrays: Any) -> None:
@@ -200,59 +147,6 @@ def atomic_replace(source: Path, target: Path) -> None:
             time.sleep(0.05)
 
 
-@contextmanager
-def _locked_file(handle: IO[Any]) -> Iterator[None]:
-    """
-    对已打开文件施加进程级独占锁。
-
-    输入参数:
-        - handle: IO[Any], 已打开的文本或二进制文件句柄
-
-    输出:
-        - None: 上下文退出时释放文件锁
-    """
-    if os.name == "nt":
-        import msvcrt
-
-        handle.flush()
-        handle.seek(0)
-        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
-        try:
-            handle.seek(0, os.SEEK_END)
-            yield
-        finally:
-            handle.flush()
-            # Windows 的 msvcrt 从“当前位置”解锁；写入后必须回到原加锁位置。
-            handle.seek(0)
-            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-    else:
-        import fcntl
-
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            handle.flush()
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-
-@contextmanager
-def file_lock(path: Path) -> Iterator[None]:
-    """
-    对一个稳定 lock 文件施加跨进程独占锁。
-
-    输入参数:
-        - path: Path, lock 文件路径；调用方应按 artifact key 构造唯一名称
-
-    输出:
-        - None: 上下文持有独占锁，退出时释放；空 lock 文件可保留供后续复用
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+b") as handle:
-        with _locked_file(handle):
-            yield
-
-
 def append_jsonl(path: Path, record: dict[str, Any]) -> None:
     """
     追加一行 UTF-8 JSONL 记录，并用文件锁保护并发写入。
@@ -266,7 +160,7 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8", newline="\n") as handle:
-        with _locked_file(handle):
+        with locked_file(handle):
             handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
 
 
