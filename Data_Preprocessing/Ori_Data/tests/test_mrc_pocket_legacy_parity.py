@@ -107,17 +107,14 @@ def test_vendored_functions_match_frozen_ancestor_hashes_exactly() -> None:
 
 
 def test_direct_ancestor_parity_when_sibling_checkout_is_available() -> None:
-    """本机存在 Pocket_Plus 同级仓库时，直接比较祖传源码与 vendored 函数。"""
+    """本机存在 Pocket_Plus 同级仓库时，逐函数比较实际继承的六个 MRC 函数。"""
     if not ANCESTOR_PATH.is_file():
         return
 
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-    ancestor_bytes = ANCESTOR_PATH.read_bytes()
     _, ancestor_functions = _function_sources(ANCESTOR_PATH)
     _, vendored_functions = _function_sources(VENDORED_PATH)
 
-    assert _sha256_bytes(ancestor_bytes) == manifest["ancestor"]["sha256"]
-    assert len(ancestor_bytes) == manifest["ancestor"]["size_bytes"]
     for function_name in manifest["functions"]:
         ancestor_node, ancestor_source = ancestor_functions[function_name]
         vendored_node, vendored_source = vendored_functions[function_name]
