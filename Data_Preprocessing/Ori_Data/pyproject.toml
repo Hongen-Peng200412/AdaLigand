@@ -17,6 +17,7 @@ adaligand-stage-d = "adaligand_preprocessing.cli.stage_d:main"
 adaligand-stage-e = "adaligand_preprocessing.cli.stage_e:main"
 adaligand-stage-f = "adaligand_preprocessing.cli.stage_f:main"
 adaligand-stage-g = "adaligand_preprocessing.cli.stage_g:main"
+adaligand-ligand-distance = "adaligand_preprocessing.cli.ligand_distance:main"
 adaligand-stage-release = "adaligand_preprocessing.cli.stage_release:main"
 adaligand-abc-release = "adaligand_preprocessing.cli.abc_release:main"
 adaligand-prefetch-ccd = "adaligand_preprocessing.cli.prefetch_ccd:main"
@@ -37,4 +38,3 @@ include = ["adaligand_preprocessing*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra -p no:cacheprovider"
-

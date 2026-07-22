@@ -15,7 +15,7 @@
 - [x] (2026-07-23 00:00+08:00) 完成 `grill with doc`，冻结辅助标签、损失、模型、快照、Git、CPU、GPU 与监控边界，并获得端到端实施许可。
 - [x] (2026-07-23 00:20+08:00) 读取 AdaLigand `AGENTS.md` 触发的规划、代码结构、表达、双线 Git、ExecPlan、项目记忆与服务器交互 skills。
 - [x] (2026-07-23 00:30+08:00) 冻结两个累计学习基点并建立隔离实现工作树：AdaLigand `799293c`，Pocket_Plus `de6a89f`。
-- [ ] 建立距离标签字段契约、纯计算、写入、校验、命令行入口与测试。
+- [x] (2026-07-23 01:10+08:00) 建立距离标签字段契约、纯计算、原子写入、校验、命令行入口、README 与 5 项专项测试；Linux 完整依赖环境验证仍在后续里程碑执行。
 - [ ] 在代表性 PDB 上生成和核对 `ligand_dist.npz`，再安全运行全量 CPU 生产。
 - [ ] 实现 Dataset 固定类别标签、`box_sample_fraction`、五个输出头、损失、指标、配置和完整代码快照。
 - [ ] 由受限 subagent 实现 checkpoint 快照推理、可变 `voxel_final` 通道产物和 Selector 输入适配，由主 agent 审查合入。
@@ -34,6 +34,8 @@
   Evidence: `src/artifacts/io.py`、`src/inference/centered.py` 和 `src/selector/model/input_fusion.py` 存在固定 48 的形状检查或 `nn.Linear(48, ...)`；用户确认尚未训练 Selector。
 - Observation: 当前 Find_1 是 CPC1→CPC2 两段训练，而不是一个配置完成全部训练。
   Evidence: `configs/experiment/CPC2/Find_1.yaml` 从同名 CPC1 最佳 checkpoint 初始化，`configs/frozen_module/adaligand_stage2.yaml` 冻结体素主干，`configs/loss/stage1_find_cpc2.yaml` 把现有体素损失权重设为零。
+- Observation: 当前 Windows 默认 Python 有 NumPy 与 SciPy，但没有 RDKit；原计划中的本地 `AdaLigand_stage1_py310` Conda 环境也不存在。
+  Evidence: `python -m pytest tests/test_ligand_distance.py` 在把 Stage C 导入延迟到文件读取边界后为 `5 passed`；导入现有 Stage C 完整契约会因 `ModuleNotFoundError: rdkit` 中止。完整 A–G 测试必须使用服务器既有依赖环境。
 
 ## Decision Log
 
@@ -102,17 +104,18 @@ Job `321540` 当前持有两张 H100。只有标签、代码、推理、测试�
 
 ## Concrete Steps
 
-在 AdaLigand 实现工作树运行：
+在 AdaLigand 实现工作树运行轻依赖专项检查：
 
-    conda run -n AdaLigand_stage1_py310 python -m pytest Data_Preprocessing/Ori_Data/tests
-    conda run -n AdaLigand_stage1_py310 python -m compileall Data_Preprocessing/Ori_Data/adaligand_preprocessing
+    cd Data_Preprocessing/Ori_Data
+    python -m pytest tests/test_ligand_distance.py
+    python -m compileall adaligand_preprocessing
 
 在 Pocket_Plus 实现工作树运行：
 
     conda run -n Pocket_Plus_windows python -m pytest tests
     conda run -n Pocket_Plus_windows python -m compileall src
 
-服务器使用 `/home/penghongen/anaconda3/envs/Pocket_Plus_centos7_cu121_allgpu` 运行 Pocket_Plus 测试。AdaLigand 距离生产使用项目现有 Python 3.10 环境；正式命令必须在执行前从当前 sbatch、执行记录和远端环境重新核实，核实结果写回本文。
+服务器使用 `/home/penghongen/anaconda3/envs/Pocket_Plus_centos7_cu121_allgpu` 运行 Pocket_Plus 测试。AdaLigand 距离生产使用项目现有 Python 3.10 完整依赖环境；正式命令必须在执行前从当前 sbatch、执行记录和远端环境重新核实，核实结果写回本文。
 
 每个里程碑结束时执行：
 
@@ -165,3 +168,5 @@ Pocket_Plus 最终必须在 Dataset batch 中提供两个整数分类张量和�
 完整快照目录固定为运行目录下 `src_snapshot/src/`，并保存来源清单。推理加载器必须把该目录中的 `src` 作为一个 checkpoint 专属实现使用，不在同一 Python 进程混用不同 checkpoint 的模块。
 
 Revision note 2026-07-23：根据用户最终授权初始化本文，并记录隔离工作树、完整范围、固定科学定义、服务器资源纪律和验收要求。
+
+Revision note 2026-07-23 01:10+08:00：记录距离标签第一版、5 项专项测试和 Windows 环境缺少 RDKit 的真实限制，并把 AdaLigand 本地命令改为当前能够执行的轻依赖检查。

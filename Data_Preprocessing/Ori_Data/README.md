@@ -18,6 +18,7 @@
 | 实验密度网格 | `density/{pdb_id}/exp.npz` |
 | 受体模拟密度网格 | `density/{pdb_id}/sim.npz` |
 | 配体占据的稀疏体素 | `density/{pdb_id}/ligand_area.npz` |
+| 每个密度体素中心到最近配体原子的距离 | `density/{pdb_id}/ligand_dist.npz` |
 | 配体与受体口袋的逐原子 Q-score | `quality_atoms/{pdb_id}.npz` |
 | 每个配体的聚合质量指标 | `quality/{pdb_id}.jsonl` |
 | 质量指标的输入和工具身份 | `quality/{pdb_id}.provenance.json` |
@@ -38,9 +39,10 @@ python -m adaligand_preprocessing.cli.stage_d --help
 python -m adaligand_preprocessing.cli.stage_e --help
 python -m adaligand_preprocessing.cli.stage_f --help
 python -m adaligand_preprocessing.cli.stage_g --help
+python -m adaligand_preprocessing.cli.ligand_distance --help
 ```
 
-服务器作业入口位于 `sbatch/`。科学计算在 `adaligand_preprocessing/stages/`，外部程序适配在 `external_tools/`，文件与来源身份检查在 `artifacts/`，运行状态和并发控制在 `execution/`，一次性审计或维护入口在 `ops/`，命令行参数在 `cli/`。
+服务器作业入口位于 `sbatch/`。A–G 科学计算在 `adaligand_preprocessing/stages/`，独立训练标签在 `labels/`，外部程序适配在 `external_tools/`，文件与来源身份检查在 `artifacts/`，运行状态和并发控制在 `execution/`，一次性审计或维护入口在 `ops/`，命令行参数在 `cli/`。
 
 ## 全局数据约定
 
@@ -291,6 +293,36 @@ python -m adaligand_preprocessing.cli.stage_g --help
 
 C/N/O/P/S 的范德华半径分别为 1.70/1.55/1.52/1.80/1.80 Å，其他有效元素使用 RDKit 周期表数值。
 
+## 独立训练标签：`density/{pdb_id}/ligand_dist.npz`
+
+该文件不属于 A–G 阶段状态，也不改变 `exp.npz`、`sim.npz` 或
+`ligand_area.npz`。`adaligand-ligand-distance` 读取已经完成的实验密度与配体
+坐标，为训练重复使用的完整实验密度网格生成一次最近距离。
+
+| 字段 | 数据类型与形状 | 含义 |
+|---|---|---|
+| `distance` | `float16 (1,Z,Y,X)` | 每个实验密度体素中心到最近实际配体重原子的欧氏距离，单位 Å；没有任何 `present=True` 配体原子时全部为正无穷 |
+| `schema_version` | `uint16` 标量，值为 1 | 配体距离文件契约版本 |
+| `source_exp_identity_sha256` | 字符串标量 | `exp.npz` 的空间定义、来源与重采样身份摘要 |
+| `source_occurrences_sha256` | 字符串标量 | `parse/{pdb_id}/occurrences.jsonl` 文件 SHA-256 |
+| `source_ligand_coords_sha256` | 字符串标量 | `parse/{pdb_id}/ligand_coords.npz` 文件 SHA-256 |
+| `grid_shape_zyx` | `int64 (3,)` | `distance.shape[1:]`，依次是 Z、Y、X 长度 |
+| `voxel_size_xyz` | `float32 (3,)` | 与 `exp.npz.voxel_size` 完全相同的 XYZ 体素尺寸，单位 Å |
+| `origin_xyz` | `float32 (3,)` | 与 `exp.npz.origin` 完全相同的网格物理边界下角点，单位 Å |
+| `origin_semantics` | 字符串标量 | 固定为 `pocket_plus_corner`，表示 `origin_xyz` 是网格物理边界下角点 |
+| `voxel_center_offset_xyz` | `float32 (3,)` | 固定为 `(0.5,0.5,0.5)`，用于从整数体素索引取得体素中心 |
+| `voxel_center_formula` | 字符串标量 | 固定为 `origin_xyz+(index_xyz+0.5)*voxel_size_xyz` |
+| `distance_unit` | 字符串标量 | 固定为 `angstrom` |
+
+最近原子集合包含 `occurrences.jsonl` 中全部成功配体实例的实际重原子，不按
+`type_tag` 排除小分子、糖、肽样配体、核苷酸样配体、离子或其他类别。每个实例
+只使用 `ligand_coords.npz` 中 `present_{cid}=True` 的坐标；模板中缺失坐标的原子
+不参与计算。磁盘文件不截断、不归一化，也不保存训练使用的反距离。
+
+训练读取后可以计算 $1/(1+d/(1\,\text{Å}))$。因此正无穷距离变为有限目标 0，
+不需要额外有效体素掩码。只要三个来源摘要和全部字段仍与当前输入一致，重复执行
+会复用已有文件；来源变化、文件损坏或字段不合法时重新生成。
+
 ## Stage F：质量产物
 
 ### `quality_atoms/{pdb_id}.npz`
@@ -457,7 +489,7 @@ C/N/O/P/S 的范德华半径分别为 1.70/1.55/1.52/1.80/1.80 Å，其他有效
 
 ## 运行状态与诊断文件
 
-`reports/runs/{run_id}/{stage}/status.part_*.jsonl` 保存本次运行中每个 PDB 的唯一终态。`status` 只能是 `success`、`skipped`、`known_failed`、`unknown_failed`。明确列入代码的样本不适用原因才可使用 `known_failed`；未解释的 Python 异常、字段不匹配或外部程序异常必须保持 `unknown_failed` 并阻止发布。
+`reports/runs/{run_id}/{stage}/status.part_*.jsonl` 保存本次运行中每个 PDB 的唯一终态。`stage` 也可以是独立标签任务 `ligand_distance`。`status` 只能是 `success`、`skipped`、`known_failed`、`unknown_failed`。明确列入代码的样本不适用原因才可使用 `known_failed`；未解释的 Python 异常、字段不匹配或外部程序异常必须保持 `unknown_failed` 并阻止发布。
 
 以下文件用于诊断或审计，不是训练与推理输入：
 
@@ -479,6 +511,7 @@ C/N/O/P/S 的范德华半径分别为 1.70/1.55/1.52/1.80/1.80 Å，其他有效
 5. `quality/{pdb_id}.jsonl` 中 `n_present == n_valid == present_{cid}.sum()`。
 6. `receptor_tokens.npz`、`atom_labels.npz` 的受体数组长度一致；`binding_atom` 等价于 `nearest_dist <= binding_threshold`。
 7. `exp.npz` 与 `sim.npz` 的 `grid` 形状、`voxel_size` 和 `origin` 完全一致。
+8. `ligand_dist.npz` 的 `distance.shape[1:]`、`voxel_size_xyz` 和 `origin_xyz` 分别等于 `exp.npz` 的 `grid.shape[1:]`、`voxel_size` 和 `origin`；三个来源摘要对应当前实验密度身份、occurrence 文件和配体坐标文件。
 
 完整自动检查位于 `tests/`。Windows 测试应使用较短的临时目录，例如：
 
