@@ -82,6 +82,7 @@ def test_molmap_script_forces_full_region_step_one_and_save_contract(tmp_path: P
     )
 
     script = (tmp_path / "scratch" / "molmap.py").read_text(encoding="utf-8")
+    assert script.splitlines()[0] == "from chimera import runCommand as rc"
     assert f"rc('open {model.resolve().as_posix()}')" in script
     assert f"rc('open {canonical.resolve().as_posix()}')" in script
     assert "volume #1 region all step 1 limitVoxelCount false" in script
@@ -114,6 +115,10 @@ def test_measure_correlations_parses_scientific_notation_and_contour_semantics(t
         "cc_all_about_mean": -0.12,
     }
     script = (tmp_path / "cc" / "correlation.py").read_text(encoding="utf-8")
+    assert script.splitlines()[:2] == [
+        "from chimera import runCommand as rc",
+        "from chimera import openModels",
+    ]
     assert script.index(exp.resolve().as_posix()) < script.index(sim.resolve().as_posix())
     assert "FitMap.map_overlap_and_correlation" in script
     assert "experimental_map, simulated_map, True" in script

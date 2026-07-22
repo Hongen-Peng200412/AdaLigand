@@ -190,7 +190,7 @@ class ChimeraRunner:
         script_path.write_text(
             "\n".join(
                 [
-                    "from adaligand_preprocessing.external_tools.chimera import runCommand as rc",
+                    "from chimera import runCommand as rc",
                     f"rc('open {_chimera_open_path(model_cif)}')",
                     f"rc('open {_chimera_open_path(canonical_mrc)}')",
                     "rc('volume #1 region all step 1 limitVoxelCount false')",
@@ -235,8 +235,8 @@ class ChimeraRunner:
         scratch_dir.mkdir(parents=True, exist_ok=True)
         script_path = scratch_dir / "correlation.py"
         commands = [
-            "from adaligand_preprocessing.external_tools.chimera import runCommand as rc",
-            "from adaligand_preprocessing.external_tools.chimera import openModels",
+            "from chimera import runCommand as rc",
+            "from chimera import openModels",
             "import FitMap",
             f"rc('open {_chimera_open_path(experimental_mrc)}')",
             f"rc('open {_chimera_open_path(simulated_mrc)}')",
