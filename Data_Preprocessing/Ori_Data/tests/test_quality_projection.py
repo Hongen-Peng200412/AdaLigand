@@ -11,11 +11,9 @@ import pytest
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from failures import ExternalToolError, ToolFailureCode
-from quality import (
+from adaligand_preprocessing.artifacts.failures import ExternalToolError, ToolFailureCode
+from adaligand_preprocessing.stages.stage_f import (
     POCKET_RADIUS_ANGSTROM,
     build_quality_records,
     compute_occurrence_pocket_qscores,

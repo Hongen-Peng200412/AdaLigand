@@ -13,14 +13,12 @@ import numpy as np
 import pytest
 
 
-CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
-import density as density_module
-import e3_repair
-import io_utils as io_utils_module
-from density import (
+from adaligand_preprocessing.stages import stage_e as density_module
+from adaligand_preprocessing.stages import stage_e as e3_repair
+from adaligand_preprocessing.utils import io as io_utils_module
+from adaligand_preprocessing.stages.stage_e import (
     EXP_SCHEMA_VERSION,
     LIGAND_AREA_SCHEMA_VERSION,
     LIGAND_AREA_DISTANCE_PREDICATE,
@@ -44,17 +42,17 @@ from density import (
     simulated_density_errors,
     vdw_radius,
 )
-from contracts import CArtifactState, CInspection
-from failures import KnownFailureCode, KnownSampleFailure
-from io_utils import atomic_save_npz, atomic_save_npz_compressed, sha256_file, write_jsonl
-from mrc import (
+from adaligand_preprocessing.stages.stage_c.contracts import CArtifactState, CInspection
+from adaligand_preprocessing.artifacts.failures import KnownFailureCode, KnownSampleFailure
+from adaligand_preprocessing.utils.io import atomic_save_npz, atomic_save_npz_compressed, sha256_file, write_jsonl
+from adaligand_preprocessing.geometry.mrc import (
     POCKET_MRC_ALGORITHM,
     POCKET_MRC_ANCESTOR_SHA256,
     POCKET_MRC_VENDOR_SHA256,
     POCKET_RESAMPLE_ALL_DIFF,
 )
-from reports import ensure_filtered_stage_run_is_isolated
-from voxel_gt_pocket_legacy import _build_voxel_center_coords_xyz
+from adaligand_preprocessing.artifacts.reports import ensure_filtered_stage_run_is_isolated
+from adaligand_preprocessing.geometry.legacy.voxel_centers import _build_voxel_center_coords_xyz
 
 
 _E3_SOURCE_MANIFEST = "c" * 64
@@ -864,12 +862,12 @@ def test_density_import_for_e3_does_not_import_chimera_or_mapq() -> None:
     """E3 专用入口可只导入 density；类型注解不能触发 Chimera/MapQ 运行时导入。"""
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join(
-        [str(CODE_DIR), env.get("PYTHONPATH", "")]
+        [str(PACKAGE_ROOT), env.get("PYTHONPATH", "")]
     ).rstrip(os.pathsep)
     command = (
-        "import sys; import density; "
-        "assert 'chimera' not in sys.modules; "
-        "assert 'mapq' not in sys.modules"
+        "import sys; import adaligand_preprocessing.stages.stage_e; "
+        "assert 'adaligand_preprocessing.external_tools.chimera' not in sys.modules; "
+        "assert 'adaligand_preprocessing.external_tools.mapq' not in sys.modules"
     )
     completed = subprocess.run(
         [sys.executable, "-c", command],

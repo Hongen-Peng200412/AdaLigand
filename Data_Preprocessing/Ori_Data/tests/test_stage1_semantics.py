@@ -1,4 +1,4 @@
-﻿"""Stage1 关键语义测试。"""
+"""Stage1 关键语义测试。"""
 
 from __future__ import annotations
 
@@ -10,17 +10,16 @@ import gemmi
 import numpy as np
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "code"))
 
-from constants import METAL_ELEMENTS
-from io_utils import append_jsonl, atomic_save_npz, read_jsonl, safe_object_filename
-from ligand_object import (
+from adaligand_preprocessing.stages.stage_c.constants import METAL_ELEMENTS
+from adaligand_preprocessing.utils.io import append_jsonl, atomic_save_npz, read_jsonl, safe_object_filename
+from adaligand_preprocessing.stages.stage_c.ligand_objects import (
     BranchedBondError,
     CCDFetchError,
     get_ccd_mol,
     process_branched_ligand,
 )
-from parse import (
+from adaligand_preprocessing.stages.stage_c.pipeline import (
     build_components,
     build_het_indices,
     clean_value,
@@ -30,8 +29,8 @@ from parse import (
     optional_category_rows,
     selected_atom_rows,
 )
-from reports import sharded_report_path
-from rcsb import (
+from adaligand_preprocessing.artifacts.reports import sharded_report_path
+from adaligand_preprocessing.stages.stage_a import (
     build_resolution_summary,
     emdb_references_pdb,
     extract_resolution_info,
@@ -268,7 +267,7 @@ def test_branched_bond_missing_atom_is_not_silent(tmp_path, monkeypatch):
         "residues": ["1. NAG", "2. NAG"],
         "bonds": [[1, "NOT", 2, "C1"]],
     }
-    import ligand_object as ligand_object_module
+    from adaligand_preprocessing.stages.stage_c import ligand_objects as ligand_object_module
 
     monkeypatch.setattr(
         ligand_object_module,
@@ -417,7 +416,7 @@ def test_single_ccd_ligand_object_name_and_residue_name_are_separate(tmp_path):
     输出:
         - None: `name` 保留 object_key, `residue_names` 保留 CCD id
     """
-    from ligand_object import process_molecule
+    from adaligand_preprocessing.stages.stage_c.ligand_objects import process_molecule
 
     mol = _single_atom_mol("O")
     process_molecule(mol, "CCD:HOH", "O", tmp_path, None, "HOH")
@@ -458,7 +457,7 @@ def test_occurrence_schema_omits_molecular_weight():
         }
     ]
     residue_atoms = {("A", "NA", "1", ""): {"NA": 0}}
-    from parse import UnionFind
+    from adaligand_preprocessing.stages.stage_c.pipeline import UnionFind
 
     components = build_components(
         "test",
@@ -491,7 +490,7 @@ def test_materialize_ligand_objects_respects_overwrite_flag(tmp_path, monkeypatc
         "object_key": "CCD:HOH",
         "components": [{"ccd_id": "HOH"}],
     }
-    import ligand_object as ligand_object_module
+    from adaligand_preprocessing.stages.stage_c import ligand_objects as ligand_object_module
 
     monkeypatch.setattr(
         ligand_object_module,
@@ -518,7 +517,7 @@ def test_materialize_ligand_objects_skips_repeated_object_in_same_process(tmp_pa
         "object_key": "CCD:HOH",
         "components": [{"ccd_id": "HOH"}],
     }
-    import ligand_object as ligand_object_module
+    from adaligand_preprocessing.stages.stage_c import ligand_objects as ligand_object_module
 
     monkeypatch.setattr(
         ligand_object_module,
@@ -549,5 +548,4 @@ def test_npz_load_context_releases_file_for_overwrite(tmp_path):
     atomic_save_npz(path, value=np.array([2], dtype=np.int32))
     with np.load(path) as archive:
         assert archive["value"].tolist() == [2]
-
 

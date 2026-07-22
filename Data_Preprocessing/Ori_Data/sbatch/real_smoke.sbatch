@@ -19,17 +19,17 @@ write_adaligand_run_cmd() {
 set -euo pipefail
 cd "${CODE_ROOT}"
 
-"${PYTHON}" scripts/c_parse.py --root "${DATA_ROOT}" --n_jobs 8 \
+"${PYTHON}" -m adaligand_preprocessing.cli.stage_c --root "${DATA_ROOT}" --n_jobs 8 \
   --pdb_ids_file "${ADALIGAND_SMOKE_IDS_FILE}" --run_id "${ADALIGAND_RUN_ID}"
-"${PYTHON}" scripts/stage_release_gate.py --root "${DATA_ROOT}" --run_id "${ADALIGAND_RUN_ID}" \
+"${PYTHON}" -m adaligand_preprocessing.cli.stage_release --root "${DATA_ROOT}" --run_id "${ADALIGAND_RUN_ID}" \
   --stages stage_c --gate_name smoke_c_release --pdb_ids_file "${ADALIGAND_SMOKE_IDS_FILE}" \
   --require_success
 
-"${PYTHON}" scripts/d_atom_labels.py --root "${DATA_ROOT}" --n_jobs 4 \
+"${PYTHON}" -m adaligand_preprocessing.cli.stage_d --root "${DATA_ROOT}" --n_jobs 4 \
   --pdb_ids_file "${ADALIGAND_SMOKE_IDS_FILE}" --run_id "${ADALIGAND_RUN_ID}" &
 d_pid=$!
 e_exit=0
-"${PYTHON}" scripts/e_density.py --root "${DATA_ROOT}" --chimera "${CHIMERA}" \
+"${PYTHON}" -m adaligand_preprocessing.cli.stage_e --root "${DATA_ROOT}" --chimera "${CHIMERA}" \
   --scratch_root "${SCRATCH_ROOT}" --n_jobs 2 \
   --pdb_ids_file "${ADALIGAND_SMOKE_IDS_FILE}" --run_id "${ADALIGAND_RUN_ID}" || e_exit=$?
 d_exit=0
@@ -38,15 +38,15 @@ if [ "${d_exit}" -ne 0 ] || [ "${e_exit}" -ne 0 ]; then
   echo "Smoke Stage D/E process failure: d=${d_exit} e=${e_exit}" >&2
   exit 1
 fi
-"${PYTHON}" scripts/stage_release_gate.py --root "${DATA_ROOT}" --run_id "${ADALIGAND_RUN_ID}" \
+"${PYTHON}" -m adaligand_preprocessing.cli.stage_release --root "${DATA_ROOT}" --run_id "${ADALIGAND_RUN_ID}" \
   --stages stage_d,stage_e --gate_name smoke_de_release --pdb_ids_file "${ADALIGAND_SMOKE_IDS_FILE}" \
   --require_success
 
-"${PYTHON}" scripts/f_quality.py --root "${DATA_ROOT}" --chimera "${CHIMERA}" \
+"${PYTHON}" -m adaligand_preprocessing.cli.stage_f --root "${DATA_ROOT}" --chimera "${CHIMERA}" \
   --chimera_root "${CHIMERA_ROOT}" --mapq_python "${PYTHON}" --mapq_cmd "${MAPQ_CMD}" \
   --mapq_zip "${MAPQ_ZIP}" --scratch_root "${SCRATCH_ROOT}" --n_jobs 2 \
   --pdb_ids_file "${ADALIGAND_SMOKE_IDS_FILE}" --run_id "${ADALIGAND_RUN_ID}"
-"${PYTHON}" scripts/stage_release_gate.py --root "${DATA_ROOT}" --run_id "${ADALIGAND_RUN_ID}" \
+"${PYTHON}" -m adaligand_preprocessing.cli.stage_release --root "${DATA_ROOT}" --run_id "${ADALIGAND_RUN_ID}" \
   --stages stage_f --gate_name smoke_f_release --pdb_ids_file "${ADALIGAND_SMOKE_IDS_FILE}" \
   --require_success
 EOF

@@ -13,11 +13,9 @@ import pytest
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
+SCRIPT_DIR = Path(__file__).resolve().parents[1] / "adaligand_preprocessing" / "cli"
 
-from c_descriptor_prefetch import (
+from adaligand_preprocessing.ops.stage_c_descriptors import (
     DESCRIPTOR_PREFETCH_SCHEMA_VERSION,
     materialize_and_audit_descriptor,
 )
@@ -27,7 +25,7 @@ def _load_cli(name: str):
     """以唯一模块名加载 descriptor prefetch CLI，避免与 code 模块冲突。"""
     spec = importlib.util.spec_from_file_location(
         name,
-        SCRIPT_DIR / "c_descriptor_prefetch.py",
+        SCRIPT_DIR / "prefetch_descriptors.py",
     )
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -48,11 +46,11 @@ def test_materialize_descriptor_uses_non_overwrite_and_freezes_dependencies(
     calls: list[tuple[str, bool]] = []
 
     monkeypatch.setattr(
-        "c_descriptor_prefetch.ligand_object_is_valid",
+        "adaligand_preprocessing.ops.stage_c_descriptors.ligand_object_is_valid",
         lambda path, key: path == object_path and key == "CCD:5GP",
     )
     monkeypatch.setattr(
-        "c_descriptor_prefetch.ligand_descriptor_is_valid",
+        "adaligand_preprocessing.ops.stage_c_descriptors.ligand_descriptor_is_valid",
         lambda path: path.is_file() and path.read_bytes() == b"descriptor",
     )
 
@@ -63,7 +61,7 @@ def test_materialize_descriptor_uses_non_overwrite_and_freezes_dependencies(
         return descriptor_path
 
     monkeypatch.setattr(
-        "c_descriptor_prefetch.materialize_ligand_descriptor",
+        "adaligand_preprocessing.ops.stage_c_descriptors.materialize_ligand_descriptor",
         _fake_materialize,
     )
 
@@ -96,15 +94,15 @@ def test_materialize_descriptor_marks_valid_existing_file_as_reused(
     descriptor_path.write_bytes(b"descriptor")
 
     monkeypatch.setattr(
-        "c_descriptor_prefetch.ligand_object_is_valid",
+        "adaligand_preprocessing.ops.stage_c_descriptors.ligand_object_is_valid",
         lambda *_args: True,
     )
     monkeypatch.setattr(
-        "c_descriptor_prefetch.ligand_descriptor_is_valid",
+        "adaligand_preprocessing.ops.stage_c_descriptors.ligand_descriptor_is_valid",
         lambda path: path == descriptor_path,
     )
     monkeypatch.setattr(
-        "c_descriptor_prefetch.materialize_ligand_descriptor",
+        "adaligand_preprocessing.ops.stage_c_descriptors.materialize_ligand_descriptor",
         lambda _root, _key, overwrite: descriptor_path if overwrite is False else None,
     )
 
@@ -125,11 +123,11 @@ def test_materialize_descriptor_fails_when_final_schema_is_invalid(
     object_path.parent.mkdir(parents=True)
     object_path.write_bytes(b"ligand-object")
     monkeypatch.setattr(
-        "c_descriptor_prefetch.ligand_object_is_valid",
+        "adaligand_preprocessing.ops.stage_c_descriptors.ligand_object_is_valid",
         lambda *_args: True,
     )
     monkeypatch.setattr(
-        "c_descriptor_prefetch.ligand_descriptor_is_valid",
+        "adaligand_preprocessing.ops.stage_c_descriptors.ligand_descriptor_is_valid",
         lambda _path: False,
     )
 
@@ -139,7 +137,7 @@ def test_materialize_descriptor_fails_when_final_schema_is_invalid(
         return descriptor_path
 
     monkeypatch.setattr(
-        "c_descriptor_prefetch.materialize_ligand_descriptor",
+        "adaligand_preprocessing.ops.stage_c_descriptors.materialize_ligand_descriptor",
         _write_invalid,
     )
 
@@ -158,11 +156,11 @@ def test_materialize_descriptor_detects_source_object_race(
     object_path.parent.mkdir(parents=True)
     object_path.write_bytes(b"before")
     monkeypatch.setattr(
-        "c_descriptor_prefetch.ligand_object_is_valid",
+        "adaligand_preprocessing.ops.stage_c_descriptors.ligand_object_is_valid",
         lambda *_args: True,
     )
     monkeypatch.setattr(
-        "c_descriptor_prefetch.ligand_descriptor_is_valid",
+        "adaligand_preprocessing.ops.stage_c_descriptors.ligand_descriptor_is_valid",
         lambda path: path == descriptor_path and path.is_file(),
     )
 
@@ -173,7 +171,7 @@ def test_materialize_descriptor_detects_source_object_race(
         return descriptor_path
 
     monkeypatch.setattr(
-        "c_descriptor_prefetch.materialize_ligand_descriptor",
+        "adaligand_preprocessing.ops.stage_c_descriptors.materialize_ligand_descriptor",
         _race_source,
     )
 
@@ -220,7 +218,7 @@ def test_descriptor_prefetch_cli_freezes_and_reuses_success_evidence(
         lambda: {"code/frozen.py": "0" * 64},
     )
     argv = [
-        "c_descriptor_prefetch.py",
+        "prefetch_descriptors.py",
         "--root", str(root),
         "--object_keys_file", str(keys_path),
         "--keys_sha256", keys_hash,
@@ -300,7 +298,7 @@ def test_descriptor_prefetch_cli_records_failure_and_refuses_overwrite(
         sys,
         "argv",
         [
-            "c_descriptor_prefetch.py",
+            "prefetch_descriptors.py",
             "--root", str(root),
             "--object_keys_file", str(keys_path),
             "--keys_sha256", keys_hash,

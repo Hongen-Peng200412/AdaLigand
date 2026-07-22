@@ -11,23 +11,19 @@ from rdkit import Chem
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
-if str(SCRIPTS_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS_DIR))
 
-from ligand_descriptors import compute_ligand_descriptors, ligand_descriptor_is_valid
-from ligand_object import Atom, Bond
-from constants import RECEPTOR_BOND_TYPE_TO_ID, RES_TO_ID
-from c_upgrade import add_ligand_centroids, materialize_occurrence_descriptors, upgrade_stage_c
-from c_parse import ensure_filtered_run_is_isolated
-from contracts import (
+from adaligand_preprocessing.stages.stage_c.descriptors import compute_ligand_descriptors, ligand_descriptor_is_valid
+from adaligand_preprocessing.stages.stage_c.ligand_objects import Atom, Bond
+from adaligand_preprocessing.stages.stage_c.constants import RECEPTOR_BOND_TYPE_TO_ID, RES_TO_ID
+from adaligand_preprocessing.stages.stage_c.upgrades import add_ligand_centroids, materialize_occurrence_descriptors, upgrade_stage_c
+from adaligand_preprocessing.cli.stage_c import ensure_filtered_run_is_isolated
+from adaligand_preprocessing.stages.stage_c.contracts import (
     CArtifactState,
     compare_receptor_base_arrays,
     inspect_stage_c,
     validate_receptor_arrays,
 )
-from receptor import (
+from adaligand_preprocessing.stages.stage_c.receptor import (
     BOND_TYPE_TO_ID,
     DENSITY_BIN_EDGES,
     ReceptorAtomNameCoverageError,
@@ -36,7 +32,7 @@ from receptor import (
     compute_local_density,
     compute_receptor_features,
 )
-from io_utils import atomic_save_npz, write_jsonl
+from adaligand_preprocessing.utils.io import atomic_save_npz, write_jsonl
 
 
 def _atom(
@@ -313,7 +309,7 @@ def test_ligand_descriptor_validator_rejects_wrong_atom_local_shape(tmp_path):
 def test_receptor_backbone_bond_requires_consecutive_label_seq(monkeypatch, tmp_path):
     """二肽 1→2 生成 C–N backbone 键；1→3 的编号空洞不得误连。"""
     monkeypatch.setattr(
-        "receptor.get_ccd_mol",
+        "adaligand_preprocessing.stages.stage_c.receptor.get_ccd_mol",
         lambda _code, _cache, **_kwargs: _empty_mol(),
     )
     consecutive = [
@@ -337,7 +333,7 @@ def test_receptor_backbone_bond_requires_consecutive_label_seq(monkeypatch, tmp_
 def test_struct_conn_disulfide_overrides_template_semantics(monkeypatch, tmp_path):
     """两端都在受体中的 disulf 连接应落为稳定 disulfide 编码。"""
     monkeypatch.setattr(
-        "receptor.get_ccd_mol",
+        "adaligand_preprocessing.stages.stage_c.receptor.get_ccd_mol",
         lambda _code, _cache, **_kwargs: _empty_mol(),
     )
     atoms = [
@@ -365,7 +361,7 @@ def test_struct_conn_disulfide_overrides_template_semantics(monkeypatch, tmp_pat
 def test_struct_conn_auth_only_partner_lookup_is_preserved(monkeypatch, tmp_path):
     """缺 label_seq_id 的显式共价键仍须通过 auth identity 找到两个受体原子。"""
     monkeypatch.setattr(
-        "receptor.get_ccd_mol",
+        "adaligand_preprocessing.stages.stage_c.receptor.get_ccd_mol",
         lambda _code, _cache, **_kwargs: _empty_mol(),
     )
     atoms = [
@@ -395,7 +391,7 @@ def test_struct_conn_auth_only_partner_lookup_is_preserved(monkeypatch, tmp_path
 def test_receptor_triple_bond_appends_backward_compatible_code(monkeypatch, tmp_path):
     """合法 CCD 三键必须编码为新增 6，既有 0–5 枚举保持不变。"""
     monkeypatch.setattr(
-        "receptor.get_ccd_mol",
+        "adaligand_preprocessing.stages.stage_c.receptor.get_ccd_mol",
         lambda _code, _cache, **_kwargs: _triple_bond_mol(),
     )
     atoms = [
@@ -443,7 +439,7 @@ def test_receptor_validator_accepts_triple_and_rejects_unknown_code():
 
 def test_strict_receptor_bond_build_rejects_unmapped_atom_name(monkeypatch, tmp_path):
     """source repair 不得把 CCD 无法识别的当前 atom_name 静默变成缺键受体。"""
-    monkeypatch.setattr("receptor.get_ccd_mol", lambda *_args, **_kwargs: _triple_bond_mol())
+    monkeypatch.setattr("adaligand_preprocessing.stages.stage_c.receptor.get_ccd_mol", lambda *_args, **_kwargs: _triple_bond_mol())
     atoms = [
         _atom(1, "C8", "F86", "1", "C", 0.0),
         _atom(2, "NX", "F86", "1", "N", 1.2),
@@ -461,7 +457,7 @@ def test_strict_receptor_bond_build_rejects_unmapped_atom_name(monkeypatch, tmp_
 
 def test_strict_receptor_bond_build_rejects_element_mismatch(monkeypatch, tmp_path):
     """atom name 命中 CCD 仍须核对元素，避免串档模板生成错误键图。"""
-    monkeypatch.setattr("receptor.get_ccd_mol", lambda *_args, **_kwargs: _triple_bond_mol())
+    monkeypatch.setattr("adaligand_preprocessing.stages.stage_c.receptor.get_ccd_mol", lambda *_args, **_kwargs: _triple_bond_mol())
     atoms = [
         _atom(1, "C8", "F86", "1", "O", 0.0),
         _atom(2, "N3", "F86", "1", "N", 1.2),
@@ -484,7 +480,7 @@ def test_strict_receptor_bond_build_rejects_cache_identity_mismatch(
     """cache 内声明的 CCD 身份必须等于当前 residue，防止错误 pickle 串档。"""
     mol = _triple_bond_mol()
     mol.SetProp("PDB_NAME", "OTHER")
-    monkeypatch.setattr("receptor.get_ccd_mol", lambda *_args, **_kwargs: mol)
+    monkeypatch.setattr("adaligand_preprocessing.stages.stage_c.receptor.get_ccd_mol", lambda *_args, **_kwargs: mol)
     atoms = [
         _atom(1, "C8", "F86", "1", "C", 0.0),
         _atom(2, "N3", "F86", "1", "N", 1.2),
@@ -508,7 +504,7 @@ def test_scoped_receptor_coverage_ignores_unrelated_placeholder(
     def _ccd(code, _cache, **_kwargs):
         return _triple_bond_mol() if code == "F86" else _empty_mol()
 
-    monkeypatch.setattr("receptor.get_ccd_mol", _ccd)
+    monkeypatch.setattr("adaligand_preprocessing.stages.stage_c.receptor.get_ccd_mol", _ccd)
     atoms = [
         _atom(1, "C8", "F86", "1", "C", 0.0),
         _atom(2, "N3", "F86", "1", "N", 1.2),
@@ -535,7 +531,7 @@ def test_scoped_receptor_coverage_rejects_absent_requested_residue(
 ):
     """调用方列出的改名 residue 若已从当前 source 消失，必须 fail closed。"""
     monkeypatch.setattr(
-        "receptor.get_ccd_mol",
+        "adaligand_preprocessing.stages.stage_c.receptor.get_ccd_mol",
         lambda _code, _cache, **_kwargs: _triple_bond_mol(),
     )
     atoms = [
@@ -558,7 +554,7 @@ def test_scoped_receptor_coverage_rejects_absent_requested_residue(
 def test_receptor_arrays_keep_dna_token_distinct_from_feature_parent(monkeypatch, tmp_path):
     """`res_type` 保留 DA id，而 49 维 residue one-hot 使用 A 母体。"""
     monkeypatch.setattr(
-        "receptor.get_ccd_mol",
+        "adaligand_preprocessing.stages.stage_c.receptor.get_ccd_mol",
         lambda _code, _cache, **_kwargs: _empty_mol(),
     )
     atoms = [_atom(1, "P", "DA", "1", "P", 0.0)]
@@ -660,7 +656,7 @@ def test_stage_c_upgrade_is_end_to_end_and_idempotent(monkeypatch, tmp_path):
     _write_old_c_core(tmp_path)
     _write_minimal_upgrade_cif(tmp_path)
     monkeypatch.setattr(
-        "receptor.get_ccd_mol",
+        "adaligand_preprocessing.stages.stage_c.receptor.get_ccd_mol",
         lambda _code, _cache, **_kwargs: _empty_mol(),
     )
 

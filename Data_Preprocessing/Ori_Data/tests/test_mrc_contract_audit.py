@@ -12,10 +12,8 @@ import numpy as np
 import pytest
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from mrc_contract_audit import (
+from adaligand_preprocessing.ops.mrc_contract import (
     EFFECTIVE_CLOSURE_RISK,
     MIXED_EQUALITY_RISK,
     EmdbAuditInput,

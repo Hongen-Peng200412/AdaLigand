@@ -10,15 +10,14 @@ import pytest
 
 
 CODE_ROOT = Path(__file__).resolve().parents[1] / "code"
-sys.path.insert(0, str(CODE_ROOT))
 
-from exclusions import (
+from adaligand_preprocessing.execution.exclusions import (
     STAGE_F_EXCLUSIONS_FILENAME,
     exclusion_status_fields,
     load_run_exclusions,
 )
-from failures import KnownFailureCode
-from io_utils import sha256_file
+from adaligand_preprocessing.artifacts.failures import KnownFailureCode
+from adaligand_preprocessing.utils.io import sha256_file
 
 
 def _record() -> dict:

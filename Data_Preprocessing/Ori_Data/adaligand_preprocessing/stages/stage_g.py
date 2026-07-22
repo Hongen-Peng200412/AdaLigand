@@ -1,0 +1,647 @@
+# Stage G 的质量分布、候选记录和显式过滤。
+# 主要输入：F 质量记录、分辨率字段、显式过滤配置与 run-scoped 状态。
+# 主要输出：QC 分布、分析摘要和按当前配置生成的 keep_list。
+# 关键边界：当前配置实际支持 q_score_min 与 resolution；CC/配体Q/口袋Q先分析后由用户定阈值。
+"""Stage G：run-scoped release gate、质量分布分析和显式配置过滤。"""
+
+from __future__ import annotations
+
+import json
+import hashlib
+from collections import Counter, defaultdict
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from adaligand_preprocessing.execution.controlled_failures import (
+    CONTROLLED_FAILURE_WAIVER_STAGE,
+    StageStatusView,
+    load_stage_status_view,
+)
+from adaligand_preprocessing.utils.io import read_jsonl, sha256_file, sha256_manifest, write_jsonl
+from adaligand_preprocessing.artifacts.validation import cc_value_errors
+from adaligand_preprocessing.artifacts.reports import StageStatus, stage_report_path, stage_result, write_report, write_stage_results
+
+
+FILTER_CONFIG_SCHEMA_VERSION = 2
+UPSTREAM_STAGES = ("stage_d", "stage_e", "stage_f")
+_CC_FIELDS = (
+    "cc_contour",
+    "cc_contour_about_mean",
+    "cc_all",
+    "cc_all_about_mean",
+)
+_DISTRIBUTION_FIELDS = (
+    "q_score",
+    "q_score_median",
+    "q_score_min",
+    "pocket_q_score",
+    "pocket_q_score_median",
+    "pocket_q_score_min",
+    "pocket_n_atoms",
+    "map_resolution",
+    "cc_contour",
+    "cc_contour_about_mean",
+    "cc_all",
+    "cc_all_about_mean",
+)
+_QUANTILES = (0.0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 1.0)
+_REQUIRED_QUALITY_FIELDS = {
+    *_DISTRIBUTION_FIELDS,
+    "n_valid",
+    "n_present",
+    "pocket_n_valid",
+    "pocket_status",
+    "pocket_radius_angstrom",
+    "contour_status",
+}
+
+
+def load_stage_statuses(
+    root: Path,
+    run_id: str,
+    stage: str,
+    expected_pdb_ids: set[str],
+) -> tuple[dict[str, dict[str, Any]], list[Path]]:
+    """
+    读取一个 stage 的全部 array 分片，要求每个 A 样本恰好一个互斥终态。
+
+    缺分片、重复样本、silent missing、额外样本、错误 stage/status 都直接阻塞 release。
+    """
+    view = load_stage_status_view(
+        root,
+        run_id,
+        stage,
+        expected_pdb_ids,
+        controlled_failure_waiver_path=None,
+        controlled_failure_waiver_sha256=None,
+    )
+    return view.records_by_pdb, view.status_paths
+
+
+def load_filter_config(path: Path) -> dict[str, Any]:
+    """
+    读取并验证唯一的 Stage G map-level schema v2 配置。
+
+    输入参数:
+        - path: Path, JSON 配置路径; 所有科学阈值和固定策略均须显式给出
+
+    输出:
+        - config: dict[str, Any], 规范化配置, 包含:
+            - ``schema_version``: int, 固定为 2
+            - ``cc_field``: str, 四种 PDB 级 CC 中唯一选中的字段
+            - ``cc_min``: float, CC 含等号下限
+            - ``cc_comparison``: str, 固定为 ``inclusive``
+            - ``selected_cc_null``: str, 固定为 ``fail_map``
+            - ``resolution_max``: float, 分辨率含等号上限, 单位 Å
+            - ``resolution_comparison``: str, 固定为 ``inclusive``
+            - ``ligand_q_min``: float, 配体 Q 的严格下限
+            - ``pocket_q_min``: float, 口袋 Q 的严格下限
+            - ``pair_q_comparison``: str, 固定为 ``strict``
+            - ``qualified_pair_fraction_min``: float, 合格 occurrence 比例含等号下限
+            - ``qualified_pair_fraction_comparison``: str, 固定为 ``inclusive``
+            - ``empty_pocket``: str, 固定为空口袋失败且计入分母
+            - ``keep_only_maps_that_pass``: bool, 固定只保留通过的 map
+            - ``keep_all_occurrences_in_passing_map``: bool, 固定保留通过 map 的全部 occurrence
+    """
+    config = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(config, dict):
+        raise ValueError("filter config must be a JSON object")
+    if config.get("schema_version") != FILTER_CONFIG_SCHEMA_VERSION:
+        raise ValueError(f"filter config schema_version must be {FILTER_CONFIG_SCHEMA_VERSION}")
+    required_fields = {
+        "schema_version",
+        "cc_field",
+        "cc_min",
+        "resolution_max",
+        "resolution_comparison",
+        "ligand_q_min",
+        "pocket_q_min",
+        "qualified_pair_fraction_min",
+        "empty_pocket",
+        "keep_only_maps_that_pass",
+        "keep_all_occurrences_in_passing_map",
+    }
+    missing_fields = sorted(required_fields.difference(config))
+    extra_fields = sorted(set(config).difference(required_fields))
+    if missing_fields or extra_fields:
+        raise ValueError(
+            f"filter config fields disagree: missing={missing_fields}, extra={extra_fields}"
+        )
+    if config["cc_field"] not in _CC_FIELDS:
+        raise ValueError(f"cc_field must be one of {_CC_FIELDS}")
+
+    cc_min = float(config["cc_min"])
+    ligand_q_min = float(config["ligand_q_min"])
+    pocket_q_min = float(config["pocket_q_min"])
+    qualified_fraction_min = float(config["qualified_pair_fraction_min"])
+    for field, value in (
+        ("cc_min", cc_min),
+        ("ligand_q_min", ligand_q_min),
+        ("pocket_q_min", pocket_q_min),
+    ):
+        if not np.isfinite(value) or value < -1 or value > 1:
+            raise ValueError(f"{field} must be finite in [-1,1]")
+    if not np.isfinite(qualified_fraction_min) or not 0 <= qualified_fraction_min <= 1:
+        raise ValueError("qualified_pair_fraction_min must be finite in [0,1]")
+    resolution_max = float(config["resolution_max"])
+    if not np.isfinite(resolution_max) or resolution_max <= 0:
+        raise ValueError("resolution_max must be a positive finite number")
+    if config["resolution_comparison"] != "inclusive":
+        raise ValueError("resolution_comparison must be 'inclusive'")
+    if config["empty_pocket"] != "fail_and_count_denominator":
+        raise ValueError("empty_pocket must be 'fail_and_count_denominator'")
+    if config["keep_only_maps_that_pass"] is not True:
+        raise ValueError("keep_only_maps_that_pass must be true")
+    if config["keep_all_occurrences_in_passing_map"] is not True:
+        raise ValueError("keep_all_occurrences_in_passing_map must be true")
+    return {
+        "schema_version": FILTER_CONFIG_SCHEMA_VERSION,
+        "cc_field": str(config["cc_field"]),
+        "cc_min": cc_min,
+        "cc_comparison": "inclusive",
+        "selected_cc_null": "fail_map",
+        "resolution_max": resolution_max,
+        "resolution_comparison": "inclusive",
+        "ligand_q_min": ligand_q_min,
+        "pocket_q_min": pocket_q_min,
+        "pair_q_comparison": "strict",
+        "qualified_pair_fraction_min": qualified_fraction_min,
+        "qualified_pair_fraction_comparison": "inclusive",
+        "empty_pocket": "fail_and_count_denominator",
+        "keep_only_maps_that_pass": True,
+        "keep_all_occurrences_in_passing_map": True,
+    }
+
+
+def apply_map_filter_config(
+    pending_records: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """
+    按 schema v2 先聚合 PDB/map，再以 occurrence 合格比例决定是否保留整张 map。
+
+    输入参数:
+        - pending_records: list[dict[str, Any]], analyze 已扁平化的 occurrence 级 Stage F 质量记录
+        - config: dict[str, Any], ``load_filter_config`` 返回的 schema v2 配置
+
+    输出:
+        - kept: list[dict[str, Any]], 通过 map 内全部 ``pdb_id/candidate_id`` 主键
+        - excluded_maps: list[dict[str, Any]], 未通过 map 的精简诊断
+        - map_diagnostics: list[dict[str, Any]], 每个 PDB 一行的 map 与 occurrence 判定明细
+    """
+    records_by_pdb: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for record in sorted(
+        pending_records,
+        key=lambda item: (str(item["pdb_id"]).lower(), int(item["candidate_id"])),
+    ):
+        records_by_pdb[str(record["pdb_id"]).lower()].append(record)
+
+    kept: list[dict[str, Any]] = []
+    excluded_maps: list[dict[str, Any]] = []
+    map_diagnostics: list[dict[str, Any]] = []
+    for pdb_id in sorted(records_by_pdb):
+        records = records_by_pdb[pdb_id]
+        resolution_values = {float(record["map_resolution"]) for record in records}
+        if len(resolution_values) != 1 or not all(np.isfinite(value) for value in resolution_values):
+            raise RuntimeError(f"map_resolution is not one finite PDB-level value for {pdb_id}")
+        resolution = resolution_values.pop()
+
+        cc_field = config["cc_field"]
+        raw_cc_values = [record[cc_field] for record in records]
+        if any(value is None for value in raw_cc_values):
+            if not all(value is None for value in raw_cc_values):
+                raise RuntimeError(f"{cc_field} mixes null and numeric values for {pdb_id}")
+            cc_value = None
+        else:
+            cc_values = {float(value) for value in raw_cc_values}
+            if len(cc_values) != 1 or not all(np.isfinite(value) for value in cc_values):
+                raise RuntimeError(f"{cc_field} is not one finite PDB-level value for {pdb_id}")
+            cc_value = cc_values.pop()
+
+        occurrence_diagnostics: list[dict[str, Any]] = []
+        n_pair_pass = 0
+        n_empty_pocket = 0
+        for record in records:
+            q_score = float(record["q_score"])
+            if not np.isfinite(q_score):
+                raise RuntimeError(f"q_score is not finite for {pdb_id}/{record['candidate_id']}")
+            pocket_value = record["pocket_q_score"]
+            pair_reasons: list[str] = []
+            if q_score <= config["ligand_q_min"]:
+                pair_reasons.append("ligand_q_not_strictly_above_min")
+            if pocket_value is None:
+                n_empty_pocket += 1
+                pair_reasons.append("empty_pocket")
+                pocket_q_score = None
+            else:
+                pocket_q_score = float(pocket_value)
+                if not np.isfinite(pocket_q_score):
+                    raise RuntimeError(
+                        f"pocket_q_score is not finite for {pdb_id}/{record['candidate_id']}"
+                    )
+                if pocket_q_score <= config["pocket_q_min"]:
+                    pair_reasons.append("pocket_q_not_strictly_above_min")
+            pair_pass = not pair_reasons
+            n_pair_pass += int(pair_pass)
+            occurrence_diagnostics.append(
+                {
+                    "candidate_id": int(record["candidate_id"]),
+                    "q_score": q_score,
+                    "pocket_q_score": pocket_q_score,
+                    "pocket_status": str(record["pocket_status"]),
+                    "pair_pass": pair_pass,
+                    "reasons": pair_reasons,
+                }
+            )
+
+        n_occurrences = len(records)
+        qualified_fraction = n_pair_pass / n_occurrences
+        cc_pass = cc_value is not None and cc_value >= config["cc_min"]
+        resolution_pass = resolution <= config["resolution_max"]
+        fraction_pass = qualified_fraction >= config["qualified_pair_fraction_min"]
+        map_reasons: list[str] = []
+        if cc_value is None:
+            map_reasons.append("selected_cc_unavailable")
+        elif not cc_pass:
+            map_reasons.append("selected_cc_below_min")
+        if not resolution_pass:
+            map_reasons.append("resolution_above_max")
+        if not fraction_pass:
+            map_reasons.append("qualified_pair_fraction_below_min")
+        map_pass = not map_reasons
+        diagnostic = {
+            "pdb_id": pdb_id,
+            "n_occurrences": n_occurrences,
+            "n_empty_pocket_occurrences": n_empty_pocket,
+            "cc_field": cc_field,
+            "cc_value": cc_value,
+            "cc_pass": cc_pass,
+            "map_resolution": resolution,
+            "resolution_pass": resolution_pass,
+            "n_pair_pass": n_pair_pass,
+            "qualified_fraction": qualified_fraction,
+            "qualified_fraction_pass": fraction_pass,
+            "map_pass": map_pass,
+            "reasons": map_reasons,
+            "occurrences": occurrence_diagnostics,
+        }
+        map_diagnostics.append(diagnostic)
+        if map_pass:
+            kept.extend(
+                {"pdb_id": pdb_id, "candidate_id": int(record["candidate_id"])}
+                for record in records
+            )
+        else:
+            excluded_maps.append(
+                {
+                    "pdb_id": pdb_id,
+                    "reasons": map_reasons,
+                    "n_occurrences": n_occurrences,
+                    "n_pair_pass": n_pair_pass,
+                    "qualified_fraction": qualified_fraction,
+                }
+            )
+    return kept, excluded_maps, map_diagnostics
+
+
+def run_stage_g(
+    root: Path,
+    run_id: str,
+    *,
+    mode: str,
+    config_path: Path | None = None,
+    controlled_failure_waiver_path: Path | None = None,
+    controlled_failure_waiver_sha256: str | None = None,
+) -> dict[str, Any]:
+    """
+    执行质量分布分析或正式过滤。
+
+    ``mode=analyze`` 只写 run-scoped 分布和 ``candidates.pending.jsonl``，绝不写正式
+    ``keep_list.jsonl``。``mode=filter`` 必须提供显式配置。默认要求 D/E/F unknown/silent
+    missing 全部清零；显式 Stage F waiver 只把精确命中 raw unknown 排除在下游之外。
+    """
+    if mode not in {"analyze", "filter"}:
+        raise ValueError("mode must be analyze or filter")
+    pair_path = root / "raw" / "pair_list.jsonl"
+    pairs = read_jsonl(pair_path)
+    pdb_ids = [str(item["pdb_id"]).lower() for item in pairs]
+    if len(pdb_ids) != len(set(pdb_ids)):
+        raise RuntimeError("pair_list contains duplicate PDB ids")
+    expected = set(pdb_ids)
+    status_by_stage: dict[str, dict[str, dict[str, Any]]] = {}
+    stage_f_view: StageStatusView | None = None
+    manifest_paths = [pair_path]
+    for stage in UPSTREAM_STAGES:
+        if stage == CONTROLLED_FAILURE_WAIVER_STAGE:
+            stage_f_view = load_stage_status_view(
+                root,
+                run_id,
+                stage,
+                expected,
+                controlled_failure_waiver_path=controlled_failure_waiver_path,
+                controlled_failure_waiver_sha256=controlled_failure_waiver_sha256,
+                require_fresh_process_audit=False,
+            )
+            status_by_stage[stage] = stage_f_view.records_by_pdb
+            manifest_paths.extend(stage_f_view.status_paths)
+        else:
+            statuses, paths = load_stage_statuses(root, run_id, stage, expected)
+            status_by_stage[stage] = statuses
+            manifest_paths.extend(paths)
+    assert stage_f_view is not None
+    if stage_f_view.waiver is not None:
+        manifest_paths.append(stage_f_view.waiver.path)
+        manifest_paths.append(
+            _require_f_release_waiver_identity(root, run_id, stage_f_view)
+        )
+
+    known_failures: dict[str, list[str]] = {}
+    waived_failures: dict[str, dict[str, Any]] = {}
+    eligible_pdb_ids: list[str] = []
+    for pdb_id in sorted(expected):
+        reasons = []
+        for stage in UPSTREAM_STAGES:
+            record = status_by_stage[stage][pdb_id]
+            if record["status"] == StageStatus.KNOWN_FAILED.value:
+                reasons.append(f"{stage}:{record.get('reason', 'known_failed')}")
+        if reasons:
+            known_failures[pdb_id] = reasons
+        if pdb_id in stage_f_view.waived_by_pdb:
+            waived_failures[pdb_id] = stage_f_view.waived_by_pdb[pdb_id]
+        if not reasons and pdb_id not in waived_failures:
+            eligible_pdb_ids.append(pdb_id)
+
+    quality_records: list[dict[str, Any]] = []
+    occurrence_types: dict[tuple[str, int], str] = {}
+    for pdb_id in eligible_pdb_ids:
+        quality_path = root / "quality" / f"{pdb_id}.jsonl"
+        occurrence_path = root / "parse" / pdb_id / "occurrences.jsonl"
+        provenance_path = root / "quality" / f"{pdb_id}.provenance.json"
+        for required_path in (quality_path, occurrence_path, provenance_path):
+            if not required_path.exists():
+                raise RuntimeError(f"upstream status succeeded but artifact is missing: {required_path}")
+        manifest_paths.extend((quality_path, occurrence_path, provenance_path))
+        pdb_quality = read_jsonl(quality_path)
+        occurrences = read_jsonl(occurrence_path)
+        occurrence_ids = {int(item["candidate_id"]) for item in occurrences}
+        quality_ids = {int(item["candidate_id"]) for item in pdb_quality}
+        if occurrence_ids != quality_ids or len(quality_ids) != len(pdb_quality):
+            raise RuntimeError(f"quality/occurrence candidate mismatch for {pdb_id}")
+        for occurrence in occurrences:
+            occurrence_types[(pdb_id, int(occurrence["candidate_id"]))] = str(occurrence["type_tag"])
+        for quality_record in pdb_quality:
+            if str(quality_record.get("pdb_id", "")).lower() != pdb_id:
+                raise RuntimeError(f"quality PDB id mismatch in {quality_path}")
+            missing_fields = sorted(_REQUIRED_QUALITY_FIELDS.difference(quality_record))
+            if missing_fields:
+                raise RuntimeError(f"quality fields are missing in {quality_path}: {missing_fields}")
+            if int(quality_record["n_valid"]) != int(quality_record["n_present"]):
+                raise RuntimeError(f"ligand Q counts disagree in {quality_path}")
+            pocket_count = int(quality_record["pocket_n_atoms"])
+            if pocket_count < 0 or int(quality_record["pocket_n_valid"]) != pocket_count:
+                raise RuntimeError(f"pocket Q counts disagree in {quality_path}")
+            if pocket_count == 0:
+                if quality_record["pocket_status"] != "no_receptor_atoms_within_radius" or any(
+                    quality_record[field] is not None
+                    for field in ("pocket_q_score", "pocket_q_score_median", "pocket_q_score_min")
+                ):
+                    raise RuntimeError(f"empty pocket semantics disagree in {quality_path}")
+            elif quality_record["pocket_status"] != "ok":
+                raise RuntimeError(f"non-empty pocket status disagrees in {quality_path}")
+            pocket_radius = float(quality_record["pocket_radius_angstrom"])
+            if not np.isfinite(pocket_radius) or pocket_radius <= 0:
+                raise RuntimeError(f"pocket radius is invalid in {quality_path}")
+            cc_values = {key: quality_record[key] for key in _DISTRIBUTION_FIELDS if key.startswith("cc_")}
+            cc_errors = cc_value_errors(
+                cc_values,
+                contour_available=quality_record["contour_status"] == "ok",
+            )
+            if cc_errors:
+                raise RuntimeError(f"CC fields are invalid in {quality_path}: {cc_errors}")
+        quality_records.extend(pdb_quality)
+
+    input_manifest = sha256_manifest(manifest_paths, base=root)
+    analysis_dir = root / "reports" / "runs" / run_id / "stage_g_analysis"
+    pending_records = [
+        {
+            "pdb_id": str(record["pdb_id"]).lower(),
+            "candidate_id": int(record["candidate_id"]),
+            "type_tag": occurrence_types[(str(record["pdb_id"]).lower(), int(record["candidate_id"]))],
+            "pocket_status": record["pocket_status"],
+            **{field: record.get(field) for field in _DISTRIBUTION_FIELDS},
+        }
+        for record in sorted(
+            quality_records,
+            key=lambda item: (str(item["pdb_id"]), int(item["candidate_id"])),
+        )
+    ]
+    distribution = {
+        "run_id": run_id,
+        "input_manifest_sha256": input_manifest,
+        "n_pair_pdb": len(pdb_ids),
+        "n_eligible_pdb": len(eligible_pdb_ids),
+        "n_known_failed_pdb": len(known_failures),
+        "n_raw_unknown_pdb": len(stage_f_view.raw_unknown_by_pdb),
+        "n_waived_controlled_failure_pdb": len(waived_failures),
+        "controlled_failure_waiver_sha256": (
+            stage_f_view.waiver.sha256 if stage_f_view.waiver is not None else None
+        ),
+        "n_candidate_occurrences": len(quality_records),
+        "known_failure_reasons": dict(
+            sorted(Counter(reason for reasons in known_failures.values() for reason in reasons).items())
+        ),
+        "waived_controlled_failure_reasons": dict(
+            sorted(Counter(str(item["classification"]) for item in waived_failures.values()).items())
+        ),
+        "type_tag_counts": dict(sorted(Counter(item["type_tag"] for item in pending_records).items())),
+        "pocket_status_counts": dict(
+            sorted(Counter(item["pocket_status"] for item in pending_records).items())
+        ),
+        "fields": {
+            field: _numeric_distribution([record.get(field) for record in quality_records])
+            for field in _DISTRIBUTION_FIELDS
+        },
+        "threshold_status": "explicit_schema_v2_filter_config_required",
+    }
+    write_jsonl(analysis_dir / "candidates.pending.jsonl", pending_records)
+    write_report(analysis_dir / "quality_distribution.json", distribution)
+    if mode == "analyze":
+        stage_records = []
+        for pdb_id in sorted(expected):
+            if pdb_id in waived_failures:
+                raw_record = stage_f_view.records_by_pdb[pdb_id]
+                stage_records.append(
+                    stage_result(
+                        pdb_id,
+                        "stage_g_analysis",
+                        StageStatus.UNKNOWN_FAILED,
+                        reason=raw_record.get("reason"),
+                        error=raw_record.get("error"),
+                        error_type=raw_record.get("error_type"),
+                        waived_controlled_failure=True,
+                        waiver_classification=waived_failures[pdb_id]["classification"],
+                        controlled_failure_waiver_sha256=stage_f_view.waiver.sha256,
+                    )
+                )
+            elif pdb_id in known_failures:
+                stage_records.append(
+                    stage_result(
+                        pdb_id,
+                        "stage_g_analysis",
+                        StageStatus.KNOWN_FAILED,
+                        reason=";".join(known_failures[pdb_id]),
+                    )
+                )
+            else:
+                stage_records.append(stage_result(pdb_id, "stage_g_analysis", StageStatus.SUCCESS))
+        write_stage_results(
+            stage_report_path(root, run_id, "stage_g_analysis", 0, 1),
+            stage_records,
+        )
+        return {
+            "status": "analysis_complete_filter_pending",
+            "distribution": str((analysis_dir / "quality_distribution.json").relative_to(root)),
+            "n_candidates": len(pending_records),
+            "n_waived_controlled_failures": len(waived_failures),
+        }
+
+    if config_path is None:
+        raise ValueError("mode=filter requires --config")
+    config = load_filter_config(config_path)
+    pending_pdb_ids = {str(record["pdb_id"]).lower() for record in pending_records}
+    if pending_pdb_ids != set(eligible_pdb_ids):
+        missing = sorted(set(eligible_pdb_ids).difference(pending_pdb_ids))
+        extra = sorted(pending_pdb_ids.difference(eligible_pdb_ids))
+        raise RuntimeError(
+            f"eligible maps must each contain at least one occurrence: missing={missing}, extra={extra}"
+        )
+    kept, excluded_maps, map_diagnostics = apply_map_filter_config(pending_records, config)
+    filter_dir = root / "reports" / "runs" / run_id / "stage_g"
+    config_sha256 = sha256_file(config_path)
+    filter_manifest = hashlib.sha256(
+        f"{input_manifest}\n{config_sha256}\n".encode("ascii")
+    ).hexdigest()
+    summary = {
+        "run_id": run_id,
+        "input_manifest_sha256": input_manifest,
+        "filter_manifest_sha256": filter_manifest,
+        "config_path": str(config_path),
+        "config_sha256": config_sha256,
+        "config": config,
+        "n_input_maps": len(map_diagnostics),
+        "n_passing_maps": sum(int(item["map_pass"]) for item in map_diagnostics),
+        "n_excluded_maps": len(excluded_maps),
+        "n_input_occurrences": len(pending_records),
+        "n_kept_occurrences": len(kept),
+        "n_pair_pass_occurrences": sum(int(item["n_pair_pass"]) for item in map_diagnostics),
+        "n_empty_pocket_occurrences": sum(
+            int(item["n_empty_pocket_occurrences"]) for item in map_diagnostics
+        ),
+        "n_known_failed_pdb": len(known_failures),
+        "n_waived_controlled_failure_pdb": len(waived_failures),
+        "controlled_failure_waiver_sha256": (
+            stage_f_view.waiver.sha256 if stage_f_view.waiver is not None else None
+        ),
+        "map_exclusion_reason_counts": dict(
+            sorted(Counter(reason for item in excluded_maps for reason in item["reasons"]).items())
+        ),
+    }
+    write_jsonl(filter_dir / "map_filter_diagnostics.jsonl", map_diagnostics)
+    write_jsonl(filter_dir / "excluded_maps.jsonl", excluded_maps)
+    write_report(filter_dir / "summary.json", summary)
+    # keep_list 是最终 completion marker；只在所有检查/报告成功后原子提升。
+    write_jsonl(root / "keep_list.jsonl", kept)
+    stage_records = []
+    for pdb_id in sorted(expected):
+        if pdb_id in waived_failures:
+            raw_record = stage_f_view.records_by_pdb[pdb_id]
+            stage_records.append(
+                stage_result(
+                    pdb_id,
+                    "stage_g",
+                    StageStatus.UNKNOWN_FAILED,
+                    reason=raw_record.get("reason"),
+                    error=raw_record.get("error"),
+                    error_type=raw_record.get("error_type"),
+                    waived_controlled_failure=True,
+                    waiver_classification=waived_failures[pdb_id]["classification"],
+                    controlled_failure_waiver_sha256=stage_f_view.waiver.sha256,
+                )
+            )
+        elif pdb_id in known_failures:
+            stage_records.append(
+                stage_result(
+                    pdb_id,
+                    "stage_g",
+                    StageStatus.KNOWN_FAILED,
+                    reason=";".join(known_failures[pdb_id]),
+                )
+            )
+        else:
+            stage_records.append(stage_result(pdb_id, "stage_g", StageStatus.SUCCESS))
+    write_stage_results(stage_report_path(root, run_id, "stage_g", 0, 1), stage_records)
+    return {
+        "status": "success",
+        "n_passing_maps": summary["n_passing_maps"],
+        "n_excluded_maps": summary["n_excluded_maps"],
+        "n_kept_occurrences": len(kept),
+    }
+
+
+def _require_f_release_waiver_identity(
+    root: Path,
+    run_id: str,
+    stage_f_view: StageStatusView,
+) -> Path:
+    """要求 G 使用已经由正式 ``f_release`` 放行的同一份 waiver。"""
+    if stage_f_view.waiver is None:
+        raise RuntimeError("Stage F waiver identity is unavailable")
+    summary_path = root / "reports" / "runs" / run_id / "f_release" / "summary.json"
+    if summary_path.is_symlink() or not summary_path.is_file():
+        raise RuntimeError("Stage G waiver mode requires a successful formal f_release")
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("formal f_release summary is not valid UTF-8 JSON") from exc
+    expected_identity = {
+        "path": stage_f_view.waiver.path.relative_to(root.resolve()).as_posix(),
+        "sha256": stage_f_view.waiver.sha256,
+        "authorized_cap": stage_f_view.waiver.authorized_cap,
+        "n_waived": len(stage_f_view.waived_by_pdb),
+        "cumulative_controlled_failure_count": (
+            stage_f_view.waiver.cumulative_controlled_failure_count
+        ),
+    }
+    if (
+        not isinstance(summary, dict)
+        or summary.get("status") != "success"
+        or summary.get("run_id") != run_id
+        or summary.get("gate_name") != "f_release"
+        or summary.get("stages") != [CONTROLLED_FAILURE_WAIVER_STAGE]
+        or summary.get("controlled_failure_waiver") != expected_identity
+    ):
+        raise RuntimeError("Stage G waiver identity does not match successful formal f_release")
+    return summary_path
+
+
+def _numeric_distribution(values: list[Any]) -> dict[str, Any]:
+    """汇总 JSON number|null 字段的有限值计数和固定 quantile。"""
+    finite = []
+    n_null = 0
+    for value in values:
+        if value is None:
+            n_null += 1
+            continue
+        number = float(value)
+        if not np.isfinite(number):
+            raise RuntimeError(f"non-finite quality value in distribution: {value!r}")
+        finite.append(number)
+    array = np.asarray(finite, dtype=np.float64)
+    quantiles = (
+        {f"{quantile:g}": float(np.quantile(array, quantile)) for quantile in _QUANTILES}
+        if len(array)
+        else {}
+    )
+    return {"n_finite": len(finite), "n_null": n_null, "quantiles": quantiles}

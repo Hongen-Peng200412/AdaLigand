@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adaligand-preprocessing"
+version = "1.0.0"
+description = "AdaLigand A–G 数据预处理管线"
+requires-python = ">=3.10"
+
+[project.scripts]
+adaligand-stage-a = "adaligand_preprocessing.cli.stage_a:main"
+adaligand-stage-a-guard = "adaligand_preprocessing.cli.stage_a_guard:main"
+adaligand-stage-b = "adaligand_preprocessing.cli.stage_b:main"
+adaligand-stage-c = "adaligand_preprocessing.cli.stage_c:main"
+adaligand-stage-d = "adaligand_preprocessing.cli.stage_d:main"
+adaligand-stage-e = "adaligand_preprocessing.cli.stage_e:main"
+adaligand-stage-f = "adaligand_preprocessing.cli.stage_f:main"
+adaligand-stage-g = "adaligand_preprocessing.cli.stage_g:main"
+adaligand-stage-release = "adaligand_preprocessing.cli.stage_release:main"
+adaligand-abc-release = "adaligand_preprocessing.cli.abc_release:main"
+adaligand-prefetch-ccd = "adaligand_preprocessing.cli.prefetch_ccd:main"
+adaligand-prefetch-descriptors = "adaligand_preprocessing.cli.prefetch_descriptors:main"
+adaligand-stage-c-rebuild = "adaligand_preprocessing.cli.stage_c_rebuild:main"
+adaligand-stage-c-repair = "adaligand_preprocessing.cli.stage_c_repair:main"
+adaligand-audit-mrc = "adaligand_preprocessing.cli.audit_mrc_contract:main"
+adaligand-audit-mrc-origin = "adaligand_preprocessing.cli.audit_mrc_origin_shift:main"
+adaligand-smoke-mrc = "adaligand_preprocessing.cli.smoke_mrc_geometry:main"
+adaligand-smoke-negative-cc = "adaligand_preprocessing.cli.smoke_negative_cc:main"
+adaligand-audit-stage-f-processes = "adaligand_preprocessing.cli.stage_f_process_audit:main"
+adaligand-clean-stage-f-scratch = "adaligand_preprocessing.cli.stage_f_scratch:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["adaligand_preprocessing*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -p no:cacheprovider"
+

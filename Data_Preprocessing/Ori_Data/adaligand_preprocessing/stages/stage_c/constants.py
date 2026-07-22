@@ -1,0 +1,164 @@
+# Stage C 的配体、聚合物、元素和字段编码常量。
+# 主要输入：无运行时样本输入，集中声明路径名、字段名、版本和枚举值。
+# 主要输出：其它模块使用的稳定常量，避免脚本间字符串漂移。
+# 关键边界：修改常量可能改变产物接口，应与 schema、计划和 gate 一起审计。
+"""Stage A–C 共享常量表。
+
+集中存放解析与编码用的固定常量，避免散落：
+- JUNK_RESNAMES：枚举候选 ligand 时排除的水/溶剂/添加剂/占位 resname。
+- RES_VOCAB / RES_TO_ID：受体残基类型词表与索引（20 AA + 8 核苷酸 + UNK），用于 receptor_tokens 的 res_type。
+- PROTEIN_BACKBONE / NUCLEIC_BACKBONE：主链原子名集合，用于 is_backbone。
+- METAL_ELEMENTS：金属元素集合，用于把单原子金属判为 type_tag=ion。
+- RECEPTOR_BOND_TYPE_TO_ID：受体化学键的稳定、向后兼容枚举。
+"""
+
+from __future__ import annotations
+
+JUNK_RESNAMES = {
+    "HOH",
+    "WAT",
+    "H2O",
+    "DOD",
+    "GOL",
+    "EDO",
+    "MPD",
+    "PEG",
+    "PG4",
+    "P6G",
+    "TRS",
+    "MES",
+    "HEP",
+    "ACT",
+    "CIT",
+    "EOH",
+    "MOH",
+    "IPA",
+    "DMS",
+    "DTT",
+    "BME",
+    "BU1",
+    "TBU",
+    "UNX",
+    "UNL",
+    "UNK",
+    "XE",
+    "KR",
+}
+
+RES_VOCAB = [
+    "ALA",
+    "ARG",
+    "ASN",
+    "ASP",
+    "CYS",
+    "GLN",
+    "GLU",
+    "GLY",
+    "HIS",
+    "ILE",
+    "LEU",
+    "LYS",
+    "MET",
+    "PHE",
+    "PRO",
+    "SER",
+    "THR",
+    "TRP",
+    "TYR",
+    "VAL",
+    "A",
+    "C",
+    "G",
+    "U",
+    "DA",
+    "DC",
+    "DG",
+    "DT",
+    "UNK",
+]
+
+RES_TO_ID = {name: idx for idx, name in enumerate(RES_VOCAB)}
+
+PROTEIN_BACKBONE = {"N", "CA", "C", "O"}
+NUCLEIC_BACKBONE = {"P", "O5'", "C5'", "C4'", "C3'", "O3'"}
+
+RECEPTOR_BOND_TYPE_TO_ID = {
+    "single": 0,
+    "double": 1,
+    "aromatic": 2,
+    "backbone": 3,
+    "disulfide": 4,
+    "covale": 5,
+    "triple": 6,
+}
+
+METAL_ELEMENTS = {
+    "LI",
+    "BE",
+    "NA",
+    "MG",
+    "AL",
+    "K",
+    "CA",
+    "SC",
+    "TI",
+    "V",
+    "CR",
+    "MN",
+    "FE",
+    "CO",
+    "NI",
+    "CU",
+    "ZN",
+    "GA",
+    "RB",
+    "SR",
+    "Y",
+    "ZR",
+    "NB",
+    "MO",
+    "TC",
+    "RU",
+    "RH",
+    "PD",
+    "AG",
+    "CD",
+    "IN",
+    "SN",
+    "CS",
+    "BA",
+    "LA",
+    "CE",
+    "PR",
+    "ND",
+    "PM",
+    "SM",
+    "EU",
+    "GD",
+    "TB",
+    "DY",
+    "HO",
+    "ER",
+    "TM",
+    "YB",
+    "LU",
+    "HF",
+    "TA",
+    "W",
+    "RE",
+    "OS",
+    "IR",
+    "PT",
+    "AU",
+    "HG",
+    "TL",
+    "PB",
+    "BI",
+    "PO",
+    "FR",
+    "RA",
+    "AC",
+    "TH",
+    "PA",
+    "U",
+}

@@ -15,21 +15,19 @@ from rdkit import Chem
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from atom_labels import build_atom_labels
-from chimera import ChimeraRunner
-from contracts import CArtifactState, inspect_stage_c, load_npz_arrays
-from density import build_experimental_density, build_ligand_area, build_simulated_density
-from filtering import run_stage_g
-from failures import KnownFailureCode, KnownSampleFailure
-from io_utils import atomic_save_npz, read_jsonl, write_jsonl
-from mapq import MapQRunner
-from mrc import MapGrid, write_canonical_mrc
-from parse import parse_one_pdb
-from quality import build_quality
-from reports import stage_report_path, stage_result, write_stage_results
+from adaligand_preprocessing.stages.stage_d import build_atom_labels
+from adaligand_preprocessing.external_tools.chimera import ChimeraRunner
+from adaligand_preprocessing.stages.stage_c.contracts import CArtifactState, inspect_stage_c, load_npz_arrays
+from adaligand_preprocessing.stages.stage_e import build_experimental_density, build_ligand_area, build_simulated_density
+from adaligand_preprocessing.stages.stage_g import run_stage_g
+from adaligand_preprocessing.artifacts.failures import KnownFailureCode, KnownSampleFailure
+from adaligand_preprocessing.utils.io import atomic_save_npz, read_jsonl, write_jsonl
+from adaligand_preprocessing.external_tools.mapq import MapQRunner
+from adaligand_preprocessing.geometry.mrc import MapGrid, write_canonical_mrc
+from adaligand_preprocessing.stages.stage_c.pipeline import parse_one_pdb
+from adaligand_preprocessing.stages.stage_f import build_quality
+from adaligand_preprocessing.artifacts.reports import stage_report_path, stage_result, write_stage_results
 
 
 def _ccd_mol(names: list[str], atomic_numbers: list[int], positions: list[tuple[float, float, float]]) -> Chem.Mol:

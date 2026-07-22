@@ -9,7 +9,15 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-VENDORED_PATH = PROJECT_ROOT / "Data_Preprocessing" / "Ori_Data" / "code" / "mrc_pocket_legacy.py"
+VENDORED_PATH = (
+    PROJECT_ROOT
+    / "Data_Preprocessing"
+    / "Ori_Data"
+    / "adaligand_preprocessing"
+    / "geometry"
+    / "legacy"
+    / "mrc_pocket.py"
+)
 MANIFEST_PATH = VENDORED_PATH.with_suffix(".source.json")
 ANCESTOR_PATH = (
     PROJECT_ROOT.parent

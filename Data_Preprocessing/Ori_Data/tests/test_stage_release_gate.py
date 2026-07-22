@@ -8,11 +8,10 @@ from pathlib import Path
 
 
 CODE_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(CODE_ROOT / "code"))
 
-from io_utils import read_jsonl, write_jsonl
-from exclusions import exclusion_status_fields, load_run_exclusions
-from reports import stage_report_path, stage_result, write_stage_results
+from adaligand_preprocessing.utils.io import read_jsonl, write_jsonl
+from adaligand_preprocessing.execution.exclusions import exclusion_status_fields, load_run_exclusions
+from adaligand_preprocessing.artifacts.reports import stage_report_path, stage_result, write_stage_results
 
 
 def test_strict_smoke_gate_rejects_known_failure_but_full_gate_allows_it(tmp_path: Path) -> None:
@@ -27,7 +26,8 @@ def test_strict_smoke_gate_rejects_known_failure_but_full_gate_allows_it(tmp_pat
     )
     base_command = [
         sys.executable,
-        str(CODE_ROOT / "scripts" / "stage_release_gate.py"),
+        "-m",
+        "adaligand_preprocessing.cli.stage_release",
         "--root",
         str(tmp_path),
         "--run_id",
@@ -88,7 +88,8 @@ def test_gate_binds_run_exclusion_manifest_to_status_provenance(tmp_path: Path) 
     )
     command = [
         sys.executable,
-        str(CODE_ROOT / "scripts" / "stage_release_gate.py"),
+        "-m",
+        "adaligand_preprocessing.cli.stage_release",
         "--root",
         str(tmp_path),
         "--run_id",
@@ -136,7 +137,8 @@ def test_gate_rejects_policy_excluded_status_without_manifest(tmp_path: Path) ->
     )
     command = [
         sys.executable,
-        str(CODE_ROOT / "scripts" / "stage_release_gate.py"),
+        "-m",
+        "adaligand_preprocessing.cli.stage_release",
         "--root",
         str(tmp_path),
         "--run_id",
