@@ -100,13 +100,13 @@ python -m adaligand_preprocessing.cli.stage_g --help
 | 数组 | 类型与形状 | 含义 |
 |---|---|---|
 | `smiles` | 标量字符串 | 单残基配体的 SMILES；多残基配体为空字符串 |
-| `atom_names` | `object (M,)` | 原子名，顺序与 `atoms` 完全一致 |
+| `atom_names` | Unicode 字符串 `(M,)`，具体宽度由最长原子名决定 | 原子名，顺序与 `atoms` 完全一致；冻结样本可见 `<U2` 等 dtype |
 | `atoms` | 结构化数组 `(M,)` | 重原子属性，子字段见下文 |
 | `bonds` | 结构化数组 `(E,)` | 化学键，端点索引指向 `atoms` |
 | `name` | 标量字符串 | 与 `object_key` 相同 |
-| `residue_names` | `object (R,)` | 各残基的 CCD 名称 |
-| `symmetries` | 空列表 | 当前未提供对称性 |
-| `blobs` | `None` | 当前训练数据不使用的预留字段 |
+| `residue_names` | Unicode 字符串 `(R,)`，具体宽度由最长 CCD 名称决定 | 各残基的 CCD 名称；冻结样本可见 `<U3` 等 dtype |
+| `symmetries` | `float64 (0,)` | 当前未提供对称性，因此由空 Python 列表落成空数组 |
+| `blobs` | `object` 标量，值为 `None` | 当前训练数据不使用的预留字段 |
 
 `atoms` 的子字段：
 
@@ -122,7 +122,14 @@ python -m adaligand_preprocessing.cli.stage_g --help
 | `in_ring` | `bool (4,)` | 是否位于 3、4、5、6 元环 |
 | `residue_id` | `int32` | 所属 `components.index` |
 
-`bonds` 的子字段是 `atom_1`、`atom_2`、`type`、`in_ring`。`atom_1` 和 `atom_2` 是 `atoms` 的位置索引；`type` 是单键、双键、三键、配位键、芳香键的五维独热编码。
+`bonds` 的子字段：
+
+| 子字段 | 类型与形状 | 含义 |
+|---|---|---|
+| `atom_1` | `int32` | 第一个端点在 `atoms` 中的位置索引 |
+| `atom_2` | `int32` | 第二个端点在 `atoms` 中的位置索引 |
+| `type` | `bool (5,)` | 单键、双键、三键、配位键、芳香键的独热编码 |
+| `in_ring` | `bool (4,)` | 该键是否位于 3、4、5、6 元环 |
 
 ### `parse/{pdb_id}/ligand_coords.npz`
 
@@ -144,18 +151,39 @@ python -m adaligand_preprocessing.cli.stage_g --help
 |---|---|---|
 | `coords` | `float32 (N,3)` | 世界 XYZ 坐标，单位 Å |
 | `element` | `uint8 (N,)` | 原子序数 |
-| `res_type` | `uint8 (N,)` | 残基类别编号 |
+| `res_type` | `uint8 (N,)` | 残基类别编号；完整编号表见下文 |
 | `is_backbone` | `bool (N,)` | 蛋白或核酸主链原子标记 |
 | `atom_name` | `S4 (N,)` | ASCII 原子名 |
 | `res_index` | `int32 (N,)` | PDB 内全局残基编号，从 0 开始 |
 | `chain_index` | `int32 (N,)` | PDB 内全局链编号，从 0 开始 |
 | `bond_index` | `int32 (2,E)` | 无向化学键端点，索引指向上述 `N` 个原子 |
 | `bond_type` | `uint8 (E,)` | `0..6` 依次表示单键、双键、芳香键、主链键、二硫键、共价连接、三键 |
-| `feat` | `float32 (N,49)` | 元素、残基、理化性质、质量和 2 Å 邻域计数组成的特征 |
+| `feat` | `float32 (N,49)` | 元素、残基、理化性质、质量和 2 Å 距离壳层计数组成的特征；完整列定义见下文 |
+
+`res_type` 的编号固定为：`0..19 = ALA, ARG, ASN, ASP, CYS, GLN, GLU, GLY, HIS, ILE, LEU, LYS, MET, PHE, PRO, SER, THR, TRP, TYR, VAL`；`20..23 = A, C, G, U`；`24..27 = DA, DC, DG, DT`；`28 = UNK`。
+
+`feat` 的列切片固定为：
+
+| 列 | 含义 |
+|---|---|
+| `0:6` | 元素独热编码，顺序为 `C, N, O, S, P, X`；`X` 表示其他元素 |
+| `6:31` | 残基独热编码，顺序为上面的 20 种氨基酸、`A, U, C, G, X`；常见修饰残基先映射到标准母体，其他残基使用 `X` |
+| `31:39` | 八个残基理化标记，顺序为极性、非极性、酸性、碱性、中性、正电、负电、无电 |
+| `39` | 按元素取原子质量并除以 32；其他元素使用 0 |
+| `40:49` | 以当前原子为中心的九个距离壳层内其他受体原子数，经 `log1p` 变换；壳层依次为 `[0,2)`、`[2,4)`、…、`[16,18)` Å |
 
 ### `ligand_descriptors/{safe_object_key}.npz`
 
-`mol_weight`、`n_heavy`、`n_rings`、`n_rotatable`、`wiener_index`、`graph_energy`、`radius_gyration` 都是标量。`atom_local` 是 `float32 (M,5)`，依次保存图偏心率、1/2/3 跳邻居数、最近环的图距离；无环时最近环距离为 `-1`。
+| 数组 | 类型与形状 | 含义 |
+|---|---|---|
+| `mol_weight` | `float32` 标量 | 分子量 |
+| `n_heavy` | `int32` 标量 | 模板重原子数 |
+| `n_rings` | `int32` 标量 | RDKit 环数 |
+| `n_rotatable` | `int32` 标量 | RDKit 严格定义下的可旋转键数 |
+| `wiener_index` | `float32` 标量 | 原子图全部无序原子对最短路长度之和 |
+| `graph_energy` | `float32` 标量 | 原子邻接矩阵全部特征值绝对值之和 |
+| `radius_gyration` | `float32` 标量 | `atoms.ref_pos` 相对几何中心的均方根距离，单位 Å |
+| `atom_local` | `float32 (M,5)` | 依次为图偏心率、1/2/3 跳邻居数、到最近环的图距离；无环时最后一列为 `-1` |
 
 ## Stage D：受体原子标签
 
@@ -169,7 +197,7 @@ python -m adaligand_preprocessing.cli.stage_g --help
 | `instance_id` | `int32 (N,)` | 结合原子对应的最近 `candidate_id`；非结合原子为 `-1` |
 | `nearest_dist` | `float32 (N,)` | 到最近实际存在配体重原子的距离，单位 Å |
 | `binding_threshold` | `float32` 标量 | 生成标签使用的距离阈值，正式默认值为 4.0 Å，包含等号 |
-| `schema_version` | 整数标量 | 文件契约版本 |
+| `schema_version` | `uint16` 标量 | 文件契约版本 |
 | `source_receptor_sha256` | 字符串标量 | `receptor_tokens.npz` 的 SHA-256 |
 | `source_ligand_coords_sha256` | 字符串标量 | `ligand_coords.npz` 的 SHA-256 |
 
@@ -198,7 +226,11 @@ python -m adaligand_preprocessing.cli.stage_g --help
 | `source_map_sha256`、`source_meta_sha256` | 字符串标量 | 原始图和 EMDB 元数据的 SHA-256 |
 | `source_map_size`、`source_meta_size` | `int64` 标量 | 原始文件字节数 |
 | `source_map_mtime_ns`、`source_meta_mtime_ns` | `int64` 标量 | 原始文件修改时间，纳秒 |
-| `schema_version` 与 MRC 身份字段 | 标量 | 契约版本、Pocket Plus 算法来源和原点解释方式 |
+| `schema_version` | `uint16` 标量 | 实验密度文件契约版本 |
+| `mrc_algorithm` | 字符串标量 | 当前采用的 Pocket Plus 重采样算法标识 |
+| `mrc_ancestor_sha256` | 字符串标量 | 作为数值基线的 Pocket Plus 原始函数 SHA-256 |
+| `mrc_vendor_sha256` | 字符串标量 | 本项目冻结副本的 SHA-256 |
+| `source_origin_mode` | 字符串标量 | 读取原始 MRC 原点时采用的解释方式 |
 
 实验图重采样复用 `geometry/legacy/mrc_pocket.py` 中冻结的 Pocket Plus 数值函数。其来源、函数摘要与允许的适配记录在同目录 `mrc_pocket.source.json`。
 
@@ -206,7 +238,29 @@ python -m adaligand_preprocessing.cli.stage_g --help
 
 `grid`、`voxel_size`、`origin` 必须与 `exp.npz` 的形状和物理位置一致。模拟图只使用首个模型、规范化异构位置选择和 `group_PDB=ATOM` 的受体重原子；不包含水、配体或其他 `HETATM` 原子。
 
-除三个网格数组外，文件保存：`schema_version`、`resolution`、`chimera_version`、`source_exp_identity`、`source_cif_sha256`、`normalized_model_sha256`、`chimera_script_sha256`、输入文件大小和修改时间、`strict_hetatm_removed=True`、`generated_mrc_origin_mode`。数组必须有限、非零、具有方差并在三个空间方向都有内容。
+| 数组 | 类型与形状 | 含义 |
+|---|---|---|
+| `grid` | `float32 (1,Z,Y,X)` | Chimera `molmap` 生成并对齐实验网格的受体模拟密度 |
+| `voxel_size` | `float32 (3,)` | 与 `exp.npz` 相同的 XYZ 体素尺寸，单位 Å |
+| `origin` | `float32 (3,)` | 与 `exp.npz` 相同的世界 XYZ 网格边界原点，单位 Å |
+| `schema_version` | `uint16` 标量 | 模拟密度文件契约版本 |
+| `resolution` | `float32` 标量 | `molmap` 使用的分辨率，单位 Å |
+| `resolution_info_json` | 字符串标量 | `pair_list.jsonl` 中 `resolution_info` 的排序 JSON 文本 |
+| `chimera_version` | 字符串标量 | 实际运行的 UCSF Chimera 版本 |
+| `source_exp_identity_sha256` | 字符串标量 | 实验密度几何、来源与重采样身份的稳定 SHA-256 |
+| `source_cif_sha256` | 字符串标量 | 原始 mmCIF 的 SHA-256 |
+| `normalized_model_sha256` | 字符串标量 | 仅保留首模型、规范异构位置和 `group_PDB=ATOM` 重原子的模型 SHA-256 |
+| `chimera_script_sha256` | 字符串标量 | 本次生成的 Chimera `molmap.py` 脚本 SHA-256 |
+| `source_exp_size`、`source_exp_mtime_ns` | `int64` 标量 | `exp.npz` 的字节数和纳秒修改时间 |
+| `source_cif_size`、`source_cif_mtime_ns` | `int64` 标量 | 原始 mmCIF 的字节数和纳秒修改时间 |
+| `strict_hetatm_removed` | `bool` 标量 | 固定为 `True`，表示模拟图没有使用 `HETATM` |
+| `model_selection` | 字符串标量 | 固定的模型、异构位置、重原子和 `group_PDB` 选择规则 |
+| `generated_mrc_origin_mode` | 字符串标量 | Chimera 生成 MRC 的原点解释方式 |
+| `normalized_model_n_atoms` | `int32` 标量 | 规范化受体模型中的原子数 |
+| `tool_elapsed_seconds` | `float32` 标量 | 本次 Chimera 调用耗时，单位秒；属于运行信息，不参与科学计算 |
+| `tool_stdout`、`tool_stderr` | 字符串标量 | 相对 `scratch` 根目录的本次工具日志路径；属于运行信息 |
+
+模拟密度数组必须有限、非零、具有方差并在三个空间方向都有内容。
 
 ### `density/{pdb_id}/ligand_area.npz`
 
@@ -218,7 +272,24 @@ python -m adaligand_preprocessing.cli.stage_g --help
 
 每个 `occurrences.jsonl` 中的 `candidate_id` 都应有同名 `mask_{cid}` 和 `centroid_voxel_{cid}`。不同配体的区域允许重叠，`union_mask` 必须与全部稀疏索引的并集完全一致。
 
-文件还保存 `schema_version=3`、`source_manifest_sha256`、`grid_shape_zyx`、`voxel_size_xyz`、`origin_xyz`、`origin_semantics`、`voxel_center_offset_xyz`、`voxel_center_formula`、`voxel_center_dtype`、`distance_predicate`、`centroid_coordinate_system`、`mask_index_order`、`vdw_radius_source`、`storage_encoding`。C/N/O/P/S 的范德华半径分别为 1.70/1.55/1.52/1.80/1.80 Å，其他有效元素使用 RDKit 周期表数值。
+| 其余数组 | 类型与形状 | 含义 |
+|---|---|---|
+| `schema_version` | `uint16` 标量，值为 3 | 配体区域文件契约版本 |
+| `source_manifest_sha256` | 字符串标量 | E1、Stage C 与所用 LigandObject 输入集合的稳定 SHA-256 |
+| `grid_shape_zyx` | `int64 (3,)` | 与 `union_mask.shape[1:]` 相同的网格形状 |
+| `voxel_size_xyz` | `float32 (3,)` | 与 `exp.npz.voxel_size` 相同，单位 Å |
+| `origin_xyz` | `float32 (3,)` | 与 `exp.npz.origin` 相同，单位 Å |
+| `origin_semantics` | 字符串标量 | `origin_xyz` 表示网格物理边界下角点 |
+| `voxel_center_offset_xyz` | `float32 (3,)` | 从整数体素索引到体素中心的偏移，固定为 `(0.5,0.5,0.5)` |
+| `voxel_center_formula` | 字符串标量 | 体素中心世界坐标的计算公式 |
+| `voxel_center_dtype` | 字符串标量 | 计算体素中心时使用的数值类型 |
+| `distance_predicate` | 字符串标量 | 体素中心是否落入原子范德华半径的包含等号判定 |
+| `centroid_coordinate_system` | 字符串标量 | 固定为世界 XYZ 坐标、单位 Å |
+| `mask_index_order` | 字符串标量 | 固定为 `zyx` |
+| `vdw_radius_source` | 字符串标量 | 元素范德华半径的来源说明 |
+| `storage_encoding` | 字符串标量 | 稀疏索引和压缩 NPZ 的存储方式 |
+
+C/N/O/P/S 的范德华半径分别为 1.70/1.55/1.52/1.80/1.80 Å，其他有效元素使用 RDKit 周期表数值。
 
 ## Stage F：质量产物
 
@@ -231,10 +302,11 @@ python -m adaligand_preprocessing.cli.stage_g --help
 | `pocket_qscore_{cid}` | `float32 (K,)` | 与 `pocket_atom_site_id_{cid}` 逐元素对齐的受体原子 Q-score |
 | `pocket_radius_angstrom` | `float32` 标量 | 口袋半径，固定为 6.0 Å |
 | `pocket_definition` | 字符串标量 | 口袋选择规则 |
-| `schema_version` | 整数标量 | 文件契约版本 |
+| `schema_version` | `uint16` 标量 | 文件契约版本 |
 | `source_manifest_sha256` | 字符串标量 | Stage F 输入集合的稳定摘要 |
 | `mapping_method` | 字符串标量 | MapQ 原子与原始 mmCIF、配体模板的精确对应方法 |
-| `mapq_sigma`、`mapq_np` | 标量 | MapQ 参数，当前分别为 0.4 和 8 |
+| `mapq_sigma` | `float32` 标量 | MapQ `sigma` 参数，当前为 0.4 |
+| `mapq_np` | `int16` 标量 | MapQ `numPts` 参数，当前为 8 |
 
 没有受体原子落入 6 Å 范围时，两项口袋数组均为形状 `(0,)` 的对应类型空数组，不删除该配体实例。
 
@@ -265,14 +337,36 @@ python -m adaligand_preprocessing.cli.stage_g --help
 
 ### `quality/{pdb_id}.provenance.json`
 
-此文件不作为训练特征。它保存 `schema_version`、`pdb_id`、`source_manifest_sha256`、完整模型选择规则、规范化模型原子数、口袋定义、四种相关系数的精确定义和值、推荐等高线映射、Chimera 版本、MapQ 包版本与摘要、固定参数、适配标识和各外部程序日志路径，用于证明两个质量文件来自哪些输入和工具。
+此文件不作为训练特征。顶层字段和嵌套字段如下：
+
+| 字段 | JSON 类型 | 含义 |
+|---|---|---|
+| `schema_version` | `int` | Stage F 质量产物契约版本 |
+| `pdb_id` | `str` | 小写 PDB 编号 |
+| `source_manifest_sha256` | `str` | Stage F 全部输入文件和关键身份的稳定 SHA-256 |
+| `full_model_selection` | `str` | Chimera/MapQ 共用的首模型、异构位置和重原子选择规则 |
+| `normalized_model_n_atoms` | `int` | 规范化全模型中的原子数 |
+| `pocket_qscore` | `object` | 口袋 Q-score 定义，子字段见下文 |
+| `cc_semantics` | `object` | `cc_contour`、`cc_contour_about_mean`、`cc_all`、`cc_all_about_mean` 四个键及其定义 |
+| `cc_values` | `object` | 上述四个相关系数的实际值；推荐等高线不可用时前两个为 `null` |
+| `contour` | `object` | 实验等高线从原始幅值映射到当前网格的完整信息，子字段见下文 |
+| `chimera_version` | `str` | 实际运行的 UCSF Chimera 版本 |
+| `mapq` | `object` | 固定 MapQ 来源、脚本摘要、适配和参数，子字段见下文 |
+| `logs` | `object` | `molmap_stdout`、`molmap_stderr`、`cc_stdout`、`cc_stderr`、`mapq_stdout`、`mapq_stderr` 六个相对 `scratch` 根目录的日志路径 |
+| `scratch` | `str` | 本次 Stage F 尝试相对 `scratch` 根目录的位置 |
+
+`pocket_qscore` 包含：`definition`（选择规则）、`radius_angstrom`（6.0）、`atom_group`（受体原子集合）、`envelope`（到任一实际配体重原子的距离判定）、`raw_arrays`（对应的两个 NPZ 数组名）。
+
+`contour` 包含：`value`、`value_space`、`native_value`、`canonical_value`、`scale_to_canonical`、`scale_method`、`resample_mode`、`status`、`path`、`source`。`value` 与 `canonical_value` 相同，`value_space` 固定说明它位于 Pocket Plus 重采样后的幅值空间；`native_value`、`canonical_value` 和 `value` 在推荐等高线不可用时为 `null`。
+
+`mapq` 包含：`package`、`commit`、`zip_sha256`、`mapq_cmd_sha256`、`adapter_patch`、`cli_banner`、`sigma`、`np`。其中 `cli_banner` 是从工具日志提取的说明文字，可能随日志首行变化；固定包名、提交、压缩包摘要、入口脚本摘要和参数才共同标识实际 MapQ 实现。
 
 ## Stage G：分析与可选过滤
 
 分析模式写入：
 
-- `reports/runs/{run_id}/stage_g_analysis/quality_distribution.json`：四种相关系数、配体 Q-score、口袋 Q-score 和分辨率的分布统计。
-- `reports/runs/{run_id}/stage_g_analysis/candidates.pending.jsonl`：尚未应用用户阈值的配体候选，字段来自 `quality/*.jsonl`。
+- `reports/runs/{run_id}/stage_g_analysis/candidates.pending.jsonl`：每条记录含 `pdb_id`、`candidate_id`、`type_tag`、`pocket_status`，以及 `q_score`、`q_score_median`、`q_score_min`、`pocket_q_score`、`pocket_q_score_median`、`pocket_q_score_min`、`pocket_n_atoms`、`map_resolution` 和四个 `cc_*` 字段。字段类型和空值含义与 `quality/{pdb_id}.jsonl` 相同。
+- `reports/runs/{run_id}/stage_g_analysis/quality_distribution.json`：顶层含 `run_id`、`input_manifest_sha256`，PDB 与配体实例计数，已知失败和受控失败原因计数，`type_tag_counts`、`pocket_status_counts`、`fields`、`threshold_status`。`fields` 对上述 12 个数值字段逐一保存 `n_finite`、`n_null` 和固定分位点 `0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 1`。
 
 分析模式不会创建 `keep_list.jsonl`。过滤模式需要显式提供 schema 2 配置：
 
@@ -296,10 +390,10 @@ python -m adaligand_preprocessing.cli.stage_g --help
 
 过滤模式还写入：
 
-- `reports/runs/{run_id}/stage_g/map_filter_diagnostics.jsonl`：每个 PDB 的相关系数、分辨率、通过比例、布尔判断和具体原因。
-- `reports/runs/{run_id}/stage_g/excluded_maps.jsonl`：未通过的 PDB 及精简原因。
-- `reports/runs/{run_id}/stage_g/summary.json`：配置摘要、输入摘要和计数。
-- `keep_list.jsonl`：按 `(pdb_id,candidate_id)` 排序的最终主键记录。
+- `reports/runs/{run_id}/stage_g/map_filter_diagnostics.jsonl`：每个 PDB 一条记录，含 `pdb_id`、`n_occurrences`、`n_empty_pocket_occurrences`、`cc_field`、`cc_value`、`cc_pass`、`resolution`、`resolution_pass`、`n_pair_pass`、`qualified_fraction`、`qualified_fraction_pass`、`map_pass`、`reasons`、`occurrences`。其中 `occurrences` 的每项含 `candidate_id`、`q_score`、`pocket_q_score`、`pocket_status`、`pair_pass`、`reasons`。
+- `reports/runs/{run_id}/stage_g/excluded_maps.jsonl`：每个未通过 PDB 含 `pdb_id`、`reasons`、`n_occurrences`、`n_pair_pass`、`qualified_fraction`。
+- `reports/runs/{run_id}/stage_g/summary.json`：含 `run_id`、输入与过滤摘要、配置路径和原文、PDB 与配体实例计数、已知/受控失败计数以及 `map_exclusion_reason_counts`。
+- `keep_list.jsonl`：每条记录只含 `pdb_id: str` 和 `candidate_id: int`，按二者升序排列。它是过滤成功后的完成标记；分析模式不会创建它。
 
 ## 运行状态与诊断文件
 

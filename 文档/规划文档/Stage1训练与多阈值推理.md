@@ -2,7 +2,7 @@
 
 > **文档角色**：本文是 Stage1 完整图推理、阈值标定、组件森林、CLG、三类居中推理、selector 与结构化选择的科学和运行主规格。它面向没有上下文的实现者，规定“计算什么、结果代表什么、各集合承担什么职责”。
 >
-> **并列文档**：三类 producer 的 Dataset、模型与训练见 `文档/规划文档/Stage1训练实现计划.md`；盘上字段、dtype、目录和 ragged 关系见 `文档/讨论/BOX-level数据契约.md`；上游整图资产见 `Data_Preprocessing/Ori_Data/code/readme.md`。
+> **并列文档**：三类 producer 的 Dataset、模型与训练见 `文档/规划文档/Stage1训练实现计划.md`；盘上字段、dtype、目录和 ragged 关系见 `文档/讨论/BOX-level数据契约.md`；上游整图资产见 `Data_Preprocessing/Ori_Data/README.md`。
 >
 > **低权重附录**：`文档/规划文档/Stage1实现细节手册.md` 只补充代码落点、伪代码、测试和续跑示例，不改变本文。
 >
@@ -186,7 +186,7 @@ $$
 
 `min_voxels=32` 固定。
 
-`max_voxels` 在正式组件生产前通过一次性服务器统计冻结：根据 `Data_Preprocessing/Ori_Data/code/readme.md` 读取 GT occurrence 的 ligand-area 体素数，求 Q95，再乘 1.5 并向上取整。当前全量有效 Stage E 清单覆盖 22,309 个 PDB、673,364 个 occurrence，得到 `Q95=682`，因此正式第一版固定 `max_voxels=ceil(682×1.5)=1023`。格点已经重采样到约 1 Å，不引入实际 voxel volume 换算。该任务只把最终数值交回配置，临时文件不构成永久统计流水线；组件代码不得在该值缺失时猜默认值。
+`max_voxels` 在正式组件生产前通过一次性服务器统计冻结：根据 `Data_Preprocessing/Ori_Data/README.md` 读取 GT occurrence 的 ligand-area 体素数，求 Q95，再乘 1.5 并向上取整。当前全量有效 Stage E 清单覆盖 22,309 个 PDB、673,364 个 occurrence，得到 `Q95=682`，因此正式第一版固定 `max_voxels=ceil(682×1.5)=1023`。格点已经重采样到约 1 Å，不引入实际 voxel volume 换算。该任务只把最终数值交回配置，临时文件不构成永久统计流水线；组件代码不得在该值缺失时猜默认值。
 
 ### 3.4 calibration 报告
 

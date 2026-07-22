@@ -2,7 +2,7 @@
 
 > **本文定位**：本文是 Stage1 训练预定位、完整图概率、组件森林/CLG、三类居中 BOX、selector score 与正式 selection 的盘上唯一权威。它只规定身份、目录、字段、shape、dtype、ragged 关系和完成语义；算法与 loss 见两份 Stage1 规划文档。
 >
-> **上游**：`文档/规划文档/数据处理_v2.md` 与 `Data_Preprocessing/Ori_Data/code/readme.md` 提供整图密度、受体、标签和 occurrence 资产，到此不切 Stage1 BOX。
+> **上游**：`文档/规划文档/数据处理_v2.md` 与 `Data_Preprocessing/Ori_Data/README.md` 提供整图密度、受体、标签和 occurrence 资产，到此不切 Stage1 BOX。
 >
 > **生产者**：`文档/规划文档/Stage1训练实现计划.md` 与 `文档/规划文档/Stage1训练与多阈值推理.md`。
 >
@@ -37,7 +37,7 @@ raw density、sim、GT 和 49D receptor 基础表继续整图存一次；Dataset
 
 ## 1. 整图资产与几何
 
-整图资产字段、实际服务器路径和版本以 `Data_Preprocessing/Ori_Data/code/readme.md` 为准。Stage1 依赖的逻辑内容：
+整图资产字段、实际服务器路径和版本以 `Data_Preprocessing/Ori_Data/README.md` 为准。Stage1 依赖的逻辑内容：
 
 | 内容 | 解码 shape / dtype | 作用 |
 |---|---|---|
