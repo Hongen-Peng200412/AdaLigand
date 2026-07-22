@@ -15,8 +15,8 @@ import pytest
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
-from adaligand_preprocessing.stages import stage_e as density_module
-from adaligand_preprocessing.stages import stage_e as e3_repair
+from adaligand_preprocessing.stages.stage_e import ligand_area as density_module
+from adaligand_preprocessing.stages.stage_e import ligand_area as e3_repair
 from adaligand_preprocessing.utils import io as io_utils_module
 from adaligand_preprocessing.stages.stage_e import (
     EXP_SCHEMA_VERSION,

@@ -42,4 +42,3 @@ def sha256_named_values(values: dict[str, Any]) -> str:
         allow_nan=False,
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
-

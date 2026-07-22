@@ -42,4 +42,3 @@ def file_lock(path: Path) -> Iterator[None]:
     with path.open("a+b") as handle:
         with locked_file(handle):
             yield
-
