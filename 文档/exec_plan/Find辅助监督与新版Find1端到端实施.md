@@ -24,7 +24,7 @@
 - [x] (2026-07-23 03:48+08:00) 在精确发布目录通过 Pocket_Plus `378 passed` 与 AdaLigand `306 passed`；真实 `10ad` Dataset 读出 56 通道输入和三项新标签，固定模型具有 64 通道 `voxel_final` 与五个两层 1×1×1 输出头。
 - [x] (2026-07-23 03:58+08:00) 从 Job `321107`、`321540`、`321743` 各自 allocation 运行时源码只增补缺失快照文件，原有 26 个文件逐字核验且未覆盖；三种真实 checkpoint 均从补齐快照严格恢复成功。
 - [ ] 完成服务器真实前向—反向验证；该步骤在接管 Job `321540` 后使用同一两张 H100 执行，不额外提交 GPU 作业。
-- [ ] 等待全量距离生产 Slurm array `323027` 完成并聚合 12 个分片；当前最多同时运行 192 核，最终必须 `failed=0`。
+- [ ] 等待全量距离生产 Slurm array `323027` 完成并聚合 12 个分片。分片 2 与 7 已分别报告 `6k0a`、`7ojf` 缺少正式 `exp.npz`，因此训练发布门当前不通过；其余分片继续完成，只收集证据，不重提相同任务、不接管 Job `321540`。
 - [ ] 形成两个仓库的实现端点与学习端点，验证允许差异后推进各自 `Learn/CUMULATIVE`。
 - [ ] 核实并接管 Job `321540`，启动新版 Find_1 CPC1→CPC2，完成短期检查和 heartbeat 监控。
 - [ ] 收口映射索引、README、ExecPlan、`CLAUDE/memory/`、运行证据和 heartbeat。
@@ -51,6 +51,8 @@
   Evidence: 共享目录测试额外收集旧 `Find_2` 配置与历史测试并得到与本地不同的测试数量；从空目录建立的提交命名发布副本分别通过 Pocket_Plus `378 passed` 与 AdaLigand `306 passed`。新版训练必须从精确发布副本启动，不从共享目录或旧 allocation runtime 猜测代码集合。
 - Observation: 真实 `10ad` 中，第一个中心 BOX 的蛋白 N/CA/C/O 体素数分别为 968、965、945、943，核酸前景类别为空；配体反距离目标范围为 0.0143756–0.7884504。
   Evidence: CPU 作业 `323026` 从正式 BOX pool 的 `train/10ad.npz` 直接构造请求，读取新距离文件、三项标签和 56 通道密度输入，并成功实例化新版固定五头模型。
+- Observation: 全量距离 array `323027` 的已完成分片 2 与 7 各出现一条 `unknown_failed`；对应 PDB 是 `6k0a` 与 `7ojf`，两者均缺少正式 `density/{pdb_id}/exp.npz`，不是距离计算产生 NaN 或写盘失败。
+  Evidence: `status.part_0002_of_0012.jsonl` 与 `status.part_0007_of_0012.jsonl` 分别记录 `FileNotFoundError`；Slurm task `323027_2`、`323027_7` 本身均为 `COMPLETED 0:0`，程序汇总各报告 `failed=1`。在 12 个分片聚合完毕并处理训练样本排除前，不允许接管 Job `321540`。
 
 ## Decision Log
 
@@ -87,7 +89,7 @@
 
 ## Outcomes & Retrospective
 
-距离标签代码、Pocket_Plus 新版训练代码、完整快照和推理适配已经完成本地与 Linux 测试、独立审计和真实 `10ad` 验证。三个正在训练的历史运行快照已经按各自实际执行源码只增补缺失文件，并通过真实 checkpoint 严格恢复。正式距离生产 array `323027` 正在运行；Job `321540`、旧训练进程与锁尚未修改。
+距离标签代码、Pocket_Plus 新版训练代码、完整快照和推理适配已经完成本地与 Linux 测试、独立审计和真实 `10ad` 验证。三个正在训练的历史运行快照已经按各自实际执行源码只增补缺失文件，并通过真实 checkpoint 严格恢复。正式距离生产 array `323027` 正在运行；已确认 `6k0a` 与 `7ojf` 因缺少正式实验密度文件失败，发布门暂停。Job `321540`、旧训练进程与锁尚未修改。
 
 ## Context and Orientation
 
@@ -191,3 +193,5 @@ Revision note 2026-07-23 01:10+08:00：记录距离标签第一版、5 项专项
 Revision note 2026-07-23 03:25+08:00：记录 Pocket_Plus 实现、推理 subagent、独立审计修复、本地合并测试、实现提交和复用 Job `321540` 时必须使用唯一运行标记的启动门槛。
 
 Revision note 2026-07-23 04:01+08:00：记录精确发布目录的 Linux 全套测试、真实 `10ad` 标签与 Dataset 证据、历史 checkpoint 快照补齐及严格恢复、全量距离 array `323027` 和共享目录不能作为精确发布目录的事实。
+
+Revision note 2026-07-23 07:05+08:00：记录 array `323027` 已确认的两个缺失实验密度文件、对应正式状态证据及暂停训练接管的发布门。
