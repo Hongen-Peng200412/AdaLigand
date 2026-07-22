@@ -2,7 +2,7 @@
 
 > **文档角色**：本文是 `Find_0`、`Find_1` 与 `unet_c1` 的训练实施主规格。它规定冻结数据准备、统一 Dataset/Collator、模型差异、监督、五套训练、BEST 选择、CPC 接缝与训练交付物。一个没有项目上下文的实现者应能仅凭本文、本文列出的上游契约和现有 Pocket_Plus 代码完成训练主线。
 >
-> **并列文档**：完整图推理、阈值标定、F1/CLG 居中推理和 selector 见 `文档/规划文档/Stage1训练与多阈值推理.md`；盘上字段与目录见 `文档/讨论/BOX-level数据契约.md`。上游资产的唯一事实来源是 `Data_Preprocessing/Ori_Data/code/readme.md`。
+> **并列文档**：完整图推理、阈值标定、F1/CLG 居中推理和 selector 见 `文档/规划文档/Stage1训练与多阈值推理.md`；盘上字段与目录见 `文档/讨论/BOX-level数据契约.md`。上游资产的唯一事实来源是 `Data_Preprocessing/Ori_Data/README.md`。
 >
 > **低权重附录**：`文档/规划文档/Stage1实现细节手册.md` 只给代码落点、伪代码、测试和 AI 实施顺序。若与本文冲突，以本文为准。
 >
@@ -159,7 +159,7 @@ ResolvedStage1Crop
 
 ### 3.2 权威整图资产
 
-字段名、路径和上游版本以 `Data_Preprocessing/Ori_Data/code/readme.md` 为准。Stage1 至少读取：
+字段名、路径和上游版本以 `Data_Preprocessing/Ori_Data/README.md` 为准。Stage1 至少读取：
 
 | 逻辑资产 | 用途 |
 |---|---|

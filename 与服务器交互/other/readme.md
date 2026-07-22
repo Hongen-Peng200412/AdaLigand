@@ -32,15 +32,9 @@ resolution-check-30/
 adaligand_stage1.egg-info/
 ```
 
-## 历史 sbatch 草案位置
+## 历史 sbatch 草案
 
-以下 Stage A/B/C array 脚本只保留为历史草案，不得用于当前正式全量 run：
-
-```text
-Data_Preprocessing/Ori_Data/sbatch/a.sbatch
-Data_Preprocessing/Ori_Data/sbatch/b.sbatch
-Data_Preprocessing/Ori_Data/sbatch/c.sbatch
-```
+早期 Stage A/B/C array 脚本 `a.sbatch`、`b.sbatch`、`c.sbatch` 已从当前目录删除，不得用于新的正式任务；需要核对历史时，从提交 `817940a1682216cb54308a0a0aa87fd76e1216f0` 读取，不要把它们恢复成当前入口。
 
 历史约定：
 
