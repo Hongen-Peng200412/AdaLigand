@@ -22,7 +22,7 @@
 - [x] (2026-07-22 21:05+08:00) 建立 `adaligand_preprocessing` 包、薄命令入口、共享基础层、`ops/` 和最小 `pyproject.toml`；删除已退出的一次任务文件并迁移保留测试。
 - [x] (2026-07-22 21:42+08:00) 将 Stage E 按实验密度、模拟密度、配体区域拆分，分离共享哈希与文件锁；Windows 完整测试为 `297 passed, 4 skipped`。
 - [x] (2026-07-22 22:10+08:00) 从当前代码、测试、规格和冻结产物重写 `Data_Preprocessing/Ori_Data/README.md`，删除混入运行历史的旧 README 和错误的旧 `learn.md`；20 个命令入口的 `--help` 全部通过。
-- [ ] 完成 Windows 全套、Linux 全部适用测试、命令入口、真实 Chimera/MapQ/MRC 小规模验证和冻结产物语义比较。
+- [x] (2026-07-22 23:05+08:00) 完成 Windows `297 passed, 4 skipped`、Linux `301 passed`、20 个命令入口、真实 Chimera/MapQ/MRC 小规模验证和 `7b14` 冻结质量产物逐字段比较。
 - [ ] 从共同起点重建 `Learn/data-preprocessing-maintenance`，验证实现端点与学习端点除允许的注释和学习文档外完全等价。
 - [ ] 创建一个未参与实现的新审计 subagent；只向其提供原始问题表现、冻结行为边界、两个端点、验证命令和证据位置，处理其独立结论。
 - [ ] 经原任务确认后，才允许对三个指定分支执行非强制推送。
@@ -55,6 +55,12 @@
 
 - Observation: 冻结 Pocket Plus 副本的模块说明也属于文件身份，不能为适应新路径直接修改。
   Evidence: 修改两份模块说明后，两个逐字节身份测试分别报告 SHA-256 漂移；恢复原字节后四项源码/AST 身份测试全部通过。新路径只写入副本外部的来源清单和 README。
+
+- Observation: 包迁移误改了生成给 Classic Chimera 自带 Python 的临时脚本导入字符串；普通 Python 单元测试没有执行 Chimera 内部导入，因此只在真实工具检查中暴露。
+  Evidence: Slurm `322532` 在 `molmap.py` 首句报 `ImportError: No module named adaligand_preprocessing.external_tools.chimera`。提交 `57339bb` 恢复 `from chimera import runCommand as rc` 和 `from chimera import openModels`，并增加精确脚本文本断言。随后 Slurm `322533` 在 37 秒内完成两张真实 MRC 和一个真实 Stage F 样本，退出码 `0:0`。
+
+- Observation: Stage F 来源说明中的 `mapq.cli_banner` 不是稳定工具身份；旧实现与当前实现都取 MapQ 标准输出和错误输出中第一段含 `mapq` 的文本，而相同工具在不同运行中第一段文本可能不同。
+  Evidence: `817940a` 与当前 `MapQRunner.run` 使用相同的 `next(... if "mapq" in line.lower())`。冻结 `7b14` 保存 `Command Line Script - MapQ Version 1.9.12`，本次真实重跑保存 MapQ 脚本路径；固定包、commit、zip、命令文件摘要、参数、全部聚合质量字段和逐原子数组仍相同。本轮把它列为既存的非科学来源文字差异，不改变抽取规则。
 
 ## Decision Log
 
@@ -314,6 +320,14 @@ Windows 基线：
 
     297 passed, 4 skipped in 35.20s
 
+修复真实 Chimera 临时脚本后的最终 Windows 结果：
+
+    297 passed, 4 skipped in 35.16s
+
+最终 Linux 结果：
+
+    301 passed in 73.55s
+
 实现端主要提交：
 
     e4ba5bb chore: pin preprocessing text line endings
@@ -321,6 +335,25 @@ Windows 基线：
     d1ab95c refactor: separate hashing and file locking
     7319f96 refactor: separate Stage E artifact builders
     e83dc52 docs: replace A-G artifact guide
+    71c3df3 docs: record A-G refactor progress
+    57339bb fix: preserve Chimera runtime imports
+
+最终 Linux 归档 SHA-256 与位置：
+
+    1696c1f1832ea4397efb3e529f64e3833e8b793e8ad1b14eafebebb3810aee28
+    /home/penghongen/My_Project/tmp/adaligand_a_g_maintenance_57339bb_20260722.tar.gz
+
+真实工具验证：
+
+    Slurm 322532: FAILED 1:0，真实捕获 Chimera 临时脚本导入错误
+    Slurm 322533: COMPLETED 0:0，7b14/7nll MRC+Chimera 与 7b14 MapQ/Stage F/release
+    /home/penghongen/My_Project/tmp/adaligand_a_g_maintenance_57339bb_real_smoke
+
+真实 `7b14` 比较结果 `comparison.json` 的 SHA-256：
+
+    b84d5026dde1a39d77531e50b985f4c894734060ea28e13e67378edbef449189
+
+比较确认 `quality/7b14.jsonl` 全字段相同；`quality_atoms/7b14.npz` 的 10 个数组在字段名、数据类型、形状、空值、编号、对齐与数值上全部相同。MRC 两样本的 native/canonical/simulated 形状、实际体素、原点、标准轴和 `nstart=0` 与冻结记录一致。来源说明差异仅为运行目录、日志路径和上述既存的非稳定 `mapq.cli_banner`。
 
 重构前服务器快照：
 
@@ -356,6 +389,7 @@ Python 运行依赖包括 NumPy、SciPy、Gemmi、RDKit、Requests、Joblib、mr
 ### Neutral drift
 
 - 当前 `stages/stage_f.py` 仍约一千行。它围绕唯一的质量三件套、其构建函数和同一验证闭环，暂不为满足文件长度机械拆分；独立审计若证明阅读边界仍不清楚，再按实际依赖拆分。
+- `mapq.cli_banner` 的既存抽取方式允许同一固定工具在不同运行保存不同的第一段 MapQ 相关文本。它不参与科学计算、发布门或输入身份摘要；本轮只记录，没有把来源文字稳定化混入结构整理。
 
 ### Harmful drift
 
@@ -363,7 +397,6 @@ Python 运行依赖包括 NumPy、SciPy、Gemmi、RDKit、Requests、Joblib、mr
 
 ### Unfinished scope
 
-- Linux 全套、真实 Chimera/MapQ/MRC 检查、冻结产物语义比较尚未完成。
 - 学习线和独立审计尚未开始。
 
 Revision note 2026-07-22 17:40+08:00: 创建本 ExecPlan，记录固定分支、隔离工作树、治理提交、行为边界、Windows 基线、服务器只读终态、代表样本选择和独立审计要求。
@@ -373,3 +406,5 @@ Revision note 2026-07-22 18:20+08:00: 回填重构前服务器快照、逐字段
 Revision note 2026-07-22 18:45+08:00: 加入覆盖全部现有代码、入口、调度、文档和测试的职责与生命周期矩阵；结合直接导入、测试、固定运行标识和活动 Slurm 命令确定迁移、合并或退出方向。
 
 Revision note 2026-07-22 22:15+08:00: 回填 LF 身份修复、包迁移、一次任务删除、Stage E 与共享工具拆分、Windows 完整结果、README 重写、命令入口验证和当前计划偏差。
+
+Revision note 2026-07-22 23:10+08:00: 回填 Linux 301 项、真实 Chimera 导入缺陷及修复、两个 Slurm 验证作业、真实 MRC/MapQ/Stage F 结果、冻结 `7b14` 逐字段比较和唯一非科学来源文字差异。
