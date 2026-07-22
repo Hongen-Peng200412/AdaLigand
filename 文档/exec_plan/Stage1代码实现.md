@@ -8,7 +8,7 @@
 - `文档/规划文档/Stage1训练与多阈值推理.md`：完整图概率、calibration、component forest、CLG、三类 centered、Selector 与精确反链 DP。
 - `文档/讨论/BOX-level数据契约.md`：盘上目录、字段、shape、dtype、ragged 对齐与完成状态的唯一权威。
 - `文档/规划文档/Stage1实现细节手册.md`：低权重的代码落点、测试和实施顺序，不改变前三份主规格。
-- `Data_Preprocessing/Ori_Data/code/readme.md`：正在运行的 A–G 数据管线及整图资产契约。Stage1 只读消费其当前已完成产物，不修改 A–G 正式产物、状态或作业。
+- `Data_Preprocessing/Ori_Data/README.md`：A–G 数据管线及整图资产的当前契约。Stage1 只读消费其当前已完成产物，不修改 A–G 正式产物、状态或作业。
 
 本文覆盖 Stage1 代码、配置、测试、服务器 smoke 和必要的一次性统计。正式全量训练、等待多日 checkpoint、正式全量完整图/centered 生产，以及 Stage2/Stage3 模型本体不在本轮执行范围。只有用户以后明确说“可以训练了”，才能提交正式训练脚本。
 
