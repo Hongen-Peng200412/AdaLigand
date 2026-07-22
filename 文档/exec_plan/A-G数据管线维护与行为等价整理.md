@@ -23,8 +23,8 @@
 - [x] (2026-07-22 21:42+08:00) 将 Stage E 按实验密度、模拟密度、配体区域拆分，分离共享哈希与文件锁；Windows 完整测试为 `297 passed, 4 skipped`。
 - [x] (2026-07-22 22:10+08:00) 从当前代码、测试、规格和冻结产物重写 `Data_Preprocessing/Ori_Data/README.md`，删除混入运行历史的旧 README 和错误的旧 `learn.md`；20 个命令入口的 `--help` 全部通过。
 - [x] (2026-07-22 23:05+08:00) 完成 Windows `297 passed, 4 skipped`、Linux `301 passed`、20 个命令入口、真实 Chimera/MapQ/MRC 小规模验证和 `7b14` 冻结质量产物逐字段比较。
-- [ ] 从共同起点重建 `Learn/data-preprocessing-maintenance`，验证实现端点与学习端点除允许的注释和学习文档外完全等价。
-- [ ] 创建一个未参与实现的新审计 subagent；只向其提供原始问题表现、冻结行为边界、两个端点、验证命令和证据位置，处理其独立结论。
+- [x] (2026-07-22 23:35+08:00) 从共同起点重建 `Learn/data-preprocessing-maintenance`；逐提交检查新增 Python 模块的语法和内部导入闭合，学习端 Windows 全套为 `297 passed, 4 skipped`，并把 `Learn/CUMULATIVE` 快进到学习端点。
+- [x] (2026-07-22 23:58+08:00) 由未参与实现的新审计 subagent 独立核查冻结边界、删除依据、服务器证据、README、双线端点和验证结果；处理两轮契约与学习历史阻断后，最终限定复核结论为 `PASS`。
 - [ ] 经原任务确认后，才允许对三个指定分支执行非强制推送。
 
 ## Surprises & Discoveries
@@ -62,6 +62,12 @@
 - Observation: Stage F 来源说明中的 `mapq.cli_banner` 不是稳定工具身份；旧实现与当前实现都取 MapQ 标准输出和错误输出中第一段含 `mapq` 的文本，而相同工具在不同运行中第一段文本可能不同。
   Evidence: `817940a` 与当前 `MapQRunner.run` 使用相同的 `next(... if "mapq" in line.lower())`。冻结 `7b14` 保存 `Command Line Script - MapQ Version 1.9.12`，本次真实重跑保存 MapQ 脚本路径；固定包、commit、zip、命令文件摘要、参数、全部聚合质量字段和逐原子数组仍相同。本轮把它列为既存的非科学来源文字差异，不改变抽取规则。
 
+- Observation: 第一版学习历史虽然端点等价，但早期概念提交引用了尚未出现的 Stage C、Stage G 和运维模块，不能作为独立阅读停点。
+  Evidence: 独立审计在原学习端点 `ccc16c3` 的前四个概念提交发现未闭合内部导入；重建后的 12 个学习提交按基础机制、A–C、外部工具、D/E、F/G、维护操作、入口、测试、退出旧路径、契约和阅读指南排列，逐提交 AST 检查均为零语法错误、零缺失内部导入。
+
+- Observation: README 的“全部非平凡字段”标准需要按实际落盘键逐项反查，概括性段落和凭记忆补写的枚举仍会漏掉 dtype、特征列边界和规范化配置字段。
+  Evidence: 独立审计先后发现 LigandObject Unicode dtype、`source_exp_identity_sha256`、49 维特征列、距离壳层边界、Stage G 嵌套配置等缺口；修订后逐项对照 `ligand_objects.py`、`receptor.py`、Stage E/F/G 构建函数，最终复核为 `PASS`。
+
 ## Decision Log
 
 - Decision: 共同起点和三个分支名称固定为用户指定值，不因工具或目录命名偏好改变。
@@ -90,7 +96,11 @@
 
 ## Outcomes & Retrospective
 
-实现端结构整理和 README 重写已经完成，正式产物与科学计算行为没有主动改动。当前仍需完成 Linux 全套、真实外部工具验证、冻结产物比较、学习线重建和独立审计，尚不能宣告本轮完成。
+本轮维护实现与独立核验已经完成。A–G 主线现在位于 `adaligand_preprocessing/stages/`，外部程序、产物校验、运行控制、长期维护入口和非领域通用工具分别位于具名目录；旧 `code/`、`scripts/`、固定作业恢复脚本和对应的一次任务测试已经在确认 Git 可恢复、正式 A–G 结束且活动作业不引用后删除。`Data_Preprocessing/Ori_Data/README.md` 可以直接查询正式产物路径、字段、类型、形状、单位、空值、编号和对齐关系。
+
+实现端 Windows 为 `297 passed, 4 skipped`，Linux 为 `301 passed`；真实 Chimera/MapQ/MRC 验证完成，代表样本与重构前冻结基线在科学字段和数值上等价。学习线重新按可独立阅读的依赖顺序建立，每个新增提交内部导入闭合；最终学习端只比实现端增加 `Data_Preprocessing/Ori_Data/LEARN.md`。独立审计最终结论为 `PASS`。
+
+审计通过时的内容端点是实现 `1d87957fb51340b1424f60e9d270b1918758f5ae`、学习与累计学习 `aaceb2aa7dde567cd7258d2627bbf1a3c6cb5c99`。本次收口提交只更新本 ExecPlan 与映射索引，因此不改变已审计代码、README、测试或端点等价关系。三个分支均未推送；只有原任务再次确认后才允许非强制推送。
 
 ## Context and Orientation
 
@@ -397,7 +407,7 @@ Python 运行依赖包括 NumPy、SciPy、Gemmi、RDKit、Requests、Joblib、mr
 
 ### Unfinished scope
 
-- 学习线和独立审计尚未开始。
+- 只剩外部发布动作：等待原任务明确确认后，才可对三个指定分支执行非强制推送。实现、验证和审计范围内没有未完成事项。
 
 Revision note 2026-07-22 17:40+08:00: 创建本 ExecPlan，记录固定分支、隔离工作树、治理提交、行为边界、Windows 基线、服务器只读终态、代表样本选择和独立审计要求。
 
@@ -408,3 +418,5 @@ Revision note 2026-07-22 18:45+08:00: 加入覆盖全部现有代码、入口、
 Revision note 2026-07-22 22:15+08:00: 回填 LF 身份修复、包迁移、一次任务删除、Stage E 与共享工具拆分、Windows 完整结果、README 重写、命令入口验证和当前计划偏差。
 
 Revision note 2026-07-22 23:10+08:00: 回填 Linux 301 项、真实 Chimera 导入缺陷及修复、两个 Slurm 验证作业、真实 MRC/MapQ/Stage F 结果、冻结 `7b14` 逐字段比较和唯一非科学来源文字差异。
+
+Revision note 2026-07-22 23:58+08:00: 回填依赖闭合的学习历史、README 逐字段审计修订、当前文档路径修复、两端 Windows 复核、独立审计最终 `PASS`、审计内容端点和未推送状态。
