@@ -19,9 +19,10 @@
 - [x] (2026-07-22 17:33+08:00) 只读核对服务器：正式作业 `316114/316115/316116/316117` 均为 `COMPLETED 0:0`；当前三个活动作业均为 Stage1 训练，不是 A–G 生产者。
 - [x] (2026-07-22 18:12+08:00) 在服务器隔离临时目录冻结 `5net/5mke/5mkf/7b14/7nll` 的代表性输入、A–F 产物、相关 CCD 与配体对象，并保存正式 G 汇总和逐字段语义摘要；随后独立重读归档并与正式文件逐个核对。
 - [x] (2026-07-22 18:42+08:00) 建立 `Data_Preprocessing/Ori_Data/` 每个现有文件的职责、调用者、生命周期、目标职责、处理动作和证据矩阵；反向搜索正式脚本、测试、sbatch 与活动 Slurm 命令。
-- [ ] 按阶段主线建立 `adaligand_preprocessing` 包、薄命令入口、共享基础层、`ops/` 和最小 `pyproject.toml`，逐步迁移测试并保持阶段验证通过。
-- [ ] 从当前代码、测试、规格和冻结产物重写数据管线 README；删除已经确认错误的旧 `learn.md`，学习指南在学习分支按最终逻辑历史重建。
-- [ ] 完成 Windows 全套、Linux 全部适用测试、命令入口、真实 Chimera/MapQ/MRC 小规模验证和冻结产物语义比较。
+- [x] (2026-07-22 21:05+08:00) 建立 `adaligand_preprocessing` 包、薄命令入口、共享基础层、`ops/` 和最小 `pyproject.toml`；删除已退出的一次任务文件并迁移保留测试。
+- [x] (2026-07-22 21:42+08:00) 将 Stage E 按实验密度、模拟密度、配体区域拆分，分离共享哈希与文件锁；Windows 完整测试为 `297 passed, 4 skipped`。
+- [x] (2026-07-22 22:10+08:00) 从当前代码、测试、规格和冻结产物重写 `Data_Preprocessing/Ori_Data/README.md`，删除混入运行历史的旧 README 和错误的旧 `learn.md`；20 个命令入口的 `--help` 全部通过。
+- [x] (2026-07-22 23:05+08:00) 完成 Windows `297 passed, 4 skipped`、Linux `301 passed`、20 个命令入口、真实 Chimera/MapQ/MRC 小规模验证和 `7b14` 冻结质量产物逐字段比较。
 - [ ] 从共同起点重建 `Learn/data-preprocessing-maintenance`，验证实现端点与学习端点除允许的注释和学习文档外完全等价。
 - [ ] 创建一个未参与实现的新审计 subagent；只向其提供原始问题表现、冻结行为边界、两个端点、验证命令和证据位置，处理其独立结论。
 - [ ] 经原任务确认后，才允许对三个指定分支执行非强制推送。
@@ -45,6 +46,21 @@
 
 - Observation: 历史收口说明曾把 `mrc.py::grid_world_bounds` 列为“看似未使用”的清理对象，但当前正式测试明确锁定其 XYZ 形状顺序。
   Evidence: `tests/test_mrc_contract.py::test_grid_world_bounds_use_xyz_shape_order` 直接导入并验证该函数。因此它属于公开 MRC 几何边界，本轮保留并随 `geometry/mrc.py` 迁移，不能仅凭生产调用搜索删除。
+
+- Observation: 把 `.py`、Shell、sbatch、JSON 来源清单和 Markdown 的行尾固定为 LF 后，干净工作树可以逐字节复现原始 Windows 基线。
+  Evidence: 提交 `e4ba5bb` 增加行尾规则；重构前在干净工作树重跑得到 `402 passed, 10 skipped in 28.68s`，原先唯一失败随源文件 SHA-256 恢复而消失。
+
+- Observation: 退出的一次任务测试占重构前收集结果的 111 项，保留的科学、产物、外部工具、通用运维和正式调度测试共 301 项。
+  Evidence: 重构前收集 412 项；重构后 Windows 收集 301 项并得到 `297 passed, 4 skipped`。退出测试逐文件对应职责矩阵中删除的 E3 修复、Stage F 补算、固定作业恢复、长尾截止和源文件快照入口；保留测试没有失败。
+
+- Observation: 冻结 Pocket Plus 副本的模块说明也属于文件身份，不能为适应新路径直接修改。
+  Evidence: 修改两份模块说明后，两个逐字节身份测试分别报告 SHA-256 漂移；恢复原字节后四项源码/AST 身份测试全部通过。新路径只写入副本外部的来源清单和 README。
+
+- Observation: 包迁移误改了生成给 Classic Chimera 自带 Python 的临时脚本导入字符串；普通 Python 单元测试没有执行 Chimera 内部导入，因此只在真实工具检查中暴露。
+  Evidence: Slurm `322532` 在 `molmap.py` 首句报 `ImportError: No module named adaligand_preprocessing.external_tools.chimera`。提交 `57339bb` 恢复 `from chimera import runCommand as rc` 和 `from chimera import openModels`，并增加精确脚本文本断言。随后 Slurm `322533` 在 37 秒内完成两张真实 MRC 和一个真实 Stage F 样本，退出码 `0:0`。
+
+- Observation: Stage F 来源说明中的 `mapq.cli_banner` 不是稳定工具身份；旧实现与当前实现都取 MapQ 标准输出和错误输出中第一段含 `mapq` 的文本，而相同工具在不同运行中第一段文本可能不同。
+  Evidence: `817940a` 与当前 `MapQRunner.run` 使用相同的 `next(... if "mapq" in line.lower())`。冻结 `7b14` 保存 `Command Line Script - MapQ Version 1.9.12`，本次真实重跑保存 MapQ 脚本路径；固定包、commit、zip、命令文件摘要、参数、全部聚合质量字段和逐原子数组仍相同。本轮把它列为既存的非科学来源文字差异，不改变抽取规则。
 
 ## Decision Log
 
@@ -74,7 +90,7 @@
 
 ## Outcomes & Retrospective
 
-尚未完成。当前只完成隔离工作树、治理提交、事实调查和 Windows 测试基线；尚未改变任何 A–G 科学计算代码。
+实现端结构整理和 README 重写已经完成，正式产物与科学计算行为没有主动改动。当前仍需完成 Linux 全套、真实外部工具验证、冻结产物比较、学习线重建和独立审计，尚不能宣告本轮完成。
 
 ## Context and Orientation
 
@@ -296,6 +312,49 @@ Windows 基线：
 
     402 passed, 10 skipped in 28.35s
 
+干净工作树固定 LF 后的重构前基线：
+
+    402 passed, 10 skipped in 28.68s
+
+当前实现端 Windows 完整结果：
+
+    297 passed, 4 skipped in 35.20s
+
+修复真实 Chimera 临时脚本后的最终 Windows 结果：
+
+    297 passed, 4 skipped in 35.16s
+
+最终 Linux 结果：
+
+    301 passed in 73.55s
+
+实现端主要提交：
+
+    e4ba5bb chore: pin preprocessing text line endings
+    1dff68d refactor: organize A-G preprocessing package
+    d1ab95c refactor: separate hashing and file locking
+    7319f96 refactor: separate Stage E artifact builders
+    e83dc52 docs: replace A-G artifact guide
+    71c3df3 docs: record A-G refactor progress
+    57339bb fix: preserve Chimera runtime imports
+
+最终 Linux 归档 SHA-256 与位置：
+
+    1696c1f1832ea4397efb3e529f64e3833e8b793e8ad1b14eafebebb3810aee28
+    /home/penghongen/My_Project/tmp/adaligand_a_g_maintenance_57339bb_20260722.tar.gz
+
+真实工具验证：
+
+    Slurm 322532: FAILED 1:0，真实捕获 Chimera 临时脚本导入错误
+    Slurm 322533: COMPLETED 0:0，7b14/7nll MRC+Chimera 与 7b14 MapQ/Stage F/release
+    /home/penghongen/My_Project/tmp/adaligand_a_g_maintenance_57339bb_real_smoke
+
+真实 `7b14` 比较结果 `comparison.json` 的 SHA-256：
+
+    b84d5026dde1a39d77531e50b985f4c894734060ea28e13e67378edbef449189
+
+比较确认 `quality/7b14.jsonl` 全字段相同；`quality_atoms/7b14.npz` 的 10 个数组在字段名、数据类型、形状、空值、编号、对齐与数值上全部相同。MRC 两样本的 native/canonical/simulated 形状、实际体素、原点、标准轴和 `nstart=0` 与冻结记录一致。来源说明差异仅为运行目录、日志路径和上述既存的非稳定 `mapq.cli_banner`。
+
 重构前服务器快照：
 
     /home/penghongen/My_Project/tmp/adaligand_a_g_maintenance_817940a_20260722
@@ -323,11 +382,14 @@ Python 运行依赖包括 NumPy、SciPy、Gemmi、RDKit、Requests、Joblib、mr
 
 ### Beneficial drift
 
-尚未发现。
+- Stage C 没有按初始草案合并为少数大文件，而是保留 `constants/contracts/descriptors/ligand_objects/pipeline/receptor/upgrades` 七个具名职责；这比 `ops/stage_c_dependencies.py` 一类合并名更便于定位稳定科学逻辑与维护入口。
+- Stage E 最终形成包级公开接口和三个产物职责文件，共用坐标与等高线规则进入 `common.py`；测试不再依赖旧单文件内部属性。
+- 已退出的一次任务测试与实现同时删除，正式测试保留并单独报告收集数量，避免用兼容壳伪装旧入口仍受支持。
 
 ### Neutral drift
 
-尚未发现。
+- 当前 `stages/stage_f.py` 仍约一千行。它围绕唯一的质量三件套、其构建函数和同一验证闭环，暂不为满足文件长度机械拆分；独立审计若证明阅读边界仍不清楚，再按实际依赖拆分。
+- `mapq.cli_banner` 的既存抽取方式允许同一固定工具在不同运行保存不同的第一段 MapQ 相关文本。它不参与科学计算、发布门或输入身份摘要；本轮只记录，没有把来源文字稳定化混入结构整理。
 
 ### Harmful drift
 
@@ -335,10 +397,14 @@ Python 运行依赖包括 NumPy、SciPy、Gemmi、RDKit、Requests、Joblib、mr
 
 ### Unfinished scope
 
-- 包迁移、README、学习线和独立审计尚未开始。
+- 学习线和独立审计尚未开始。
 
 Revision note 2026-07-22 17:40+08:00: 创建本 ExecPlan，记录固定分支、隔离工作树、治理提交、行为边界、Windows 基线、服务器只读终态、代表样本选择和独立审计要求。
 
 Revision note 2026-07-22 18:20+08:00: 回填重构前服务器快照、逐字段摘要、归档哈希、第二次只读核验和活动任务命令证据；代表性行为基线已经在任何代码重构之前冻结。
 
 Revision note 2026-07-22 18:45+08:00: 加入覆盖全部现有代码、入口、调度、文档和测试的职责与生命周期矩阵；结合直接导入、测试、固定运行标识和活动 Slurm 命令确定迁移、合并或退出方向。
+
+Revision note 2026-07-22 22:15+08:00: 回填 LF 身份修复、包迁移、一次任务删除、Stage E 与共享工具拆分、Windows 完整结果、README 重写、命令入口验证和当前计划偏差。
+
+Revision note 2026-07-22 23:10+08:00: 回填 Linux 301 项、真实 Chimera 导入缺陷及修复、两个 Slurm 验证作业、真实 MRC/MapQ/Stage F 结果、冻结 `7b14` 逐字段比较和唯一非科学来源文字差异。
