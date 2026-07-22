@@ -63,12 +63,14 @@ def _write_build_inputs(
     )
     occurrence = {"candidate_id": 0, "object_key": "CCD:LIG"}
     write_jsonl(parse_dir / "occurrences.jsonl", [occurrence])
+    coords = np.asarray(
+        [[-0.5, 2.75, 5.0], [0.5, 4.25, 7.0]],
+        dtype=np.float32,
+    )
+    coords[~np.asarray(present, dtype=bool)] = np.nan
     atomic_save_npz(
         coords_path,
-        coords_0=np.asarray(
-            [[-0.5, 2.75, 5.0], [0.5, 4.25, 7.0]],
-            dtype=np.float32,
-        ),
+        coords_0=coords,
         present_0=np.asarray(present, dtype=bool),
     )
     inspection = SimpleNamespace(

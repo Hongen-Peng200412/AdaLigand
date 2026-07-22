@@ -185,13 +185,17 @@ def load_ligand_distance_source(
             coords.dtype != np.float32
             or coords.ndim != 2
             or coords.shape[1:] != (3,)
-            or not np.isfinite(coords).all()
         ):
-            raise ValueError(f"candidate {candidate_id} coords must be finite float32 (N,3)")
+            raise ValueError(f"candidate {candidate_id} coords must be float32 (N,3)")
         if present.dtype != np.dtype(bool) or present.shape != (len(coords),):
             raise ValueError(f"candidate {candidate_id} present mask does not align")
         if np.any(present):
-            present_coords.append(coords[present])
+            selected_coords = coords[present]
+            if not np.isfinite(selected_coords).all():
+                raise ValueError(
+                    f"candidate {candidate_id} present atom coordinates must be finite"
+                )
+            present_coords.append(selected_coords)
 
     coords_xyz = (
         np.concatenate(present_coords, axis=0).astype(np.float32, copy=False)
