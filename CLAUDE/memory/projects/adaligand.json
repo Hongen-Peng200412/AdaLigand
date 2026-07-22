@@ -54,7 +54,8 @@
     "2026-07-18：用户进一步冻结审批纪律：即使出现系统性故障、科学风险、身份/schema漂移或根因不明，fail-closed也只表示未经决定不放行，不授权Agent自动修复或重跑。必须先冻结证据并报告范围、风险、置信度、修复路径和时间成本，由用户选择接受瑕疵顾全大局或严格阻断；没有明确指令不得终止producer、修改运行中代码或发起昂贵重跑。",
     "2026-07-18：补算318350/fsupp96_v2最终以5984 unique、5970 skipped+14 known和零unknown/duplicate/silent missing通过gate，status/release SHA为8babca24…d0c/123bed2c…fd69，八例继续0/3。fresh跨节点进程门与独立复核通过后，仅删除精确try_lock_316116并保留after-lock；正式F于21:53:48在原cnode04 CPU96 allocation复用run_cmd 0ff22ef9…e131恢复F12/no-overwrite，316117继续等待正式f_release。",
     "2026-07-20：正式F已完成22386/22386，raw状态为16944 skipped+5323 success+74 known+45 unknown；45例全部0/3且无活动writer。用户批准保留raw unknown、不重跑、不造占位，由gate/G共用逐行SHA绑定waiver自然排除，并把当前run cap由100提升为200；既有19条原生exclusion保持不变。默认严格的本地实现已通过专项65 passed+2 skipped、全套402 passed+10 skipped和独立审查。",
-    "2026-07-20：正式A-G analyze-only任务最终闭合。316114/316115/316116/316117全部COMPLETED 0:0；f_release成功绑定waiver SHA 805f4c49…0a04。G形成22386行状态（22251 success+90 known+45 raw unknown）、662078条候选且keep_list缺失。独立审计job321031重算集合、候选和全部分位数通过，summary SHA为3a2fa87e…9d00；45例继续0/3。代码重组与run-specific脚手架物理归档是后续维护任务，不影响本次科学产物完成。"
+    "2026-07-20：正式A-G analyze-only任务最终闭合。316114/316115/316116/316117全部COMPLETED 0:0；f_release成功绑定waiver SHA 805f4c49…0a04。G形成22386行状态（22251 success+90 known+45 raw unknown）、662078条候选且keep_list缺失。独立审计job321031重算集合、候选和全部分位数通过，summary SHA为3a2fa87e…9d00；45例继续0/3。代码重组与run-specific脚手架物理归档是后续维护任务，不影响本次科学产物完成。",
+    "2026-07-23：用户批准端到端实施 Find_1 三项辅助监督。已从 AdaLigand Learn/CUMULATIVE@799293c 与 Pocket_Plus de6a89f 建立隔离实现分支 codex/auxiliary-supervision-find1，并初始化活动 ExecPlan；下一步先实现 ligand_dist.npz 契约与代表性测试，不触碰原工作区或正在运行的训练。"
   ],
   "blockers": [],
   "failures": [
