@@ -13,18 +13,12 @@ from typing import Any
 import pytest
 
 
-CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-TESTS_DIR = Path(__file__).resolve().parent
-for import_dir in (CODE_DIR, TESTS_DIR):
-    if str(import_dir) not in sys.path:
-        sys.path.insert(0, str(import_dir))
-
-import quality
-from chimera import ChimeraRunner
-from density import build_experimental_density
-from failures import ExternalToolError, KnownSampleFailure, ToolFailureCode
-from mapq import MapQRunner
-from parse import parse_one_pdb
+from adaligand_preprocessing.stages import stage_f as quality
+from adaligand_preprocessing.external_tools.chimera import ChimeraRunner
+from adaligand_preprocessing.stages.stage_e import build_experimental_density
+from adaligand_preprocessing.artifacts.failures import ExternalToolError, KnownSampleFailure, ToolFailureCode
+from adaligand_preprocessing.external_tools.mapq import MapQRunner
+from adaligand_preprocessing.stages.stage_c.pipeline import parse_one_pdb
 from test_pipeline_smoke import _write_fake_chimera, _write_fake_mapq, _write_inputs
 
 

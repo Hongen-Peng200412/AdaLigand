@@ -17,14 +17,14 @@ write_adaligand_run_cmd() {
 set -euo pipefail
 cd "${CODE_ROOT}"
 
-"${PYTHON}" scripts/d_atom_labels.py \
+"${PYTHON}" -m adaligand_preprocessing.cli.stage_d \
   --root "${DATA_ROOT}" \
   --n_jobs "${D_N_JOBS:-64}" \
   --run_id "${ADALIGAND_RUN_ID}" &
 d_pid=$!
 
 e_exit=0
-"${PYTHON}" scripts/e_density.py \
+"${PYTHON}" -m adaligand_preprocessing.cli.stage_e \
   --root "${DATA_ROOT}" \
   --chimera "${CHIMERA}" \
   --scratch_root "${SCRATCH_ROOT}" \
@@ -38,7 +38,7 @@ if [ "${d_exit}" -ne 0 ] || [ "${e_exit}" -ne 0 ]; then
   exit 1
 fi
 
-"${PYTHON}" scripts/stage_release_gate.py \
+"${PYTHON}" -m adaligand_preprocessing.cli.stage_release \
   --root "${DATA_ROOT}" \
   --run_id "${ADALIGAND_RUN_ID}" \
   --stages stage_d,stage_e \

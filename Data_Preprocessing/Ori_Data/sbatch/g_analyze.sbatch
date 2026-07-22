@@ -16,7 +16,7 @@ write_adaligand_run_cmd() {
 #!/usr/bin/env bash
 set -euo pipefail
 cd "${CODE_ROOT}"
-"${PYTHON}" scripts/g_filter.py \
+"${PYTHON}" -m adaligand_preprocessing.cli.stage_g \
   --root "${DATA_ROOT}" \
   --run_id "${ADALIGAND_RUN_ID}" \
   --mode analyze

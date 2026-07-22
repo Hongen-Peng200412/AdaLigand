@@ -13,10 +13,8 @@ import numpy as np
 import pytest
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from mrc import (
+from adaligand_preprocessing.geometry.mrc import (
     POCKET_RESAMPLE_MIXED_COMPAT,
     MapGrid,
     canonicalization_info,
@@ -25,8 +23,8 @@ from mrc import (
     make_canonical_grid,
     write_canonical_mrc,
 )
-from mrc_pocket_legacy import load_map as pocket_load_map
-from mrc_pocket_legacy import make_model_grid as pocket_make_model_grid
+from adaligand_preprocessing.geometry.legacy.mrc_pocket import load_map as pocket_load_map
+from adaligand_preprocessing.geometry.legacy.mrc_pocket import make_model_grid as pocket_make_model_grid
 
 
 def _write_axis_fixture(

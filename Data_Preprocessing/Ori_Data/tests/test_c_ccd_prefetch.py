@@ -11,11 +11,9 @@ import pytest
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from c_ccd_prefetch import prefetch_and_audit_ccd
-from receptor import ReceptorAtomNameCoverageError
+from adaligand_preprocessing.ops.stage_c_ccd import prefetch_and_audit_ccd
+from adaligand_preprocessing.stages.stage_c.receptor import ReceptorAtomNameCoverageError
 
 
 def _ccd_mol(ccd_id: str) -> Chem.Mol:
@@ -43,7 +41,7 @@ def test_prefetch_writes_then_reloads_cache_only(monkeypatch, tmp_path):
         with path.open("rb") as handle:
             return pickle.load(handle)
 
-    monkeypatch.setattr("c_ccd_prefetch.get_ccd_mol", _fake_get)
+    monkeypatch.setattr("adaligand_preprocessing.ops.stage_c_ccd.get_ccd_mol", _fake_get)
 
     record = prefetch_and_audit_ccd(tmp_path, "ch")
 
@@ -66,7 +64,7 @@ def test_prefetch_rejects_wrong_cached_identity(monkeypatch, tmp_path):
         with path.open("rb") as handle:
             return pickle.load(handle)
 
-    monkeypatch.setattr("c_ccd_prefetch.get_ccd_mol", _fake_get)
+    monkeypatch.setattr("adaligand_preprocessing.ops.stage_c_ccd.get_ccd_mol", _fake_get)
 
     with pytest.raises(ReceptorAtomNameCoverageError, match="identity mismatch"):
         prefetch_and_audit_ccd(tmp_path, "CH")

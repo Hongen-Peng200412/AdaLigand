@@ -9,11 +9,9 @@ import gemmi
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from model_cif import write_normalized_model_cif
-from parse import category_rows
+from adaligand_preprocessing.external_tools.model_cif import write_normalized_model_cif
+from adaligand_preprocessing.stages.stage_c.pipeline import category_rows
 
 
 def _write_multistate_cif(path: Path) -> None:
@@ -88,7 +86,7 @@ def test_normalized_full_model_preserves_ids_and_selected_full_heavy_atoms(tmp_p
 def test_normalized_atom_only_strictly_removes_every_hetatm(tmp_path: Path) -> None:
     """E2 专用模型即使遇到 LIG/covalent 类 HETATM 也必须全部删除。"""
     source = tmp_path / "source.cif"
-    output = tmp_path / "receptor.cif"
+    output = tmp_path / "adaligand_preprocessing.stages.stage_c.receptor.cif"
     _write_multistate_cif(source)
 
     stats = write_normalized_model_cif(source, output, atom_only=True)

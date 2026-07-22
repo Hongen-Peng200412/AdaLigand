@@ -13,11 +13,9 @@ import pytest
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from io_utils import sha256_file, write_jsonl
-from mrc_origin_shift_audit import (
+from adaligand_preprocessing.utils.io import sha256_file, write_jsonl
+from adaligand_preprocessing.ops.mrc_origin_shift import (
     ORIGIN_SHIFT_AXIS_ORDER_RISK,
     analyze_origin_shift_axis_order,
     audit_one_header,
@@ -26,8 +24,8 @@ from mrc_origin_shift_audit import (
     load_stage_e_statuses,
     pocket_loaded_origin_from_header,
 )
-from mrc_contract_audit import canonical_shape_zyx
-from reports import stage_result
+from adaligand_preprocessing.ops.mrc_contract import canonical_shape_zyx
+from adaligand_preprocessing.artifacts.reports import stage_result
 
 
 def test_exact_predicate_comes_from_zyx_to_xyz_shift_mismatch() -> None:

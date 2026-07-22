@@ -10,13 +10,11 @@ import pytest
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from filtering import apply_map_filter_config, load_filter_config, load_stage_statuses, run_stage_g
-from exclusions import exclusion_status_fields, load_run_exclusions
-from io_utils import write_jsonl
-from reports import stage_report_path, stage_result, write_stage_results
+from adaligand_preprocessing.stages.stage_g import apply_map_filter_config, load_filter_config, load_stage_statuses, run_stage_g
+from adaligand_preprocessing.execution.exclusions import exclusion_status_fields, load_run_exclusions
+from adaligand_preprocessing.utils.io import write_jsonl
+from adaligand_preprocessing.artifacts.reports import stage_report_path, stage_result, write_stage_results
 
 
 def _schema_v2_config(**updates: object) -> dict[str, object]:

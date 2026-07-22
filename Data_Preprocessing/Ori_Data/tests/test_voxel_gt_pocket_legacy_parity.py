@@ -13,8 +13,10 @@ VENDORED_PATH = (
     PROJECT_ROOT
     / "Data_Preprocessing"
     / "Ori_Data"
-    / "code"
-    / "voxel_gt_pocket_legacy.py"
+    / "adaligand_preprocessing"
+    / "geometry"
+    / "legacy"
+    / "voxel_centers.py"
 )
 MANIFEST_PATH = VENDORED_PATH.with_suffix(".source.json")
 ANCESTOR_PATH = (

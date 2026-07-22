@@ -9,13 +9,11 @@ import numpy as np
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from atom_labels import ATOM_LABEL_SCHEMA_VERSION, atom_label_errors, compute_atom_labels
-from failures import KnownFailureCode, KnownSampleFailure
-from parallel import filter_pair_records, read_pdb_id_filter
-from reports import StageStatus, failure_stage_result, resolve_run_id, stage_report_path
+from adaligand_preprocessing.stages.stage_d import ATOM_LABEL_SCHEMA_VERSION, atom_label_errors, compute_atom_labels
+from adaligand_preprocessing.artifacts.failures import KnownFailureCode, KnownSampleFailure
+from adaligand_preprocessing.execution.parallel import filter_pair_records, read_pdb_id_filter
+from adaligand_preprocessing.artifacts.reports import StageStatus, failure_stage_result, resolve_run_id, stage_report_path
 
 
 def test_compute_atom_labels_shapes_threshold_and_background() -> None:

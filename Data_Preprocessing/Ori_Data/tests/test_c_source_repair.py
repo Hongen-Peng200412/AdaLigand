@@ -10,19 +10,17 @@ import pytest
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from c_source_repair import (
+from adaligand_preprocessing.ops.stage_c_repair import (
     SourceRepairError,
     _atom_name_derived_delta_reasons,
     apply_receptor_source_repair,
     audit_stage_c_source,
     verify_audit_inputs_unchanged,
 )
-from io_utils import atomic_save_npz, read_jsonl, sha256_file, write_jsonl
-from parse import StageCSourceView
-from reports import write_report
+from adaligand_preprocessing.utils.io import atomic_save_npz, read_jsonl, sha256_file, write_jsonl
+from adaligand_preprocessing.stages.stage_c.pipeline import StageCSourceView
+from adaligand_preprocessing.artifacts.reports import write_report
 
 
 def _base_arrays(atom_name: bytes) -> dict[str, np.ndarray]:
@@ -115,7 +113,7 @@ def _patch_receptor_builder(
         "feat": np.full((1, 49), feat_value, dtype=np.float32),
     })
     monkeypatch.setattr(
-        "c_source_repair.build_receptor_arrays",
+        "adaligand_preprocessing.ops.stage_c_repair.build_receptor_arrays",
         lambda *_args, **_kwargs: rebuilt,
     )
     return rebuilt
@@ -125,7 +123,7 @@ def test_atom_name_only_audit_and_apply_preserve_ligand_side(monkeypatch, tmp_pa
     """严格 atom-name-only 样本只原子替换 receptor，配体侧哈希保持不变。"""
     occurrences, ligand_coords = _write_fixture(tmp_path)
     view = _source_view(occurrences, ligand_coords, b"CB")
-    monkeypatch.setattr("c_source_repair.build_stage_c_source_view", lambda *_args, **_kwargs: view)
+    monkeypatch.setattr("adaligand_preprocessing.ops.stage_c_repair.build_stage_c_source_view", lambda *_args, **_kwargs: view)
     _patch_receptor_builder(monkeypatch, view)
     occurrence_path = tmp_path / "parse" / "1abc" / "occurrences.jsonl"
     coords_path = tmp_path / "parse" / "1abc" / "ligand_coords.npz"
@@ -161,7 +159,7 @@ def test_incomplete_old_receptor_atom_name_only_audit_and_apply(
 
     view = _source_view(occurrences, ligand_coords, b"CB")
     monkeypatch.setattr(
-        "c_source_repair.build_stage_c_source_view",
+        "adaligand_preprocessing.ops.stage_c_repair.build_stage_c_source_view",
         lambda *_args, **_kwargs: view,
     )
     rebuilt = _patch_receptor_builder(monkeypatch, view, feat_value=2.0)
@@ -197,7 +195,7 @@ def test_incomplete_old_receptor_does_not_excuse_ligand_drift(
     ]
     view = _source_view(changed_occurrences, ligand_coords, b"CB")
     monkeypatch.setattr(
-        "c_source_repair.build_stage_c_source_view",
+        "adaligand_preprocessing.ops.stage_c_repair.build_stage_c_source_view",
         lambda *_args, **_kwargs: view,
     )
     _patch_receptor_builder(monkeypatch, view)
@@ -223,7 +221,7 @@ def test_incomplete_old_receptor_does_not_excuse_non_atom_base_drift(
     view = _source_view(occurrences, ligand_coords, b"CB")
     view.receptor_base["coords"][0, 0] = 1.0
     monkeypatch.setattr(
-        "c_source_repair.build_stage_c_source_view",
+        "adaligand_preprocessing.ops.stage_c_repair.build_stage_c_source_view",
         lambda *_args, **_kwargs: view,
     )
     _patch_receptor_builder(monkeypatch, view)
@@ -239,7 +237,7 @@ def test_exact_audit_ignores_derived_centroid_arrays(monkeypatch, tmp_path):
     """source audit 只比较配体核心 coords/present，不把派生质心误判为 key 漂移。"""
     occurrences, ligand_coords = _write_fixture(tmp_path)
     view = _source_view(occurrences, ligand_coords, b"CA")
-    monkeypatch.setattr("c_source_repair.build_stage_c_source_view", lambda *_args, **_kwargs: view)
+    monkeypatch.setattr("adaligand_preprocessing.ops.stage_c_repair.build_stage_c_source_view", lambda *_args, **_kwargs: view)
     _patch_receptor_builder(monkeypatch, view)
 
     record = audit_stage_c_source(tmp_path, "1abc")
@@ -255,7 +253,7 @@ def test_exact_base_with_stale_receptor_derived_arrays_is_blocked(
     """base 完全一致时，旧 bond/feat 仍须与当前 source 重建结果逐位一致。"""
     occurrences, ligand_coords = _write_fixture(tmp_path)
     view = _source_view(occurrences, ligand_coords, b"CA")
-    monkeypatch.setattr("c_source_repair.build_stage_c_source_view", lambda *_args, **_kwargs: view)
+    monkeypatch.setattr("adaligand_preprocessing.ops.stage_c_repair.build_stage_c_source_view", lambda *_args, **_kwargs: view)
     _patch_receptor_builder(monkeypatch, view, feat_value=1.0)
 
     record = audit_stage_c_source(tmp_path, "1abc")
@@ -272,7 +270,7 @@ def test_ligand_occurrence_drift_is_blocked_without_receptor_write(monkeypatch, 
     occurrences, ligand_coords = _write_fixture(tmp_path)
     changed = occurrences + [{"pdb_id": "1abc", "candidate_id": 1, "object_key": "CCD:NEW"}]
     view = _source_view(changed, ligand_coords, b"CB")
-    monkeypatch.setattr("c_source_repair.build_stage_c_source_view", lambda *_args, **_kwargs: view)
+    monkeypatch.setattr("adaligand_preprocessing.ops.stage_c_repair.build_stage_c_source_view", lambda *_args, **_kwargs: view)
     _patch_receptor_builder(monkeypatch, view)
     receptor_path = tmp_path / "parse" / "1abc" / "receptor_tokens.npz"
     before = sha256_file(receptor_path)
@@ -288,7 +286,7 @@ def test_apply_rejects_toctou_after_audit(monkeypatch, tmp_path):
     """audit 后任一配体输入变化都必须在全局 preflight 阶段阻断。"""
     occurrences, ligand_coords = _write_fixture(tmp_path)
     view = _source_view(occurrences, ligand_coords, b"CB")
-    monkeypatch.setattr("c_source_repair.build_stage_c_source_view", lambda *_args, **_kwargs: view)
+    monkeypatch.setattr("adaligand_preprocessing.ops.stage_c_repair.build_stage_c_source_view", lambda *_args, **_kwargs: view)
     _patch_receptor_builder(monkeypatch, view)
     record = audit_stage_c_source(tmp_path, "1abc")
     write_jsonl(
@@ -304,7 +302,7 @@ def test_audit_freezes_report_and_dependency_closure(monkeypatch, tmp_path):
     """分类读取的 report、LigandObject 等间接依赖也必须纳入 TOCTOU 复核。"""
     occurrences, ligand_coords = _write_fixture(tmp_path)
     view = _source_view(occurrences, ligand_coords, b"CA")
-    monkeypatch.setattr("c_source_repair.build_stage_c_source_view", lambda *_args, **_kwargs: view)
+    monkeypatch.setattr("adaligand_preprocessing.ops.stage_c_repair.build_stage_c_source_view", lambda *_args, **_kwargs: view)
     _patch_receptor_builder(monkeypatch, view)
     record = audit_stage_c_source(tmp_path, "1abc")
 
@@ -335,7 +333,7 @@ def test_atom_name_audit_scopes_strict_coverage_to_changed_residue(
     occurrences, ligand_coords = _write_fixture(tmp_path)
     view = _source_view(occurrences, ligand_coords, b"CB")
     monkeypatch.setattr(
-        "c_source_repair.build_stage_c_source_view",
+        "adaligand_preprocessing.ops.stage_c_repair.build_stage_c_source_view",
         lambda *_args, **_kwargs: view,
     )
     rebuilt = dict(view.receptor_base)
@@ -350,7 +348,7 @@ def test_atom_name_audit_scopes_strict_coverage_to_changed_residue(
         captured.append(kwargs["required_atom_name_coverage_residues"])
         return rebuilt
 
-    monkeypatch.setattr("c_source_repair.build_receptor_arrays", _capture_builder)
+    monkeypatch.setattr("adaligand_preprocessing.ops.stage_c_repair.build_receptor_arrays", _capture_builder)
 
     record = audit_stage_c_source(tmp_path, "1abc")
 
@@ -363,7 +361,7 @@ def test_atom_name_only_audit_blocks_global_feature_drift(monkeypatch, tmp_path)
     occurrences, ligand_coords = _write_fixture(tmp_path)
     view = _source_view(occurrences, ligand_coords, b"CB")
     monkeypatch.setattr(
-        "c_source_repair.build_stage_c_source_view",
+        "adaligand_preprocessing.ops.stage_c_repair.build_stage_c_source_view",
         lambda *_args, **_kwargs: view,
     )
     _patch_receptor_builder(monkeypatch, view, feat_value=1.0)

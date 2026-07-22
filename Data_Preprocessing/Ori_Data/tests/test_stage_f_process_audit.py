@@ -11,15 +11,18 @@ import pytest
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from io_utils import sha256_file
-import stage_f_process_audit as process_audit
-import stage_f_scratch_recovery as recovery
+from adaligand_preprocessing.utils.io import sha256_file
+from adaligand_preprocessing.ops import stage_f_processes as process_audit
+from adaligand_preprocessing.ops import stage_f_scratch as recovery
 
 
-PROCESS_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "stage_f_process_audit.py"
+PROCESS_SCRIPT = (
+    Path(__file__).resolve().parents[1]
+    / "adaligand_preprocessing"
+    / "cli"
+    / "stage_f_process_audit.py"
+)
 
 
 @pytest.mark.parametrize(
@@ -74,7 +77,7 @@ def test_scan_owned_processes_classifies_and_excludes_ancestors(tmp_path: Path) 
         90,
         ppid=1,
         uid=uid,
-        argv=["python", "stage_f_scratch_recovery.py"],
+        argv=["python", "stage_f_scratch.py"],
     )
     _write_proc_process(proc_root, 110, ppid=1, uid=2000, argv=["python", "f_quality.py"])
     _write_proc_process(proc_root, 200, ppid=1, uid=uid, argv=["/usr/bin/python3", "-"])
@@ -90,7 +93,7 @@ def test_scan_owned_processes_classifies_and_excludes_ancestors(tmp_path: Path) 
         220,
         ppid=1,
         uid=uid,
-        argv=["python", "stage_f_scratch_recovery.py", "apply"],
+        argv=["python", "stage_f_scratch.py", "apply"],
     )
     _write_proc_process(
         proc_root,

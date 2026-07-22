@@ -10,11 +10,9 @@ import pytest
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from failures import ExternalToolError, ToolFailureCode
-from mapq import MAPQ_CIF_OPENMODELS_PATCH, MAPQ_NP, MAPQ_SIGMA, MapQRunner, parse_mapq_output
+from adaligand_preprocessing.artifacts.failures import ExternalToolError, ToolFailureCode
+from adaligand_preprocessing.external_tools.mapq import MAPQ_CIF_OPENMODELS_PATCH, MAPQ_NP, MAPQ_SIGMA, MapQRunner, parse_mapq_output
 
 
 def _write_model(path: Path) -> None:

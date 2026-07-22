@@ -15,24 +15,27 @@ import pytest
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from io_utils import sha256_file
-import stage_f_scratch_recovery as recovery
-from stage_f_process_audit import (
+from adaligand_preprocessing.utils.io import sha256_file
+from adaligand_preprocessing.ops import stage_f_scratch as recovery
+from adaligand_preprocessing.ops.stage_f_processes import (
     PROCESS_AUDIT_SCHEMA_VERSION,
     PROCESS_PROBE_CONTRACT,
     PROCESS_PROBE_SCHEMA_VERSION,
     implementation_identity,
 )
-from stage_f_scratch_recovery import apply_scratch_cleanup, build_scratch_audit
+from adaligand_preprocessing.ops.stage_f_scratch import apply_scratch_cleanup, build_scratch_audit
 
 
 RUN_A = "formal_run"
 RUN_B = "supplement_run"
 JOB_IDS = [101, 102]
-PROCESS_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "stage_f_process_audit.py"
+PROCESS_SCRIPT = (
+    Path(__file__).resolve().parents[1]
+    / "adaligand_preprocessing"
+    / "cli"
+    / "stage_f_process_audit.py"
+)
 
 
 def _write_public_trio(root: Path, pdb_id: str) -> dict[str, str]:
