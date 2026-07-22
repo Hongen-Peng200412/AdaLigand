@@ -1,5 +1,5 @@
 # Stage B 命令入口：下载或复用原始资源。
-# 实际逻辑：调用 code/parallel.py、code/download.py、code/reports.py。
+# 实际逻辑：调用并发执行、Stage B 下载和产物报告模块。
 # 输入/输出：A pair_list + 分片参数 → mmCIF/map 原始文件、下载状态与失败记录。
 # 关键边界：并发由 sbatch/array 环境决定；入口只传播范围、配置和退出码。
 """Stage B 入口：分片 + joblib 并行下载原始件。

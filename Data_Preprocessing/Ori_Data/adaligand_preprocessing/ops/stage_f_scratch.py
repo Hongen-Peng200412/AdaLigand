@@ -751,7 +751,7 @@ def _build_scratch_audit_locked(
             "raw_regular_file_depth": "3..6 under stage_f",
             "candidate_attempts_scanned_without_depth_limit": len(raw_candidates),
             "noncandidate_attempts_not_rescanned": len(attempts) - len(raw_candidates),
-            "basis": "quality.py creates transient regular files within raw inventory depth and creates no symlinks",
+            "basis": "stages/stage_f.py creates transient regular files within raw inventory depth and creates no symlinks",
         },
         "classification": _classification_summary(attempts, transient_by_attempt, root),
         "raw_inventory_summary": _raw_inventory_summary(report_dir),

@@ -1,5 +1,5 @@
 # Stage C 来源重建的 audit/apply 命令入口。
-# 实际逻辑：调用 code/c_source_rebuild.py，执行审计、prepare、迁移 manifest 与受 gate 提交。
+# 实际逻辑：调用 Stage C 来源重建模块，执行审计、准备、迁移清单与受检提交。
 # 输入/输出：授权样本 + 当前 source/旧产物 → before/after 证据与可恢复 C 产物。
 # 关键边界：不属于普通 c_parse；必须显式授权、单独审计和单独记录。
 """冻结授权集合的 Stage C full-rebuild audit/prepare 与受 gate 提交入口。"""

@@ -10,7 +10,7 @@
     "size_bytes": 12783
   },
   "vendored": {
-    "logical_path": "AdaLigand/Data_Preprocessing/Ori_Data/code/mrc_pocket_legacy.py",
+    "logical_path": "AdaLigand/Data_Preprocessing/Ori_Data/adaligand_preprocessing/geometry/legacy/mrc_pocket.py",
     "sha256": "acf74c256e6d88f9e40e972c0d86d35262aa9ac6ac790346adbd54e3109e8a45",
     "size_bytes": 6047
   },

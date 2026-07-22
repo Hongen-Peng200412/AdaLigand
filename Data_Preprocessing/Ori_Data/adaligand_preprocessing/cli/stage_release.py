@@ -1,5 +1,5 @@
 # 按指定阶段校验状态、排除和受控失败的发布门禁。
-# 实际逻辑：调用 code/contracts.py、failures.py、reports.py 汇总阶段终态。
+# 实际逻辑：调用产物契约、失败分类和报告模块汇总阶段终态。
 # 输入/输出：run-scoped 状态、产物索引与期约 → gate summary、release marker、退出码。
 # 关键边界：known 可按契约排除；unknown、重复、静默缺失和 schema 漂移不得放行下游。
 """通用 run-scoped stage gate：允许 known failure，阻塞 unknown/重复/静默缺失。"""

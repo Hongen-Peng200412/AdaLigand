@@ -1,5 +1,5 @@
 # Stage F 命令入口：生成 CC、配体 Q 与口袋 Q。
-# 实际逻辑：调用 code/quality.py、chimera.py、mapq.py、model_cif.py、qc.py。
+# 实际逻辑：调用 Stage F 质量产物、Chimera、MapQ、模型 CIF 和产物验证模块。
 # 输入/输出：E 图/网格 + C/D 结构 → 四 CC、配体 Q、6 Å occurrence 口袋 Q 与 F 状态。
 # 关键边界：入口不计算 CC/Q；它编排外部工具、身份映射、并发和 run-scoped 终态。
 """Stage F CLI：Chimera 四 CC + MapQ 逐原子 Q + run-scoped 状态。"""

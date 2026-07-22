@@ -1,5 +1,5 @@
 # Stage C 命令入口：解析结构并物化正式产物。
-# 实际逻辑：调用 code/parse.py、receptor.py、ligand_object.py、reports.py。
+# 实际逻辑：调用 Stage C 解析、受体、配体化学对象和产物报告模块。
 # 输入/输出：B 的 mmCIF + CCD/descriptor → occurrence、receptor token、LigandObject 与状态。
 # 关键边界：入口设置分片/并发；真实 XYZ Å、(N,3)/(M,3) 数组和身份映射由 code 模块定义。
 """Stage C 入口：分片 + joblib 并行解析每个 PDB。

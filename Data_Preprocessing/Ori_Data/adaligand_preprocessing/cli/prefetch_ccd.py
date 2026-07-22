@@ -1,5 +1,5 @@
 # 按固定清单预取 Stage C CCD 依赖的命令入口。
-# 实际逻辑：调用 code/c_ccd_prefetch.py 执行显式 cache 检查与报告写入。
+# 实际逻辑：调用 Stage C 化学组分字典缓存维护模块执行检查并写入报告。
 # 输入/输出：冻结 CCD 清单 → cache 命中/缺失审计；不直接替代 c_parse。
 # 关键边界：入口负责参数和退出码，依赖是否足够由后续 gate 判定。
 """按冻结 CCD ID 清单执行显式 cache prefetch，并写 run-scoped 审计证据。"""

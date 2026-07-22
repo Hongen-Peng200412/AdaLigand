@@ -1,5 +1,5 @@
 # Stage A 命令入口：枚举 PDB–EMDB 配对并写入清单。
-# 实际逻辑：调用 code/rcsb.py 访问 RCSB/EMDB，并用 code/reports.py 落盘摘要。
+# 实际逻辑：调用 Stage A 样本检索和产物报告模块访问 RCSB/EMDB 并落盘摘要。
 # 输入/输出：查询配置 → raw/pair_list.jsonl、reports/resolution_summary.json。
 # 关键边界：A 是全局一次性枚举；它导航核心逻辑，不是第四类科学实现。
 """Stage A 入口：枚举样本宇宙，写 pair_list + 分辨率统计。

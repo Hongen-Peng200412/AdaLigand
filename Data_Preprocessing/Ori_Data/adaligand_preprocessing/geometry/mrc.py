@@ -4,10 +4,10 @@
 # 关键边界：祖传六函数保持冻结；本层只做薄适配，数组轴 ZYX、世界坐标 XYZ Å 必须显式记录。
 """Pocket Plus 祖传 MRC 原语的 AdaLigand 薄适配层。
 
-``mrc_pocket_legacy.py`` 原样保存六个 Pocket Plus 函数；本模块保持普通样本的祖传
+``legacy/mrc_pocket.py`` 原样保存六个 Pocket Plus 函数；本模块保持普通样本的祖传
 数值路径，只负责 ``Path``/``MapGrid`` 接口、AdaLigand ``float32`` artifact dtype、
 原子 MRC 写出，以及全量 header 审计确认的两个 mixed-axis 样本兼容分支。
-完整祖先哈希、零函数差异证据和兼容边界见 ``mrc_pocket_legacy.source.json`` 与代码 README。
+完整祖先摘要、零函数差异证据和兼容边界见 ``legacy/mrc_pocket.source.json`` 与本目录 README。
 """
 
 from __future__ import annotations

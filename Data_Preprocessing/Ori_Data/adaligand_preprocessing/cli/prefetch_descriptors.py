@@ -1,5 +1,5 @@
 # 按固定对象清单预取 Stage C 描述符的命令入口。
-# 实际逻辑：调用 code/c_descriptor_prefetch.py 补足 descriptor 依赖并生成审计证据。
+# 实际逻辑：调用 Stage C 描述子维护模块补足依赖并生成审计证据。
 # 输入/输出：object-key 清单与 cache → descriptor 状态；不直接改变正式 occurrence 产物。
 # 关键边界：只传播 CLI 配置，不能把补足成功等同于 Stage C release 成功。
 """按冻结 object-key 清单补足 ligand descriptor，并写入 run-scoped 证据。"""

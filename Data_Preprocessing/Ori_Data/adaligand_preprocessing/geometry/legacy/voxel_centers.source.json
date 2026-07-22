@@ -11,7 +11,7 @@
     "size_bytes": 16028
   },
   "vendored": {
-    "logical_path": "AdaLigand/Data_Preprocessing/Ori_Data/code/voxel_gt_pocket_legacy.py",
+    "logical_path": "AdaLigand/Data_Preprocessing/Ori_Data/adaligand_preprocessing/geometry/legacy/voxel_centers.py",
     "sha256": "242e02230d3b3d396bfffcf0070ebe2879eadb9e060bbdebf64bbe3e189a71c1",
     "size_bytes": 1474
   },

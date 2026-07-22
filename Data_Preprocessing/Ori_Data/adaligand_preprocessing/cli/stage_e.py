@@ -1,5 +1,5 @@
 # Stage E 命令入口：生成密度与配体区域产物。
-# 实际逻辑：调用 code/density.py、mrc.py、chimera.py、model_cif.py 与 qc.py。
+# 实际逻辑：调用 Stage E 三类产物、MRC 几何、Chimera、模型 CIF 和产物验证模块。
 # 输入/输出：实验 MRC + C/D 结构标签 → E1/E2/E3 网格、ligand-area 与状态。
 # 关键边界：E2 ATOM-only、E3 标签网格和 frame guard 由实际模块负责；入口只编排顺序与退出码。
 """Stage E CLI：顺序执行 E1/E2/E3，并写 run-scoped 单样本终态。"""

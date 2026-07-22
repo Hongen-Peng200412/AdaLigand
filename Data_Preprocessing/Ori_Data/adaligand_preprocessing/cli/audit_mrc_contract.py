@@ -1,7 +1,7 @@
 # MRC 文件契约审计命令入口。
-# 实际逻辑：调用 code/mrc_contract_audit.py 与 code/mrc.py 读取 header 并比较几何字段。
+# 实际逻辑：调用 MRC 契约审计和几何模块读取文件头并比较物理几何字段。
 # 输入/输出：EMDB MRC 集合 → 只读 audit 报告；不写正式 Stage E/F 产物。
-# 关键边界：验证 origin/nstart/voxel/axis/shape 闭合，不修改冻结的 mrc_pocket_legacy.py。
+# 关键边界：验证原点、起始索引、体素、轴和形状闭合，不修改冻结的 Pocket Plus 数值副本。
 """只读并行审计全量 EMDB header 的 Pocket Plus 祖传重采样契约。"""
 
 from __future__ import annotations

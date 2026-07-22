@@ -1,5 +1,5 @@
 # 真实 MRC 几何与 Chimera 小规模验证入口。
-# 实际逻辑：调用 code/mrc.py、density.py、chimera.py，对真实样本做局部几何 smoke。
+# 实际逻辑：调用 MRC 几何、Stage E 和 Chimera 适配模块，对真实样本做小规模几何检查。
 # 输入/输出：小规模结构/map → shape、origin、voxel、三维内容和 Chimera 几何报告。
 # 关键边界：smoke 不替代 Stage E 全量，也不写正式全量产物或改变主流程。
 """用真实 Chimera 验证 Pocket canonical grid 与 generated MRC 的几何闭环。"""

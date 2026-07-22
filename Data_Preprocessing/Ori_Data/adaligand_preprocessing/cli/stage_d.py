@@ -1,5 +1,5 @@
 # Stage D 命令入口：生成原子结合标签。
-# 实际逻辑：调用 code/atom_labels.py、parallel.py、reports.py。
+# 实际逻辑：调用 Stage D 原子标签、并发执行和产物报告模块。
 # 输入/输出：C receptor/ligand 坐标 → 标签数组、样本终态和 Stage D 汇总。
 # 关键边界：入口不定义 4 Å 科学规则，只传递分片、并发和 run-scoped 路径。
 """Stage D CLI：分片并行生成原子级标签与 run-scoped 终态清单。"""
