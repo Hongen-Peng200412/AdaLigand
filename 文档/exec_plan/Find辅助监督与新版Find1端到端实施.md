@@ -37,6 +37,7 @@
 - [x] (2026-07-23 18:56+08:00) 完成 warmup 纠正重启后的第 1 次健康检查。Find_1 CPC1 到达 `global_step=23`，`unet_c1` 到达 `global_step=41`；两条 `warmup_lr` 均从各自 0.33 倍初始学习率缓慢上升，五项训练损失有限，在线 W&B 持续更新，日志没有 traceback、显存不足或非预期 NaN。Find_1 两张 H100 采样约为 80.3/80.8 GiB，`unet_c1` 约为 62.7/81.6 GiB；尚未到 checkpoint 保存时点。
 - [x] (2026-07-23 18:56+08:00) 只读 subagent 完成 Job `321540`、`321107`、`321743` 的差异和从 sbatch 到 resolved 配置的入口链路调查；唯一写入为 `C:\Users\15919\Desktop\AdaLigand\talk\检查记录.md`，没有修改或打断代码、配置、锁、作业、运行产物或 Git。
 - [x] (2026-07-23 19:24+08:00) 完成 warmup 纠正重启后的第 2 次健康检查。Find_1 CPC1 到达 `global_step=68`，`unet_c1` 到达 `global_step=113`；两条 `warmup_lr` 继续平稳上升，五项训练损失有限，在线 W&B 持续更新，日志没有 traceback、显存不足或非预期 NaN。Find_1 两张 H100 采样约为 80.6/80.4 GiB，`unet_c1` 约为 62.7/81.6 GiB；首次正式验证指标和 checkpoint 仍未出现。
+- [x] (2026-07-23 19:54+08:00) 完成 warmup 纠正重启后的第 3 次健康检查。Find_1 CPC1 到达 `global_step=119`，`unet_c1` 到达 `global_step=191`；两条 `warmup_lr` 连续上升，五项训练损失有限，在线 W&B 持续更新，日志和锁正常。Find_1 两张 H100 采样约为 80.9/81.0 GiB，`unet_c1` 约为 62.9/81.6 GiB；没有显存不足，首次正式验证指标和 checkpoint 仍未出现。
 - [ ] 形成两个仓库的实现端点与学习端点，验证允许差异后推进各自 `Learn/CUMULATIVE`。
 - [ ] 完成新版 Find_1 CPC1→CPC2 与新版 `unet_c1` 正式训练的短期检查和 heartbeat 监控。
 - [ ] 收口映射索引、README、ExecPlan、`CLAUDE/memory/`、运行证据和 heartbeat。
