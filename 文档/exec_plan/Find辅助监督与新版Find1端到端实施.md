@@ -36,6 +36,7 @@
 - [x] (2026-07-23 18:16+08:00) 用户从 W&B 曲线发现 CPC1 继承的 `warmup_ratio=0.025` 不符合此前统一决定的 `0.005`。按用户授权，分别用 Job `321540` 与 `321107` 的 `kill_lock` 停止错误 warmup 运行，保留两个 allocation 和 `after_lock`；未运行新测试或 smoke，直接以唯一运行标记启动 `warmup_ratio=0.005` 的正式 Find_1 CPC1 与 `unet_c1`。两份 resolved 配置确认五项损失权重、学习率及其他已冻结字段未变。Pocket_Plus 默认配置和契约断言同步修正为提交 `aa1b9e9`。
 - [x] (2026-07-23 18:56+08:00) 完成 warmup 纠正重启后的第 1 次健康检查。Find_1 CPC1 到达 `global_step=23`，`unet_c1` 到达 `global_step=41`；两条 `warmup_lr` 均从各自 0.33 倍初始学习率缓慢上升，五项训练损失有限，在线 W&B 持续更新，日志没有 traceback、显存不足或非预期 NaN。Find_1 两张 H100 采样约为 80.3/80.8 GiB，`unet_c1` 约为 62.7/81.6 GiB；尚未到 checkpoint 保存时点。
 - [x] (2026-07-23 18:56+08:00) 只读 subagent 完成 Job `321540`、`321107`、`321743` 的差异和从 sbatch 到 resolved 配置的入口链路调查；唯一写入为 `C:\Users\15919\Desktop\AdaLigand\talk\检查记录.md`，没有修改或打断代码、配置、锁、作业、运行产物或 Git。
+- [x] (2026-07-23 19:24+08:00) 完成 warmup 纠正重启后的第 2 次健康检查。Find_1 CPC1 到达 `global_step=68`，`unet_c1` 到达 `global_step=113`；两条 `warmup_lr` 继续平稳上升，五项训练损失有限，在线 W&B 持续更新，日志没有 traceback、显存不足或非预期 NaN。Find_1 两张 H100 采样约为 80.6/80.4 GiB，`unet_c1` 约为 62.7/81.6 GiB；首次正式验证指标和 checkpoint 仍未出现。
 - [ ] 形成两个仓库的实现端点与学习端点，验证允许差异后推进各自 `Learn/CUMULATIVE`。
 - [ ] 完成新版 Find_1 CPC1→CPC2 与新版 `unet_c1` 正式训练的短期检查和 heartbeat 监控。
 - [ ] 收口映射索引、README、ExecPlan、`CLAUDE/memory/`、运行证据和 heartbeat。
