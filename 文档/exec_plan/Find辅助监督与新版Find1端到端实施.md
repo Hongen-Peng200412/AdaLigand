@@ -42,6 +42,7 @@
 - [x] (2026-07-23 20:54+08:00) 完成 warmup 纠正重启后的第 5 次健康检查并把 heartbeat 改为每 5 小时。Find_1 CPC1 到达 `global_step=215`，`unet_c1` 到达 `global_step=347`；两条 `warmup_lr`、五项训练损失、在线 W&B、日志和锁持续正常。Find_1 两张 H100 采样约为 81.0/80.7 GiB，`unet_c1` 约为 62.9/81.6 GiB；没有显存不足，首次正式验证指标和 checkpoint 仍未出现。
 - [x] (2026-07-23 20:55+08:00) 按用户要求把 Job `321743` 的旧版 Find_0 一并纳入后续 heartbeat。它继续按自身运行目录、resolved 配置、学习率、损失、W&B、checkpoint 和锁检查，不套用新版辅助监督字段；入口链路和三项任务差异见 `C:\Users\15919\Desktop\AdaLigand\talk\检查记录.md`。
 - [x] (2026-07-24 02:01+08:00) 完成第一次三作业联合检查。Job `321540` 新版 Find_1 到达 `global_step=698`，Job `321107` 新版 `unet_c1` 到达 `global_step=1112`；两者学习率、五项损失、在线 W&B、日志、锁和显存正常，仍未进入首次正式验证或保存 checkpoint。Job `321743` 旧版 Find_0 到达 `global_step=5483`，正式验证损失与 F1/PRAUC 有限，已有 BEST、last 和 TOP checkpoints，W&B 在线；两张 H200 采样约为 142.1/142.8 GiB（各总计约 143.8 GiB），余量较小但没有显存不足。
+- [x] (2026-07-24 07:04+08:00) 完成第二次三作业联合检查。三个 Slurm 作业均为 `RUNNING`，各自只保留 `after_lock`，错误扫描没有发现 traceback、显存不足或非预期 NaN。Job `321540` 新版 Find_1 到达 `global_step=1241`，五项训练损失有限，运行配置仍为 Gaussian `sigma=0.7`、`warmup_ratio=0.005`、最高学习率 `5e-5` 和全局批量 48；尚未进入首次正式验证或保存 checkpoint。Job `321107` 新版 `unet_c1` 到达 `global_step=1325`，首次正式验证总损失为 `0.273812`，蛋白主链与核酸主链宏平均 PR-AUC 分别为 `0.0381163` 和 `0.00681047`，已保存 `TOP_epoch_00_score_0.2738.ckpt` 与 `last.ckpt`。Job `321743` 旧版 Find_0 到达 `global_step=6233`，既有验证指标和 BEST、last、TOP checkpoints 继续有效；两张 H200 采样约为 142.4/142.6 GiB（各总计约 143.8 GiB），余量仍小但没有显存不足。
 - [ ] 形成两个仓库的实现端点与学习端点，验证允许差异后推进各自 `Learn/CUMULATIVE`。
 - [ ] 完成新版 Find_1 CPC1→CPC2 与新版 `unet_c1` 正式训练的短期检查和 heartbeat 监控。
 - [ ] 收口映射索引、README、ExecPlan、`CLAUDE/memory/`、运行证据和 heartbeat。
@@ -252,3 +253,5 @@ Revision note 2026-07-23 13:35+08:00：记录 CPU PRAUC 的 NCCL/Gloo 适配遗�
 Revision note 2026-07-23 14:10+08:00：记录 CPU PRAUC 在 Gloo 聚合后仍被 Lightning/NCCL 二次同步的完整根因、修复提交 `1909267`、Find_1 最高学习率回调到 `5e-5`，以及 `unet_c1` smoke 通过并进入正式训练。
 
 Revision note 2026-07-23 18:20+08:00：记录 `warmup_ratio=0.025` 与用户既定 `0.005` 不符、两项运行经 `kill_lock` 保留资源重启，以及新的五次短周期健康检查要求。
+
+Revision note 2026-07-24 07:08+08:00：记录第二次三作业联合检查、新版 `unet_c1` 的首次正式验证与首批 checkpoint，以及新版 Find_1 尚未进入首次正式验证的当前状态。
