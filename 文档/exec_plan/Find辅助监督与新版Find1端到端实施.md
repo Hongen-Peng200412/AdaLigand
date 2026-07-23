@@ -25,8 +25,12 @@
 - [x] (2026-07-23 03:58+08:00) 从 Job `321107`、`321540`、`321743` 各自 allocation 运行时源码只增补缺失快照文件，原有 26 个文件逐字核验且未覆盖；三种真实 checkpoint 均从补齐快照严格恢复成功。
 - [ ] 完成服务器真实前向—反向验证；该步骤在接管 Job `321540` 后使用同一两张 H100 执行，不额外提交 GPU 作业。
 - [x] (2026-07-23 11:30+08:00) 聚合全量距离生产的 12 个分片。原数组元素 `323027_6` 在全部目标文件原子落盘、写后验证长时间停留后取消；补验数组 `323275` 对 36 个长尾候选施加每样本 90 秒硬超时。最终 22,386 条状态为 22,369 success、12 skipped、5 unknown_failed，冻结 16 个训练排除 PDB。
+- [x] (2026-07-23 12:05+08:00) 用唯一 `POCKET_RUN_STAMP` 接管 Job `321540`；旧 Find_1 进程以 143 退出，Slurm allocation、两张 H100 与 `after_lock_321540` 保留。
+- [x] (2026-07-23 12:35+08:00) 按用户补充要求，把 `unet_c1` 的 U-Net 骨干保持不变，仅将最终特征、五个输出头、五项损失、学习率和 16 项训练排除清单与新版 Find_1 对齐；提交 `6c798d6`、`eef5c5b`，本地 34 项专项测试与精确发布目录 Linux 全套 `380 passed`。
+- [x] (2026-07-23 12:42+08:00) 用 Job `321107` 的 `kill_lock` 停止旧 `unet_c1`，保留单张 H100、Slurm allocation 与 `after_lock_321107`；唯一新运行目录和精确发布目录均在启动前核验无碰撞。
+- [ ] Job `321540` 与 `321107` 正在分别执行 Find_1、`unet_c1` 的真实单步前向—反向 smoke；两者完成后由同一脚本自动进入正式训练。
 - [ ] 形成两个仓库的实现端点与学习端点，验证允许差异后推进各自 `Learn/CUMULATIVE`。
-- [ ] 核实并接管 Job `321540`，启动新版 Find_1 CPC1→CPC2，完成短期检查和 heartbeat 监控。
+- [ ] 完成新版 Find_1 CPC1→CPC2 与新版 `unet_c1` 正式训练的短期检查和 heartbeat 监控。
 - [ ] 收口映射索引、README、ExecPlan、`CLAUDE/memory/`、运行证据和 heartbeat。
 
 ## Surprises & Discoveries
@@ -55,6 +59,10 @@
   Evidence: `status.part_0002_of_0012.jsonl`、`status.part_0003_of_0012.jsonl`、`status.part_0004_of_0012.jsonl`、`status.part_0007_of_0012.jsonl` 与 `status.part_0011_of_0012.jsonl` 分别记录 `FileNotFoundError`；对应 Slurm task 本身均为 `COMPLETED 0:0`，程序汇总各报告 `failed=1`。在 12 个分片聚合完毕并处理训练样本排除前，不允许接管 Job `321540`。
 - Observation: 分片 6 的 1,865 个目标文件已经全部原子落盘，但原作业停在少数超大文件的写后完整重读验证；`2w49` 的距离文件约 99 GB，分片峰值内存约 636 GB。
   Evidence: 原日志长时间停在 `Done 1829 tasks`，同时精确核对确认分片 6 的 1,865 个 `ligand_dist.npz` 均存在。取消 `323027_6` 后，数组 `323275` 对 36 个最大长尾候选执行独立 90 秒验证，25 个通过，11 个按超时跳过，无其他错误。
+- Observation: Find_1 的第一份单步 smoke 把 `max_steps` 限制为 1，而候选 warmup 步数按 `round(total_steps × warmup_ratio)` 解析，因此得到 0 并在尚无验证阈值时错误进入自适应阈值路径。
+  Evidence: 两个 DDP rank 均报 `p_best_by_class` 缺失；GPU 峰值约 29–30 GiB，不是显存不足。旧正式运行和新正式 CPC1 都保留 `warmup_steps: null` 与正的 warmup 比例，完整训练会解析出正数 warmup。重试只给单步 smoke 显式设置 `warmup_steps=1`，没有修改模型、候选逻辑或正式 CPC1 配置。
+- Observation: 第一版 `unet_c1` 对齐配置已经构造三个新增输出头，但 Dataset 最初只在 `Find_1` 名称下返回蛋白、核酸与反距离目标。
+  Evidence: 新增真实 `unet_c1` Dataset 测试首先复现缺少 `protein_mainchain_target`，随后把固定辅助标签返回范围精确扩展到 `Find_1` 与 `unet_c1`；34 项专项测试和 Linux 全套测试通过。
 
 ## Decision Log
 
@@ -91,10 +99,13 @@
 - Decision: 本次全量生产只对分片 6 的 36 个长尾候选使用 90 秒硬超时，不增加体素数上限，不重跑已经完成的 95% 样本。超时 PDB 与缺少实验密度的 PDB 一并进入冻结训练排除清单。
   Rationale: 当前优先快速启动训练；独立子进程硬超时能结束 SciPy 的长时间 C 计算，同时不改变已经落盘距离文件的字段、数值与单位契约。
   Date/Author: 2026-07-23，用户与 Codex。
+- Decision: Job `321107` 重新训练 `unet_c1`；U-Net 骨干和五路中间特征接口不替换，只把最终体素特征设为 64 通道、关闭末端多尺度卷积、启用与 Find_1 相同的五个两层 `1×1×1` 输出头，并使用相同辅助损失、学习率和训练排除清单。
+  Rationale: 用户要求比较同一 `unet_c1` 骨干在新版输出监督下的训练结果，不把任务扩大成体素骨干替换。
+  Date/Author: 2026-07-23，用户与 Codex。
 
 ## Outcomes & Retrospective
 
-距离标签代码、Pocket_Plus 新版训练代码、完整快照和推理适配已经完成本地与 Linux 测试、独立审计和真实 `10ad` 验证。三个正在训练的历史运行快照已经按各自实际执行源码只增补缺失文件，并通过真实 checkpoint 严格恢复。正式距离生产已经形成 22,386 条完整状态和 16 个 PDB 的冻结训练排除清单；证据位于本次运行的 `summary.json`、`ligand_dist_failures.json` 和 `timeout_repair_status.jsonl`。Job `321540`、旧训练进程与锁尚未修改。
+距离标签代码、Pocket_Plus 新版训练代码、完整快照和推理适配已经完成本地与 Linux 测试、独立审计和真实 `10ad` 验证。三个历史运行快照已经按各自实际执行源码只增补缺失文件，并通过真实 checkpoint 严格恢复。正式距离生产已经形成 22,386 条完整状态和 16 个 PDB 的冻结训练排除清单；证据位于本次运行的 `summary.json`、`ligand_dist_failures.json` 和 `timeout_repair_status.jsonl`。Job `321540` 与 `321107` 均已在不释放 allocation 的条件下完成旧进程停止，当前分别运行新版 Find_1 和新版 `unet_c1` 的真实前向—反向 smoke。
 
 ## Context and Orientation
 
@@ -208,3 +219,5 @@ Revision note 2026-07-23 08:35+08:00：把分片 11 新确认的 `9yx6` 纳入�
 Revision note 2026-07-23 09:05+08:00：把分片 3 新确认的 `7pel` 纳入缺失实验密度文件集合；array 只剩分片 6，且其累计 CPU 时间仍持续增长。
 
 Revision note 2026-07-23 11:35+08:00：记录分片 6 全部目标已落盘后的 90 秒长尾补验、16 个 PDB 的冻结训练排除清单、完整 22,386 条状态与正式证据摘要。
+
+Revision note 2026-07-23 12:50+08:00：记录 Job `321540` 与 `321107` 的保留资源接管、`unet_c1` 输出监督对齐、Dataset 缺字段修复，以及 Find_1 单步 smoke 的 warmup 取整原因和测试专用修正边界。
