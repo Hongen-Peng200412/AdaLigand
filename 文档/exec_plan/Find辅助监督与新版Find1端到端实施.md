@@ -33,6 +33,7 @@
 - [x] (2026-07-23 14:28+08:00) 独立只读端到端审计完成，没有发现需要中止正式训练的科学契约漂移、无效数据、训练计算错误或目录身份冲突。两项正式训练仍在对应 Job 内运行，两个 `after_lock` 均保留。
 - [x] (2026-07-23 14:33+08:00) 完成正式训练启动后的第 2 次健康检查。Find_1 CPC1 到达 `global_step=17`，`unet_c1` 到达 `global_step=95`；两者五项训练损失均为有限值，在线 W&B 持续更新，没有 traceback、显存不足或非预期 NaN。两个正式验证尚未开始，因此蛋白与核酸 PR-AUC 留待后续检查；当前也尚未到达 checkpoint 保存时点。
 - [x] (2026-07-23 15:37+08:00) 完成连续第 3 次健康检查并把 heartbeat 从每 30 分钟改为每 5 小时。Find_1 CPC1 到达 `global_step=119`，`unet_c1` 到达 `global_step=260`；五项训练损失仍为有限值，在线 W&B 持续更新，两个 Job 的进程身份、唯一运行目录和 `after_lock` 均正确，没有 traceback、显存不足或非预期 NaN。Find_1 两张 H100 采样约为 80.8/81.6 GiB；两个训练仍未进入首次正式验证，也尚未生成 checkpoint。
+- [x] (2026-07-23 18:16+08:00) 用户从 W&B 曲线发现 CPC1 继承的 `warmup_ratio=0.025` 不符合此前统一决定的 `0.005`。按用户授权，分别用 Job `321540` 与 `321107` 的 `kill_lock` 停止错误 warmup 运行，保留两个 allocation 和 `after_lock`；未运行新测试或 smoke，直接以唯一运行标记启动 `warmup_ratio=0.005` 的正式 Find_1 CPC1 与 `unet_c1`。两份 resolved 配置确认五项损失权重、学习率及其他已冻结字段未变。Pocket_Plus 默认配置和契约断言同步修正为提交 `aa1b9e9`。
 - [ ] 形成两个仓库的实现端点与学习端点，验证允许差异后推进各自 `Learn/CUMULATIVE`。
 - [ ] 完成新版 Find_1 CPC1→CPC2 与新版 `unet_c1` 正式训练的短期检查和 heartbeat 监控。
 - [ ] 收口映射索引、README、ExecPlan、`CLAUDE/memory/`、运行证据和 heartbeat。
@@ -69,6 +70,8 @@
   Evidence: 旧 Job `321540` 的实际运行快照不但给 CPU 指标使用 Gloo 通信组，还在指标已经完成跨卡聚合后以 `sync_dist=False` 写入 Lightning。提交 `9f4012d` 只恢复了前半项；提交 `1909267` 同时恢复后半项，避免 Lightning 使用默认 NCCL 通信组二次同步 CPU 标量。正式 CPC1 的候选选择和 warmup 配置未改变。
 - Observation: 旧 Job `321540` 的实际配置同时写有 `use_soft_splatting=true` 与 `use_gaussian_splatting=true`，旧代码按 Gaussian 优先级执行 sigma=0.7 的 `3×3×3` 写入；原训练计划误写成三线性写入。
   Evidence: 独立审计对比旧运行快照和新版代码后发现该差异。用户明确选择以旧运行的真实 Gaussian 行为为新基线；提交 `9417bcf` 恢复开关、优先级和两条前向路径，并把冲突规格同步为 Gaussian。
+- Observation: 新版正式启动沿用了 `configs/train/stage1_cpc1.yaml` 中的 `warmup_ratio=0.025`，但用户此前统一决定的优化器学习率 warmup 比例是 `0.005`。
+  Evidence: 两项旧运行的 resolved 配置均记录 `0.025`，W&B 的 `warmup_lr` 曲线也显示过长的线性增长。用户发现后要求立即重启；新运行 resolved 配置均记录 `0.005`，且五项损失权重逐项不变。
 - Observation: Find_1 smoke 的 `refined` 与 `unrefined` 面板显示 `NaN`，但训练损失、验证损失、候选统计和已定义的 PR-AUC 均为有限值。
   Evidence: 当前 Find_1 没有启用 `ligand_sparse_refine_loss`，因此不会生成 `ligand_refine_target_C`，对应诊断缓冲区按既有定义把未启用面板记为 `NaN`。这些面板不参与损失、学习率调度、BEST checkpoint 选择或本次新增监督；smoke 的 `val_loss/global/total=0.76348`，蛋白主链宏平均 PR-AUC 为 `0.00133`。正式完整验证仍需确认核酸主链 PR-AUC 能在出现正类后记录。
 - Observation: Find_1 两卡 smoke 和正式 CPC1 的单卡显存峰值接近 H100 容量上限。
@@ -114,10 +117,13 @@
 - Decision: Job `321107` 重新训练 `unet_c1`；U-Net 骨干和五路中间特征接口不替换，只把最终体素特征设为 64 通道、关闭末端多尺度卷积、启用与 Find_1 相同的五个两层 `1×1×1` 输出头，并使用相同辅助损失、学习率和训练排除清单。
   Rationale: 用户要求比较同一 `unet_c1` 骨干在新版输出监督下的训练结果，不把任务扩大成体素骨干替换。
   Date/Author: 2026-07-23，用户与 Codex。
+- Decision: Find_1 CPC1 与 `unet_c1` 的优化器学习率 warmup 比例统一为 `0.005`；Find_1 CPC2 继续无 warmup。此次纠正保留全部辅助损失权重、学习率、网络和数据设置。
+  Rationale: 用户确认 `0.005` 才是此前统一决定的值，并要求不把调度器纠正扩大成其他训练改动。
+  Date/Author: 2026-07-23，用户与 Codex。
 
 ## Outcomes & Retrospective
 
-距离标签代码、Pocket_Plus 新版训练代码、完整快照和推理适配已经完成本地与 Linux 测试、独立审计和真实 `10ad` 验证。三个历史运行快照已经按各自实际执行源码只增补缺失文件，并通过真实 checkpoint 严格恢复。正式距离生产已经形成 22,386 条完整状态和 16 个 PDB 的冻结训练排除清单；证据位于本次运行的 `summary.json`、`ligand_dist_failures.json` 和 `timeout_repair_status.jsonl`。独立端到端审计未发现正式训练阻塞。Job `321107` 的新版 `unet_c1` 与 Job `321540` 的新版 Find_1 都已通过各自真实 smoke，并已进入正式在线 W&B 训练；两个 allocation 和 `after_lock` 均保留。
+距离标签代码、Pocket_Plus 新版训练代码、完整快照和推理适配已经完成本地与 Linux 测试、独立审计和真实 `10ad` 验证。三个历史运行快照已经按各自实际执行源码只增补缺失文件，并通过真实 checkpoint 严格恢复。正式距离生产已经形成 22,386 条完整状态和 16 个 PDB 的冻结训练排除清单；证据位于本次运行的 `summary.json`、`ligand_dist_failures.json` 和 `timeout_repair_status.jsonl`。独立端到端审计未发现正式训练阻塞。首轮正式训练因错误继承 `warmup_ratio=0.025` 而由用户叫停；Job `321107` 与 `321540` 现已直接启动 `warmup_ratio=0.005` 的新版正式训练，两个 allocation 和 `after_lock` 均保留。
 
 ## Context and Orientation
 
@@ -147,7 +153,7 @@ Job `321540` 当前持有两张 H100。只有标签、代码、推理、测试�
 
 第六个里程碑生产正式距离标签并启动训练。CPU 作业先查看实时节点和 QoS；总申请量不超过 192，分片对 PDB 写入互斥并可断点续跑。最终失败为零时不增加过滤行为；仍有失败时写 `ligand_dist_failures.json`，在训练请求建立前排除对应 PDB。训练前重新核实 Job `321540`、运行目录、锁和 resolved 配置，随后按授权完成旧进程停止与新版 CPC1→CPC2 启动。
 
-第七个里程碑监控和收口。训练启动后先用短命令观察约十分钟，再把现有 `adaligand-stage1` heartbeat 指向当前 Codex 任务，每 30 分钟检查一次；连续三次健康后改为每 5 小时。CPC2 正常结束后记录最终状态并删除 heartbeat。同步更新本 ExecPlan、映射索引、项目状态、阶段 handoff 和必要的长期学习记录。
+第七个里程碑监控和收口。`warmup_ratio=0.005` 的训练启动后，把现有 `adaligand-stage1` heartbeat 指向当前 Codex 任务，每 30 分钟检查一次；连续五次健康后改为每 5 小时。CPC2 正常结束后记录最终状态并删除 heartbeat。同步更新本 ExecPlan、映射索引、项目状态、阶段 handoff 和必要的长期学习记录。
 
 ## Concrete Steps
 
@@ -236,3 +242,5 @@ Revision note 2026-07-23 12:50+08:00：记录 Job `321540` 与 `321107` 的保�
 Revision note 2026-07-23 13:35+08:00：记录 CPU PRAUC 的 NCCL/Gloo 适配遗漏、旧 Find_1 实际 Gaussian scatter 与书面规格冲突、用户确认的新损失权重、精确发布提交 `9417bcf` 及两个 smoke 同时启动。
 
 Revision note 2026-07-23 14:10+08:00：记录 CPU PRAUC 在 Gloo 聚合后仍被 Lightning/NCCL 二次同步的完整根因、修复提交 `1909267`、Find_1 最高学习率回调到 `5e-5`，以及 `unet_c1` smoke 通过并进入正式训练。
+
+Revision note 2026-07-23 18:20+08:00：记录 `warmup_ratio=0.025` 与用户既定 `0.005` 不符、两项运行经 `kill_lock` 保留资源重启，以及新的五次短周期健康检查要求。
