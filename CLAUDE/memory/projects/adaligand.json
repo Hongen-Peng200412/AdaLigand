@@ -67,7 +67,8 @@
     "2026-07-23：warmup纠正后的第3次健康检查通过。Find_1 CPC1到达global_step 119，unet_c1到达global_step 191；学习率曲线、五项损失、在线W&B、日志、锁和显存继续正常，首次正式验证指标和checkpoint尚未出现。",
     "2026-07-23：warmup纠正后的第4次健康检查通过。Find_1 CPC1到达global_step 164，unet_c1到达global_step 275；学习率曲线、五项损失、在线W&B、日志、锁和显存继续正常，首次正式验证指标和checkpoint尚未出现。",
     "2026-07-23：warmup纠正后的第5次健康检查通过。Find_1 CPC1到达global_step 215，unet_c1到达global_step 347；学习率曲线、五项损失、在线W&B、日志、锁和显存继续正常。heartbeat已改为每5小时，首次正式验证指标和checkpoint尚未出现。",
-    "2026-07-23：用户要求后续heartbeat同时检查Job 321107新版unet_c1、Job 321540新版Find_1和Job 321743旧版Find_0。三者按各自运行目录、resolved配置、损失、W&B、checkpoint与锁独立核对；旧版Find_0不要求出现新增辅助监督。"
+    "2026-07-23：用户要求后续heartbeat同时检查Job 321107新版unet_c1、Job 321540新版Find_1和Job 321743旧版Find_0。三者按各自运行目录、resolved配置、损失、W&B、checkpoint与锁独立核对；旧版Find_0不要求出现新增辅助监督。",
+    "2026-07-24：首次三作业联合检查通过。新版Find_1到达global_step 698，新版unet_c1到达1112，二者仍未首次正式验证或保存checkpoint；旧版Find_0到达5483，已有有限验证指标及BEST/last/TOP checkpoints。三者W&B、损失、日志、锁和GPU正常；Find_0两张H200约占142.1/142.8 GiB，余量较小但未OOM。"
   ],
   "blockers": [],
   "failures": [
