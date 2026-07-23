@@ -24,7 +24,7 @@
 - [x] (2026-07-23 03:48+08:00) 在精确发布目录通过 Pocket_Plus `378 passed` 与 AdaLigand `306 passed`；真实 `10ad` Dataset 读出 56 通道输入和三项新标签，固定模型具有 64 通道 `voxel_final` 与五个两层 1×1×1 输出头。
 - [x] (2026-07-23 03:58+08:00) 从 Job `321107`、`321540`、`321743` 各自 allocation 运行时源码只增补缺失快照文件，原有 26 个文件逐字核验且未覆盖；三种真实 checkpoint 均从补齐快照严格恢复成功。
 - [ ] 完成服务器真实前向—反向验证；该步骤在接管 Job `321540` 后使用同一两张 H100 执行，不额外提交 GPU 作业。
-- [ ] 等待全量距离生产 Slurm array `323027` 完成并聚合 12 个分片。分片 2、3、4、7、11 已分别报告 `6k0a`、`7pel`、`9wqp`、`7ojf`、`9yx6` 缺少正式 `exp.npz`，因此训练发布门当前不通过；只剩分片 6 继续完成，只收集证据，不重提相同任务、不接管 Job `321540`。
+- [x] (2026-07-23 11:30+08:00) 聚合全量距离生产的 12 个分片。原数组元素 `323027_6` 在全部目标文件原子落盘、写后验证长时间停留后取消；补验数组 `323275` 对 36 个长尾候选施加每样本 90 秒硬超时。最终 22,386 条状态为 22,369 success、12 skipped、5 unknown_failed，冻结 16 个训练排除 PDB。
 - [ ] 形成两个仓库的实现端点与学习端点，验证允许差异后推进各自 `Learn/CUMULATIVE`。
 - [ ] 核实并接管 Job `321540`，启动新版 Find_1 CPC1→CPC2，完成短期检查和 heartbeat 监控。
 - [ ] 收口映射索引、README、ExecPlan、`CLAUDE/memory/`、运行证据和 heartbeat。
@@ -51,8 +51,10 @@
   Evidence: 共享目录测试额外收集旧 `Find_2` 配置与历史测试并得到与本地不同的测试数量；从空目录建立的提交命名发布副本分别通过 Pocket_Plus `378 passed` 与 AdaLigand `306 passed`。新版训练必须从精确发布副本启动，不从共享目录或旧 allocation runtime 猜测代码集合。
 - Observation: 真实 `10ad` 中，第一个中心 BOX 的蛋白 N/CA/C/O 体素数分别为 968、965、945、943，核酸前景类别为空；配体反距离目标范围为 0.0143756–0.7884504。
   Evidence: CPU 作业 `323026` 从正式 BOX pool 的 `train/10ad.npz` 直接构造请求，读取新距离文件、三项标签和 56 通道密度输入，并成功实例化新版固定五头模型。
-- Observation: 全量距离 array `323027` 的已完成分片 2、3、4、7、11 各出现一条 `unknown_failed`；对应 PDB 是 `6k0a`、`7pel`、`9wqp`、`7ojf`、`9yx6`，五者均缺少正式 `density/{pdb_id}/exp.npz`，不是距离计算产生 NaN 或写盘失败。
+- Observation: 全量距离 array `323027` 的分片 2、3、4、7、11 各出现一条 `unknown_failed`；对应 PDB 是 `6k0a`、`7pel`、`9wqp`、`7ojf`、`9yx6`，五者均缺少正式 `density/{pdb_id}/exp.npz`，不是距离计算产生 NaN 或写盘失败。
   Evidence: `status.part_0002_of_0012.jsonl`、`status.part_0003_of_0012.jsonl`、`status.part_0004_of_0012.jsonl`、`status.part_0007_of_0012.jsonl` 与 `status.part_0011_of_0012.jsonl` 分别记录 `FileNotFoundError`；对应 Slurm task 本身均为 `COMPLETED 0:0`，程序汇总各报告 `failed=1`。在 12 个分片聚合完毕并处理训练样本排除前，不允许接管 Job `321540`。
+- Observation: 分片 6 的 1,865 个目标文件已经全部原子落盘，但原作业停在少数超大文件的写后完整重读验证；`2w49` 的距离文件约 99 GB，分片峰值内存约 636 GB。
+  Evidence: 原日志长时间停在 `Done 1829 tasks`，同时精确核对确认分片 6 的 1,865 个 `ligand_dist.npz` 均存在。取消 `323027_6` 后，数组 `323275` 对 36 个最大长尾候选执行独立 90 秒验证，25 个通过，11 个按超时跳过，无其他错误。
 
 ## Decision Log
 
@@ -86,10 +88,13 @@
 - Decision: 距离标签 CPU 生产的同时运行上限为 192 核；96 核整节点不能立即取得时，使用每项约 16 核的 Slurm array 与 joblib loky。正式 GPU 训练只接管 Job `321540`，不提交其他 GPU 训练作业。
   Rationale: 小 CPU 任务更容易使用碎片资源，GPU allocation 必须保留现有两张 H100 和锁语义。
   Date/Author: 2026-07-23，用户与 Codex。
+- Decision: 本次全量生产只对分片 6 的 36 个长尾候选使用 90 秒硬超时，不增加体素数上限，不重跑已经完成的 95% 样本。超时 PDB 与缺少实验密度的 PDB 一并进入冻结训练排除清单。
+  Rationale: 当前优先快速启动训练；独立子进程硬超时能结束 SciPy 的长时间 C 计算，同时不改变已经落盘距离文件的字段、数值与单位契约。
+  Date/Author: 2026-07-23，用户与 Codex。
 
 ## Outcomes & Retrospective
 
-距离标签代码、Pocket_Plus 新版训练代码、完整快照和推理适配已经完成本地与 Linux 测试、独立审计和真实 `10ad` 验证。三个正在训练的历史运行快照已经按各自实际执行源码只增补缺失文件，并通过真实 checkpoint 严格恢复。正式距离生产 array `323027` 只剩分片 6；已确认 `6k0a`、`7pel`、`9wqp`、`7ojf` 与 `9yx6` 因缺少正式实验密度文件失败，发布门暂停。Job `321540`、旧训练进程与锁尚未修改。
+距离标签代码、Pocket_Plus 新版训练代码、完整快照和推理适配已经完成本地与 Linux 测试、独立审计和真实 `10ad` 验证。三个正在训练的历史运行快照已经按各自实际执行源码只增补缺失文件，并通过真实 checkpoint 严格恢复。正式距离生产已经形成 22,386 条完整状态和 16 个 PDB 的冻结训练排除清单；证据位于本次运行的 `summary.json`、`ligand_dist_failures.json` 和 `timeout_repair_status.jsonl`。Job `321540`、旧训练进程与锁尚未修改。
 
 ## Context and Orientation
 
@@ -201,3 +206,5 @@ Revision note 2026-07-23 07:35+08:00：把分片 4 新确认的 `9wqp` 纳入缺
 Revision note 2026-07-23 08:35+08:00：把分片 11 新确认的 `9yx6` 纳入缺失实验密度文件集合，并确认分片 3、6、8 的累计 CPU 时间仍持续增长。
 
 Revision note 2026-07-23 09:05+08:00：把分片 3 新确认的 `7pel` 纳入缺失实验密度文件集合；array 只剩分片 6，且其累计 CPU 时间仍持续增长。
+
+Revision note 2026-07-23 11:35+08:00：记录分片 6 全部目标已落盘后的 90 秒长尾补验、16 个 PDB 的冻结训练排除清单、完整 22,386 条状态与正式证据摘要。
