@@ -298,7 +298,7 @@ num_conv3d_aux: 0
 
 ### 4.3 Find_1：无 Transformer 的非块式 embed/scatter
 
-`Find_1` 新建 AdaLigand 配置，复用现有 `Stage1EmbedHead` 的代码结构和已实现的相对/centroid、residual、soft scatter 算子，但不复用某个旧实验配置的科学取值。
+`Find_1` 以 Job `321540` 实际运行并保存的配置为科学基线，复用现有 `Stage1EmbedHead` 的相对/centroid、residual 与 Gaussian scatter 算子。该运行同时保存了 `use_soft_splatting=true` 和 `use_gaussian_splatting=true`；实际代码按 Gaussian 优先级执行 sigma=0.7 的 `3×3×3` 写入，因此不能把它解释成三线性写入。
 
 禁止 trunk/voxel Transformer block；point 分支保留已经验证更好的 buffer blocks：
 
@@ -315,11 +315,11 @@ Dataset 直接加载 core+8 Å；point blocks 按上述半径逐层裁剪。voxe
 
 1. 共享 atom MLP：`h=MLP(49 → 128 → 128)`。
 2. voxel value：把 `h` 与既有 6D relative/centroid encoding 送入 voxel projection 得到 49D；与 raw 49D identity residual 相加，residual gate 固定为 1。
-3. 只对 core atoms 做三线性 soft splat，聚合为 sum；追加现有 2D occupancy，得到 51D receptor voxel grid。
+3. 只对 core atoms 做 sigma=0.7 的 `3×3×3` Gaussian scatter；追加现有 2D occupancy，得到 51D receptor voxel grid。
 4. point value 与共同 point branch 完全遵守 §4.1，不构成 Find_1 独有差异。
 5. voxel backbone 输入为 56D density + 51D receptor = **107 channels**；point backbone 输入为 64D。
 
-residual、occupancy、centroid encoding、MLP 和 soft splat 可用于 voxel 前处理；trunk/voxel Transformer 明确不允许。point Transformer 只限共同的 `[8,4,0]` 三层。`Stage1EmbedHead` 必须以最小修改支持 voxel block 数为 0 时仍执行既有非块式 voxel 投影，不另造第二个 embed subsystem。
+residual、occupancy、centroid encoding、MLP 和 Gaussian scatter 用于 voxel 前处理；trunk/voxel Transformer 明确不允许。point Transformer 只限共同的 `[8,4,0]` 三层。`Stage1EmbedHead` 必须以最小修改支持 voxel block 数为 0 时仍执行既有非块式 voxel 投影，不另造第二个 embed subsystem。
 
 ### 4.4 unet_c1
 
@@ -477,7 +477,7 @@ CPC2 保持 Pocket_Plus 现有 model-only 初始化语义：严格加载同名 C
 forward_voxel_probability(batch) → voxel_logits_ligand
 ```
 
-它复现与完整 forward 相同的最短 voxel 构造和固定 3 次 recycle，但不抽取共享 `_forward_voxel_branch`、不重构现有训练 forward。`unet_c1` 只运行 density→voxel backbone；`Find_0` 直接运行 raw49 core hard scatter；`Find_1` 只运行 voxel MLP/centroid/residual/soft-splat。两个 Find 都跳过 `[8,4,0]` point blocks、P candidates、point backbone、A/P heads 和 sparse-refine，也不导出居中特征。当前模型不存在 A/P 后半段回写 voxel 分支的路径，因此该入口必须与完整 forward 的 `voxel_logits_ligand` 逐元素等价，而不是近似模型。
+它复现与完整 forward 相同的最短 voxel 构造和固定 3 次 recycle，但不抽取共享 `_forward_voxel_branch`、不重构现有训练 forward。`unet_c1` 只运行 density→voxel backbone；`Find_0` 直接运行 raw49 core hard scatter；`Find_1` 只运行 voxel MLP/centroid/residual/Gaussian scatter。两个 Find 都跳过 `[8,4,0]` point blocks、P candidates、point backbone、A/P heads 和 sparse-refine，也不导出居中特征。当前模型不存在 A/P 后半段回写 voxel 分支的路径，因此该入口必须与完整 forward 的 `voxel_logits_ligand` 逐元素等价，而不是近似模型。
 
 `F1_centered`、`CLG_centered` 和 `Selected_Refined_Centered` 仍走完整 forward。代码落点与伪代码见低权重手册。
 
@@ -492,7 +492,7 @@ forward_voxel_probability(batch) → voxel_logits_ligand
 3. **统一路径**：四种请求 provider 经过同一个 materializer/collator；推理不构造 fake target。
 4. **8 Å/core 两层 receptor**：Dataset 直接加载 core+8 Å，point blocks 为 `[8,4,0]`，voxel scatter 仅 core；全局索引不丢失。
 5. **Find_0**：共同 point embed 生效；voxel 仅 hard floor/sum raw49，voxel input 105D，point input 64D。
-6. **Find_1**：trunk/voxel block 为 0、point blocks 为 `[8,4,0]`，voxel 非块式 MLP/residual/centroid/soft-splat 生效，voxel input 107D，point input 64D。
+6. **Find_1**：trunk/voxel block 为 0、point blocks 为 `[8,4,0]`，voxel 非块式 MLP/residual/centroid/Gaussian scatter 生效，voxel input 107D，point input 64D。
 7. **unet_c1**：模型数值输入只有单通道 experimental density；auxiliary target 不被拼入输入。
 8. **target 与 loss**：union mask、P home voxel、binding atom、hardmask 限定 auxiliary 四条路径逐项正确；没有 `ligand_dist_map` 依赖。
 9. **增强**：90° 旋转同步作用于所有几何/target；validation 与推理确定性。
