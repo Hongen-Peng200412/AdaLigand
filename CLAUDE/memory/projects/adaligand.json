@@ -59,7 +59,8 @@
     "2026-07-23：距离标签、新版 Find_1 Dataset/五头/损失/指标/配置、完整 src 快照、checkpoint 快照推理、可变 voxel_final 通道和 Selector 惰性输入已实现；Pocket_Plus 78 项与 AdaLigand 5 项本地测试通过，独立审计无代码阻断或契约漂移。下一步是 Linux 全套与真实小批次验证、全量距离生产、历史快照补齐和 Job 321540 接管。",
     "2026-07-23：精确发布目录 Linux 全套 Pocket_Plus 378 passed、AdaLigand 306 passed，真实 10ad 距离与 Dataset/固定五头构造通过。Job 321107/321540/321743 快照从各自运行时源码只增补缺失文件，三种 BEST checkpoint 严格恢复通过。正式距离生产 array 323027 正在运行，最多 192 核；adaligand-stage1 heartbeat 已改为每 30 分钟唤醒当前任务。",
     "2026-07-23：配体距离生产收口为22,386条状态和16个冻结排除样本。新版unet_c1与Find_1均已通过真实smoke，并分别在Job 321107、321540启动正式在线W&B训练。Find_1使用Gaussian受体体素散射、5e-5学习率和五项新损失；精确发布1909267补全CPU PRAUC经Gloo聚合后禁止Lightning/NCCL二次同步的运行边界。",
-    "2026-07-23：正式训练启动后的第2次健康检查通过。Find_1 CPC1到达global_step 17，unet_c1到达global_step 95；五项训练损失有限，在线W&B持续更新，没有运行错误或非预期NaN。两个训练尚未进入首次正式验证，也尚未保存checkpoint。"
+    "2026-07-23：正式训练启动后的第2次健康检查通过。Find_1 CPC1到达global_step 17，unet_c1到达global_step 95；五项训练损失有限，在线W&B持续更新，没有运行错误或非预期NaN。两个训练尚未进入首次正式验证，也尚未保存checkpoint。",
+    "2026-07-23：连续第3次正式训练健康检查通过。Find_1 CPC1到达global_step 119，unet_c1到达global_step 260；进程、唯一运行目录、after_lock、五项损失和在线W&B均正常。heartbeat已从每30分钟改为每5小时；下一次继续核对首次正式验证、蛋白与核酸PRAUC和checkpoint。"
   ],
   "blockers": [],
   "failures": [
