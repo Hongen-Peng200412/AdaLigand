@@ -61,7 +61,8 @@
     "2026-07-23：配体距离生产收口为22,386条状态和16个冻结排除样本。新版unet_c1与Find_1均已通过真实smoke，并分别在Job 321107、321540启动正式在线W&B训练。Find_1使用Gaussian受体体素散射、5e-5学习率和五项新损失；精确发布1909267补全CPU PRAUC经Gloo聚合后禁止Lightning/NCCL二次同步的运行边界。",
     "2026-07-23：正式训练启动后的第2次健康检查通过。Find_1 CPC1到达global_step 17，unet_c1到达global_step 95；五项训练损失有限，在线W&B持续更新，没有运行错误或非预期NaN。两个训练尚未进入首次正式验证，也尚未保存checkpoint。",
     "2026-07-23：连续第3次正式训练健康检查通过。Find_1 CPC1到达global_step 119，unet_c1到达global_step 260；进程、唯一运行目录、after_lock、五项损失和在线W&B均正常。heartbeat已从每30分钟改为每5小时；下一次继续核对首次正式验证、蛋白与核酸PRAUC和checkpoint。",
-    "2026-07-23：用户从W&B发现两项正式训练错误继承warmup_ratio 0.025；既定统一值为0.005。已用Job 321540与321107各自kill_lock保留allocation重启，不运行新测试或smoke，直接进入唯一正式运行；resolved配置确认五项损失权重和其他冻结设置未变。Pocket_Plus默认配置同步修正为aa1b9e9，heartbeat重设为30分钟并在连续5次健康后改为5小时。"
+    "2026-07-23：用户从W&B发现两项正式训练错误继承warmup_ratio 0.025；既定统一值为0.005。已用Job 321540与321107各自kill_lock保留allocation重启，不运行新测试或smoke，直接进入唯一正式运行；resolved配置确认五项损失权重和其他冻结设置未变。Pocket_Plus默认配置同步修正为aa1b9e9，heartbeat重设为30分钟并在连续5次健康后改为5小时。",
+    "2026-07-23：warmup纠正后的第1次健康检查通过。Find_1 CPC1到达global_step 23，unet_c1到达global_step 41；warmup学习率、五项损失、在线W&B、日志、锁和显存均正常。三个Job的差异与完整入口链路已由只读subagent写入talk/检查记录.md。"
   ],
   "blockers": [],
   "failures": [
