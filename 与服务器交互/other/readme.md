@@ -14,6 +14,16 @@
 
 - `run_sync.bat` / `sync_code.ps1`：安全同步，只上传本地 AdaLigand 项目根，不删除远端目录。
 - `run_syncWithClean.bat` / `sync_codeWithClean.ps1`：删除式同步，人类手动专用；agent 不擅自运行。
+- `sync_wandb_remote.bat` / `sync_wandb_remote.ps1`：通用 W&B 离线 run 快照同步入口，由调用者显式给出远端根目录。
+- `sync_stage1_wandb_remote.bat` / `sync_stage1_wandb_remote.ps1`：AdaLigand Stage1 一键入口。双击 `.bat` 会扫描固定根目录 `/home/penghongen/My_Project/tmp/adaligand_stage1_20260721T024000/allocations`，同步其下全部 `offline-run-*`，覆盖 `unet_c1`、`Find_0`、`Find_1`、`Find_2` 及后续 CPC 阶段在该任务范围中生成的离线 run。它不扫描其他项目，不包含在线 run，不删除或修改服务器文件，并固定使用 `wandb sync --no-mark-synced`。
+
+Stage1 一键入口默认执行真实同步，并在结束后保留窗口供查看结果。只读预览可在 PowerShell 中执行：
+
+```powershell
+& ".\与服务器交互\sync_stage1_wandb_remote.ps1" -DryRun
+```
+
+DryRun 只列出将同步的远端 run，不下载、不上传。真实同步会把每个远端 run 快照下载到本地临时会话目录，成功上传后只清理由工具自身创建且带 sentinel 的临时会话；不删除、改名或标记任何既有本地/服务器日志。同步失败时会保留该临时会话供排查。
 
 同步脚本会排除本地环境、缓存、测试输出和旧小样本产物：
 
@@ -32,15 +42,9 @@ resolution-check-30/
 adaligand_stage1.egg-info/
 ```
 
-## 历史 sbatch 草案位置
+## 历史 sbatch 草案
 
-以下 Stage A/B/C array 脚本只保留为历史草案，不得用于当前正式全量 run：
-
-```text
-Data_Preprocessing/Ori_Data/sbatch/a.sbatch
-Data_Preprocessing/Ori_Data/sbatch/b.sbatch
-Data_Preprocessing/Ori_Data/sbatch/c.sbatch
-```
+早期 Stage A/B/C array 脚本 `a.sbatch`、`b.sbatch`、`c.sbatch` 已从当前目录删除，不得用于新的正式任务；需要核对历史时，从提交 `817940a1682216cb54308a0a0aa87fd76e1216f0` 读取，不要把它们恢复成当前入口。
 
 历史约定：
 
