@@ -1,8 +1,8 @@
-# 根目录 CLAUDE 文件与项目记忆不是同一机制
+# CLAUDE 根文件与项目记忆的边界
 
 Type: gotcha
 Date: 2026-07-23
-Tags: CLAUDE, project-memory, governance
+Tags: claude-memory, handoff, project-governance
 
 ## Context
 
