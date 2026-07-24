@@ -12,11 +12,9 @@ import pytest
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-import c_source_rebuild
-from c_source_rebuild import (
+from adaligand_preprocessing.ops import stage_c_rebuild as c_source_rebuild
+from adaligand_preprocessing.ops.stage_c_rebuild import (
     SourceRebuildError,
     apply_prepared_source_rebuilds,
     build_primary_key_migration,
@@ -24,9 +22,9 @@ from c_source_rebuild import (
     prepare_stage_c_source_rebuild,
     staged_artifact_paths,
 )
-from io_utils import atomic_save_npz, sha256_file, write_jsonl
-from parse import StageCSourceView
-from reports import write_report
+from adaligand_preprocessing.utils.io import atomic_save_npz, sha256_file, write_jsonl
+from adaligand_preprocessing.stages.stage_c.pipeline import StageCSourceView
+from adaligand_preprocessing.artifacts.reports import write_report
 
 
 def _occurrence(candidate_id: int, chain: str) -> dict:
@@ -101,7 +99,7 @@ def test_full_rebuild_transaction_is_idempotent(monkeypatch, tmp_path):
     """四件套先完整 backup，再提交；重复 apply 只验证 receipt，不重复改变结果。"""
     root, evidence, record = _transaction_fixture(tmp_path)
     monkeypatch.setattr(
-        "c_source_rebuild.verify_audit_inputs_unchanged",
+        "adaligand_preprocessing.ops.stage_c_rebuild.verify_audit_inputs_unchanged",
         lambda *_args, **_kwargs: None,
     )
 
@@ -161,13 +159,13 @@ def test_prepare_full_rebuild_stages_evidence_without_canonical_write(
         "receptor_mismatch_reasons": [],
         "receptor_derived_mismatch_reasons": [],
     }
-    monkeypatch.setattr("c_source_rebuild.audit_stage_c_source", lambda *_args: base_audit)
+    monkeypatch.setattr("adaligand_preprocessing.ops.stage_c_rebuild.audit_stage_c_source", lambda *_args: base_audit)
     monkeypatch.setattr(
-        "c_source_rebuild.build_stage_c_source_view",
+        "adaligand_preprocessing.ops.stage_c_rebuild.build_stage_c_source_view",
         lambda *_args, **_kwargs: view,
     )
     monkeypatch.setattr(
-        "c_source_rebuild.build_receptor_arrays",
+        "adaligand_preprocessing.ops.stage_c_rebuild.build_receptor_arrays",
         lambda *_args, **_kwargs: {
             key: value
             for key, value in receptor.items()
@@ -175,11 +173,11 @@ def test_prepare_full_rebuild_stages_evidence_without_canonical_write(
         },
     )
     monkeypatch.setattr(
-        "c_source_rebuild.validate_stage_c_payload",
+        "adaligand_preprocessing.ops.stage_c_rebuild.validate_stage_c_payload",
         lambda *_args, **_kwargs: [],
     )
     monkeypatch.setattr(
-        "c_source_rebuild.verify_audit_inputs_unchanged",
+        "adaligand_preprocessing.ops.stage_c_rebuild.verify_audit_inputs_unchanged",
         lambda *_args, **_kwargs: None,
     )
     before_hashes = _hashes(canonical)
@@ -210,7 +208,7 @@ def test_full_rebuild_commit_failure_rolls_back_all_four_files(
     """提交中途异常必须用完整 before backup 恢复，不能留下 mixed 四件套。"""
     root, evidence, record = _transaction_fixture(tmp_path)
     monkeypatch.setattr(
-        "c_source_rebuild.verify_audit_inputs_unchanged",
+        "adaligand_preprocessing.ops.stage_c_rebuild.verify_audit_inputs_unchanged",
         lambda *_args, **_kwargs: None,
     )
     original_copy = c_source_rebuild._atomic_copy
@@ -223,7 +221,7 @@ def test_full_rebuild_commit_failure_rolls_back_all_four_files(
             raise OSError("injected commit failure")
         original_copy(source, target)
 
-    monkeypatch.setattr("c_source_rebuild._atomic_copy", _fail_second_stage_copy)
+    monkeypatch.setattr("adaligand_preprocessing.ops.stage_c_rebuild._atomic_copy", _fail_second_stage_copy)
 
     with pytest.raises(OSError, match="injected commit failure"):
         apply_prepared_source_rebuilds(root, evidence, [record])
@@ -244,7 +242,7 @@ def test_full_rebuild_recovers_after_files_promoted_before_receipt(
     """kill 发生在四文件全 after、receipt 仍 committing 时可只补 durable receipt。"""
     root, evidence, record = _transaction_fixture(tmp_path)
     monkeypatch.setattr(
-        "c_source_rebuild.verify_audit_inputs_unchanged",
+        "adaligand_preprocessing.ops.stage_c_rebuild.verify_audit_inputs_unchanged",
         lambda *_args, **_kwargs: None,
     )
     c_source_rebuild._ensure_before_backup(root, evidence, record)

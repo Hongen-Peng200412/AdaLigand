@@ -7,10 +7,8 @@ from pathlib import Path
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from download import resource_path_is_reusable
+from adaligand_preprocessing.stages.stage_b import resource_path_is_reusable
 
 
 def test_large_mmcif_is_reusable_when_atom_site_starts_after_first_mib(tmp_path: Path) -> None:

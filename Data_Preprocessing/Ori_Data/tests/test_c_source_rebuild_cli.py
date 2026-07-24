@@ -11,7 +11,7 @@ import sys
 import pytest
 
 
-SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts"
+SCRIPT_DIR = Path(__file__).resolve().parents[1] / "adaligand_preprocessing" / "cli"
 
 
 def _load_script(name: str, filename: str):
@@ -25,8 +25,8 @@ def _load_script(name: str, filename: str):
 
 def test_delegated_rebuild_cli_hash_chain(monkeypatch, tmp_path):
     """audit→联合 gate→rebuild apply→generic apply 必须绑定同一组 summary/records SHA。"""
-    rebuild_cli = _load_script("test_rebuild_cli", "c_source_rebuild.py")
-    repair_cli = _load_script("test_repair_cli", "c_source_repair.py")
+    rebuild_cli = _load_script("test_rebuild_cli", "stage_c_rebuild.py")
+    repair_cli = _load_script("test_repair_cli", "stage_c_repair.py")
     root = tmp_path / "root"
     root.mkdir()
     authorized_ids = tmp_path / "authorized.txt"
@@ -153,7 +153,7 @@ def test_delegated_rebuild_cli_hash_chain(monkeypatch, tmp_path):
 
 def test_require_all_exact_rejects_residual_atom_name_only(monkeypatch, tmp_path):
     """post audit 即使没有 blocked，也必须因残余 atom_name_only 退出非零。"""
-    repair_cli = _load_script("test_post_exact_cli", "c_source_repair.py")
+    repair_cli = _load_script("test_post_exact_cli", "stage_c_repair.py")
     root = tmp_path / "root"
     root.mkdir()
     ids = tmp_path / "dirty.txt"
@@ -173,7 +173,7 @@ def test_require_all_exact_rejects_residual_atom_name_only(monkeypatch, tmp_path
         sys,
         "argv",
         [
-            "c_source_repair.py",
+            "stage_c_repair.py",
             "--root", str(root),
             "--pdb_ids_file", str(ids),
             "--ids_sha256", ids_hash,
@@ -217,7 +217,7 @@ def _run_rebuild_cli(
 ) -> None:
     """用单样本冻结参数调用 rebuild CLI。"""
     argv = [
-        "c_source_rebuild.py",
+        "stage_c_rebuild.py",
         "--root", str(root),
         "--pdb_ids_file", str(authorized_ids),
         "--ids_sha256", authorized_hash,
@@ -256,7 +256,7 @@ def _run_repair_cli(
 ) -> None:
     """用单样本 delegated 参数调用 generic source-repair CLI。"""
     argv = [
-        "c_source_repair.py",
+        "stage_c_repair.py",
         "--root", str(root),
         "--pdb_ids_file", str(dirty_ids),
         "--ids_sha256", dirty_hash,

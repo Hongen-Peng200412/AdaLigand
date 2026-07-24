@@ -9,10 +9,8 @@ import numpy as np
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from qc import (
+from adaligand_preprocessing.artifacts.validation import (
     cc_value_errors,
     density_artifact_errors,
     density_pair_errors,

@@ -9,10 +9,8 @@ import numpy as np
 
 
 CODE_DIR = Path(__file__).resolve().parents[1] / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from smoke_checks import negative_cc_errors, shift_grid_x_no_wrap
+from adaligand_preprocessing.ops.smoke_checks import negative_cc_errors, shift_grid_x_no_wrap
 
 
 def test_shift_grid_x_has_zero_fill_and_no_wrap() -> None:

@@ -14,17 +14,15 @@ import pytest
 
 CODE_ROOT = Path(__file__).resolve().parents[1]
 CODE_DIR = CODE_ROOT / "code"
-if str(CODE_DIR) not in sys.path:
-    sys.path.insert(0, str(CODE_DIR))
 
-from controlled_failure_waiver import canonical_status_row_sha256, load_stage_status_view
-from filtering import load_stage_statuses, run_stage_g
-from io_utils import read_jsonl, sha256_file, write_jsonl
-from reports import stage_report_path, stage_result, write_stage_results
-import stage_f_process_audit as process_audit
+from adaligand_preprocessing.execution.controlled_failures import canonical_status_row_sha256, load_stage_status_view
+from adaligand_preprocessing.stages.stage_g import load_stage_statuses, run_stage_g
+from adaligand_preprocessing.utils.io import read_jsonl, sha256_file, write_jsonl
+from adaligand_preprocessing.artifacts.reports import stage_report_path, stage_result, write_stage_results
+from adaligand_preprocessing.ops import stage_f_processes as process_audit
 
 
-PROCESS_AUDIT_SCRIPT = CODE_ROOT / "scripts" / "stage_f_process_audit.py"
+PROCESS_AUDIT_SCRIPT = CODE_ROOT / "adaligand_preprocessing" / "cli" / "stage_f_process_audit.py"
 
 
 def _write_canonical_process_audit(path: Path) -> None:
@@ -173,12 +171,12 @@ def _write_waiver(
         "code_files": [
             {"path": relative_path, "sha256": sha256_file(CODE_ROOT / relative_path)}
             for relative_path in (
-                "code/controlled_failure_waiver.py",
-                "code/filtering.py",
-                "scripts/stage_release_gate.py",
-                "scripts/g_filter.py",
-                "code/stage_f_process_audit.py",
-                "code/stage_f_process_audit_contract.py",
+                "adaligand_preprocessing/execution/controlled_failures.py",
+                "adaligand_preprocessing/stages/stage_g.py",
+                "adaligand_preprocessing/cli/stage_release.py",
+                "adaligand_preprocessing/cli/stage_g.py",
+                "adaligand_preprocessing/ops/stage_f_processes.py",
+                "adaligand_preprocessing/ops/stage_f_process_contract.py",
             )
         ],
         "exit_condition": "current run Stage G analyze and final audit complete",
@@ -379,7 +377,8 @@ def test_release_gate_and_g_analyze_consume_same_waiver_without_placeholder(
     waiver_path, waiver_sha256 = _write_waiver(tmp_path, "run1", status_path)
     command = [
         sys.executable,
-        str(CODE_ROOT / "scripts" / "stage_release_gate.py"),
+        "-m",
+        "adaligand_preprocessing.cli.stage_release",
         "--root",
         str(tmp_path),
         "--run_id",
@@ -471,7 +470,8 @@ def test_g_waiver_requires_successful_matching_f_release(tmp_path: Path) -> None
 
     command = [
         sys.executable,
-        str(CODE_ROOT / "scripts" / "stage_release_gate.py"),
+        "-m",
+        "adaligand_preprocessing.cli.stage_release",
         "--root",
         str(tmp_path),
         "--run_id",
@@ -568,7 +568,8 @@ def test_release_gate_rejects_waiver_in_strict_smoke(tmp_path: Path) -> None:
     waiver_path, waiver_sha256 = _write_waiver(tmp_path, "run1", status_path)
     command = [
         sys.executable,
-        str(CODE_ROOT / "scripts" / "stage_release_gate.py"),
+        "-m",
+        "adaligand_preprocessing.cli.stage_release",
         "--root",
         str(tmp_path),
         "--run_id",
