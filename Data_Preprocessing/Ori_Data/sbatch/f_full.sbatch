@@ -17,7 +17,7 @@ write_adaligand_run_cmd() {
 set -euo pipefail
 cd "${CODE_ROOT}"
 
-"${PYTHON}" scripts/f_quality.py \
+"${PYTHON}" -m adaligand_preprocessing.cli.stage_f \
   --root "${DATA_ROOT}" \
   --chimera "${CHIMERA}" \
   --chimera_root "${CHIMERA_ROOT}" \
@@ -28,7 +28,7 @@ cd "${CODE_ROOT}"
   --n_jobs "${F_N_JOBS:-12}" \
   --run_id "${ADALIGAND_RUN_ID}"
 
-"${PYTHON}" scripts/stage_release_gate.py \
+"${PYTHON}" -m adaligand_preprocessing.cli.stage_release \
   --root "${DATA_ROOT}" \
   --run_id "${ADALIGAND_RUN_ID}" \
   --stages stage_f \

@@ -18,7 +18,7 @@ write_adaligand_run_cmd() {
 set -euo pipefail
 cd "${CODE_ROOT}"
 
-"${PYTHON}" scripts/smoke_negative_cc.py \
+"${PYTHON}" -m adaligand_preprocessing.cli.smoke_negative_cc \
   --root "${DATA_ROOT}" \
   --pdb_id 5mkf \
   --chimera "${CHIMERA}" \
