@@ -70,7 +70,8 @@
     "2026-07-23：用户要求后续heartbeat同时检查Job 321107新版unet_c1、Job 321540新版Find_1和Job 321743旧版Find_0。三者按各自运行目录、resolved配置、损失、W&B、checkpoint与锁独立核对；旧版Find_0不要求出现新增辅助监督。",
     "2026-07-24：首次三作业联合检查通过。新版Find_1到达global_step 698，新版unet_c1到达1112，二者仍未首次正式验证或保存checkpoint；旧版Find_0到达5483，已有有限验证指标及BEST/last/TOP checkpoints。三者W&B、损失、日志、锁和GPU正常；Find_0两张H200约占142.1/142.8 GiB，余量较小但未OOM。",
     "2026-07-24：第二次三作业联合检查通过。新版Find_1到达global_step 1241，五项训练损失有限，尚未首次正式验证或保存checkpoint。新版unet_c1到达1325，首次验证总损失0.273812，蛋白与核酸主链宏平均PR-AUC分别为0.0381163和0.00681047，已保存TOP与last checkpoints。旧版Find_0到达6233，既有验证指标与checkpoints正常；三项作业均RUNNING、各自仅有after_lock、错误扫描为空，Find_0两张H200约占142.4/142.6 GiB，余量小但未OOM。",
-    "2026-07-24：第三次三作业联合检查通过。新版Find_1到达global_step 1430，首次验证总损失0.423916，蛋白与核酸主链宏平均PR-AUC分别为0.111973和0.00329660，已保存TOP与last checkpoints。新版unet_c1到达2180，首次验证和checkpoints继续有效。旧版Find_0到达6773，最新验证总损失0.330061，受体与配体区域PR-AUC分别为0.660388和0.606173，并更新TOP与last checkpoints。三项作业均RUNNING、各自仅有after_lock、错误扫描为空；两个Find尚未进入CPC2。"
+    "2026-07-24：第三次三作业联合检查通过。新版Find_1到达global_step 1430，首次验证总损失0.423916，蛋白与核酸主链宏平均PR-AUC分别为0.111973和0.00329660，已保存TOP与last checkpoints。新版unet_c1到达2180，首次验证和checkpoints继续有效。旧版Find_0到达6773，最新验证总损失0.330061，受体与配体区域PR-AUC分别为0.660388和0.606173，并更新TOP与last checkpoints。三项作业均RUNNING、各自仅有after_lock、错误扫描为空；两个Find尚未进入CPC2。",
+    "2026-07-24：第四次三作业联合检查通过。新版Find_1到达global_step 1973，新版unet_c1到达2630，旧版Find_0到达7529；三者均RUNNING，配置、唯一运行目录、after_lock、运行目录错误扫描和GPU采样正常，两个Find尚未进入CPC2。unet_c1的wandb-summary.json自14:43暂未刷新，但W&B二进制事件文件、内部日志和GPU采样持续更新到17:03，GPU利用率84%–100%，没有进程停滞证据；allocation总日志中的Hydra traceback属于已退出的旧启动尝试。"
   ],
   "blockers": [],
   "failures": [
