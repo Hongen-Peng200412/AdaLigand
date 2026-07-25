@@ -71,11 +71,13 @@ def compute_atom_labels(
     ligand_candidate_ids = np.concatenate(candidate_parts, axis=0)
     tree = cKDTree(ligand_coords)
     receptor64 = receptor.astype(np.float64, copy=False)
+    # 只有一个配体原子时，最近邻结果天然唯一，不需要再做平局消歧。
     if len(ligand_coords) == 1:
         nearest_distance, nearest_index = tree.query(receptor64, k=1)
         nearest_distance = np.asarray(nearest_distance, dtype=np.float64)
         nearest_index = np.asarray(nearest_index, dtype=np.int64)
     else:
+        # 先取最近的两个候选点；若距离几乎相同，再进入平局处理。
         two_distances, two_indices = tree.query(receptor64, k=2)
         nearest_distance = np.asarray(two_distances[:, 0], dtype=np.float64)
         nearest_index = np.asarray(two_indices[:, 0], dtype=np.int64)
@@ -83,13 +85,19 @@ def compute_atom_labels(
             np.isclose(two_distances[:, 0], two_distances[:, 1], rtol=0, atol=1e-7)
         )
         for row in tie_rows:
+            # 将半径推进到最近距离之后的下一个可表示浮点数，避免漏掉并列最近点。
             radius = np.nextafter(float(two_distances[row, 0]) + 1e-7, np.inf)
+            # 在这个半径内重新收集候选原子，避免依赖 KD-tree 的内部顺序。
             candidates = np.asarray(tree.query_ball_point(receptor64[row], radius), dtype=np.int64)
+            # 逐个计算真实欧氏距离，再从中选出最小值。
             distances = np.linalg.norm(ligand_coords[candidates] - receptor64[row], axis=1)
             minimum = float(distances.min())
+            # 允许 1e-7 的绝对误差，把与最小距离等价的候选都视为平局。
             tied = candidates[np.isclose(distances, minimum, rtol=0, atol=1e-7)]
+            # 平局时先比 candidate_id，再比数组下标，保证结果稳定可复现。
             chosen = min(tied.tolist(), key=lambda index: (int(ligand_candidate_ids[index]), index))
             nearest_index[row] = chosen
+            # 重新写回最终赢家的距离，确保索引和距离对应同一个原子。
             nearest_distance[row] = np.linalg.norm(ligand_coords[chosen] - receptor64[row])
 
     threshold32 = np.float32(binding_threshold)

@@ -47,11 +47,15 @@
 - [x] (2026-07-24 17:03+08:00) 完成第四次三作业联合检查。三个作业均为 `RUNNING`，配置、唯一运行目录、`after_lock` 和错误扫描没有变化。Job `321540` 新版 Find_1 到达 `global_step=1973`，五项训练损失保持有限，首次验证与 TOP、last checkpoints 继续有效。Job `321107` 新版 `unet_c1` 到达 `global_step=2630`；`wandb-summary.json` 在 14:43 后暂未刷新，但 W&B 二进制事件文件、内部日志和 GPU 采样持续更新到 17:03，GPU 利用率为 84%–100%，因此当前没有进程停滞证据。allocation 总日志中出现的 Hydra traceback 属于已经退出的旧启动尝试，不属于当前唯一运行目录。Job `321743` 旧版 Find_0 到达 `global_step=7529`，既有验证与 checkpoints 保持有效；两张 H200 最新采样约为 142.7/142.5 GiB。两个 Find 均尚未进入 CPC2。
 - [x] (2026-07-24 22:04+08:00) 完成第五次三作业联合检查。三个作业均为 `RUNNING`，各自配置、唯一运行目录、`after_lock`、GPU 采样和 W&B 事件流持续有效。Job `321540` 新版 Find_1 到达 `global_step=2528`，训练损失有限，首次验证与 TOP、last checkpoints 保持有效；W&B 内部日志中的 traceback 是 7 月 23 日一次 GraphQL 请求被限流后的自动重试，当前摘要已继续刷新，不是训练错误。Job `321107` 新版 `unet_c1` 到达 `global_step=3236`，第二次验证总损失从 `0.273812` 降至 `0.241217`，受体与配体区域 PR-AUC 从 `0.370737`、`0.397535` 升至 `0.448923`、`0.456689`，蛋白主链宏平均 PR-AUC 从 `0.0381163` 升至 `0.0508417`，核酸主链宏平均 PR-AUC 从 `0.00681047` 降至 `0.00279204`；已保存新的 TOP 与 last checkpoints。Job `321743` 旧版 Find_0 到达 `global_step=8084`，最新验证总损失为 `0.328610`，并更新 TOP 与 last checkpoints；两张 H200 最新采样最高约为 142.8/143.0 GiB，余量很小但没有显存不足。两个 Find 均尚未进入 CPC2。
 - [x] (2026-07-25 16:27+08:00) 完成第六次三作业联合检查。三个作业均为 `RUNNING`，精确发布身份、最终配置、唯一运行目录和各自唯一的 `after_lock` 正确；当前运行目录没有训练 traceback、显存不足或数据契约错误，W&B 事件流与 GPU 采样持续更新。Job `321540` 新版 Find_1 到达 `global_step=3971`，最新验证总损失降至 `0.343283`，蛋白与核酸主链宏平均 PR-AUC 分别升至 `0.976166` 和 `0.947399`，并保存新的 TOP 与 last checkpoints。Job `321107` 新版 `unet_c1` 到达 `global_step=5258`，第三次验证总损失降至 `0.231801`，蛋白与核酸主链宏平均 PR-AUC 分别为 `0.0619655` 和 `0.0283426`，并保存新的 TOP 与 last checkpoints；其摘要文件在 13:09 后暂未刷新，但 W&B 二进制事件文件和 GPU 采样持续更新到 16:28，单张 H100 利用率为 97%，没有进程停滞证据。Job `321743` 旧版 Find_0 到达 `global_step=10931`，最新验证总损失降至 `0.317618`，受体与配体区域 PR-AUC 分别为 `0.686995` 和 `0.615032`，并保存新的 TOP 与 last checkpoints。此次检查期间两张 H200 的最高显存占用为 143.070 GiB，单卡总显存为 143.771 GiB，余量很小但没有显存不足。两个 Find 均尚未进入 CPC2。
+- [x] (2026-07-25 21:29+08:00) 完成第七次三作业联合检查。三个作业均为 `RUNNING`，精确发布身份、最终配置、唯一运行目录和各自唯一的 `after_lock` 正确；当前应用日志没有训练 traceback、显存不足或数据契约错误，W&B 事件流与 GPU 采样持续更新。Job `321540` 新版 Find_1 到达 `global_step=4628`，五项训练损失均为有限值，最近一次验证与 TOP、last checkpoints 继续有效。Job `321107` 新版 `unet_c1` 到达 `global_step=6197`，第四次验证总损失从 `0.231801` 降至 `0.221887`，受体与配体区域 PR-AUC 分别升至 `0.535934` 和 `0.504227`，蛋白与核酸主链宏平均 PR-AUC 分别升至 `0.0797290` 和 `0.0845545`；已保存 `TOP_epoch_00_score_0.2219.ckpt` 与新的 `last.ckpt`。Job `321743` 旧版 Find_0 到达 `global_step=11843`，最近一次验证与 TOP、last checkpoints 继续有效。此次检查期间两张 H200 的最高显存占用仍为 143.070 GiB，单卡总显存为 143.771 GiB，余量很小但没有显存不足。两个 Find 均尚未进入 CPC2。
 - [ ] 形成两个仓库的实现端点与学习端点，验证允许差异后推进各自 `Learn/CUMULATIVE`。
 - [ ] 完成新版 Find_1 CPC1→CPC2 与新版 `unet_c1` 正式训练的短期检查和 heartbeat 监控。
 - [ ] 收口映射索引、README、ExecPlan、`CLAUDE/memory/`、运行证据和 heartbeat。
 
 ## Surprises & Discoveries
+
+- Observation: 新版 `unet_c1` 保存验证总损失为 `0.221887` 的 TOP checkpoint 后，`BEST.ckpt` 仍与上一轮 `TOP_epoch_00_score_0.2318.ckpt` 内容相同。
+  Evidence: 2026-07-25 21:31+08:00 的服务器只读校验显示两个文件 SHA-256 均为 `90fb5d33…210`，而 `TOP_epoch_00_score_0.2219.ckpt` 为 `467535c4…4d7`。精确发布 `Pocket_Plus_9417bcf/src/train.py` 中 `BestCheckpointAlias` 在 `on_validation_end` 和 `on_train_end` 刷新别名；服务器当前 Lightning 的 `trainer/connectors/callback_connector.py::_reorder_callbacks` 明确把 `ModelCheckpoint` 移到其他 callback 之后执行，因此训练过程中别名会落后一轮验证，训练正常结束时会再次刷新。当前 TOP checkpoint 已完整保存，训练继续运行，这一行为不阻断当前训练；CPC1 结束后必须核对 `BEST.ckpt` 与最终 `best_model_path` 的内容一致性。
 
 - Observation: AdaLigand 与 Pocket_Plus 的常用工作区都已有未提交修改，Pocket_Plus 还包含当前正式训练相关的大量代码和配置变化。
   Evidence: 2026-07-23 的 `git status --short --branch` 显示 AdaLigand 有讨论和同步工具修改，Pocket_Plus 有 Dataset、模型、推理、Selector、配置和项目记忆修改。本文因此使用两个隔离 worktree，不在原工作区编辑或暂存文件。
@@ -269,3 +273,5 @@ Revision note 2026-07-24 22:08+08:00：记录第五次三作业联合检查、�
 Revision note 2026-07-24：辅助监督实现已纳入 AdaLigand 与 Pocket_Plus 的本地 Git 双线重建。实现端点、学习端点和核验结果记录在 `文档/exec_plan/双线Git与学习注释重建.md`；本条只关闭“学习线未补全”事项，不关闭仍在进行的三项训练监控和两个 Find 的 CPC 阶段切换。
 
 Revision note 2026-07-25 16:32+08:00：记录第六次三作业联合检查、三项训练的新验证结果，以及新版 `unet_c1` 摘要文件暂缓刷新但事件流与 GPU 计算继续推进的判定。
+
+Revision note 2026-07-25 21:35+08:00：记录第七次三作业联合检查、新版 `unet_c1` 第四次验证，以及 `BEST.ckpt` 在训练中可能落后一轮验证但会在 `on_train_end` 再次刷新的回调行为。

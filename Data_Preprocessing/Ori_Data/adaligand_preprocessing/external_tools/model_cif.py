@@ -23,7 +23,7 @@ def write_normalized_model_cif(
     atom_only: bool,
 ) -> dict[str, Any]:
     """
-    写只含受检 atom_site 的最小标准化模型，并保留原始字段值与行序。
+    从 mmCIF 的 _atom_site 中选择第一个 model 和每个原子身份的规范 altloc，默认去掉 H/D 原子；atom_only=True 时再去掉 HETATM。保留所选记录的全部字段值，并按原始 atom_site.id 顺序写入只包含这些记录的标准化模型。
 
     输入参数:
         - source_path: Path, RCSB 原始完整 mmCIF
@@ -69,10 +69,8 @@ def write_normalized_model_cif(
     if filtered_ids != selected_ids:
         raise RuntimeError("normalized atom_site ids changed during selection")
 
-    # 外部工具只消费所选原子的 Cartesian atom_site。复制整个源 document 会让已删除的
-    # model/altloc/HETATM/H 原子继续被 anisotrop、struct_conn 等类别引用，Classic Chimera
-    # 会花数小时打印悬挂引用 warning。最小独立 document 保留每个 atom_site 字段原值，
-    # 同时从结构上消除这些无效跨类别引用。
+    # Chimera/MapQ 的这次调用只需要筛选后的 _atom_site 原子及其 Cartesian 坐标。不能复制完整源文档后只替换 _atom_site，因为 _atom_site_anisotrop、_struct_conn 等类别仍可能引用已删除的原子。
+    # 这些无效引用会让 Classic Chimera 反复打印 warning 并显著拖慢运行。因此新建只含 _entry.id 和筛选后 _atom_site 的 CIF；原子字段值和原始顺序保持不变。
     normalized_document = gemmi.cif.Document()
     normalized_block = normalized_document.add_new_block(source_block.name)
     entry_id = source_block.find_value("_entry.id")
