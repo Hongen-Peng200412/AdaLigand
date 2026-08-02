@@ -32,6 +32,16 @@
 5. 本地测试后在有余量的 A100/A800 做隔离 smoke；A800 首轮显存上限示例为 72 GiB。
 6. 正式 YAML/`.sh` 准备完成后请求用户授权提交完整训练。
 
+## 2026-08-03 本地实现进展
+
+当前实现已经覆盖 `matcher/anchor_manifest.py`、`anchor_data.py`、`batching.py`、`graph.py`、`map.py`、`model.py`、`objectives.py`、`consistency.py`、`oo_prime.py`、`train.py`、`infer_anchor.py`、两份 profile YAML 和独立显存画像入口。最新本地回归为 33 项通过，compileall 和 diff-check 同时通过；第三轮契约与可读性审查没有剩余提交阻断项。
+
+第一轮契约审查的七项阻断问题已经全部处理。尤其需要续接者记住：FinePair 辅助损失现在是 `[C,S_pred,S_gt]`，必须在最终 Hungarian 后按 `loss[:, predicted_slot, assignment]` 选择；不得退回先绑定原始 occurrence 编号再重排列的错误实现。Phase2 每次进入训练模式后必须让冻结的 Phase1 子树保持 `eval`，但不能用覆盖整个粗前段的 `no_grad` 阻断 Map 梯度。
+
+第三轮契约/可读性审查正在进行。零候选状态已完全收口到 `prepare_epoch`；正式实验清单会校验版本、路线和六项采样参数，并记录来源 BOX manifest/config 身份。字段级契约见 `文档/规划文档/Matcher_Anchor_OOPrime数据契约.md`。
+
+服务器 Torch 环境没有 `gemmi`，当前实现没有修改共享环境，而是把既有 Gemmi 的元素属性只读导出到 `matcher/element_properties.py`。下一步在审查闭合后提交本阶段代码，再生成正式 Matcher manifest、做 18 Å 数据核对和真实 CPU/GPU smoke。正式长训练仍必须等固定 YAML 和 `.sh` 交给用户审阅后再获授权。
+
 ## Files To Reopen
 
 - `grill_with_memory/07-28-17-50.md`
