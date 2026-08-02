@@ -10,6 +10,8 @@
 - 当前解码：`OOPrimeDecoder`。允许 slot 拒绝和候选复用；不执行 A/B merge/split 推理。
 - 当前评估：`OOPrimeEvaluation`。完整验证集上扫描全局 O 阈值，以 occurrence 级 F1 选择 checkpoint。
 
+字段级输入、清单、内存张量与 batch 约束见 `文档/规划文档/Matcher_Anchor_OOPrime数据契约.md`。
+
 模型不得读取 `bias/context` 来源标记。真实 occurrence 配体坐标只生成标签，不能进入模型输入。A 允许为空；零候选 PDB 已在样本收集边界剔除。
 
 未来 Stage1 推理产物使用新的数据与推理入口，不在 Anchor 文件中加入模式分支。未来 A/B 使用独立 decoder/evaluator，不改变当前 O/O′ 的阈值和正确性定义。
