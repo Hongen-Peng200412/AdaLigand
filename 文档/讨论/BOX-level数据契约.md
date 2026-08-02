@@ -736,8 +736,11 @@ Stage1 推理入口是 `python -m src.inference.cli`：
 | --- | --- | --- | --- |
 | `cal-probability` | calibration | checkpoint、完整图输入 | probability |
 | `freeze-thresholds` | calibration | 清单中全部 PDB 的可读 probability、真实配体实例 | 模型来源级校准目录 |
+| `cal-produce-f1` | calibration | probability、模型来源级校准、checkpoint | components、F1 centered |
 | `cal-produce-f1-clg` | calibration | probability、模型来源级校准、checkpoint | components、F1 centered、CLG centered |
+| `val-produce-prob-f1` | validation | 模型来源级校准、checkpoint、完整图输入 | probability、components、F1 centered |
 | `val-produce-prob-f1-clg` | validation | 模型来源级校准、checkpoint、完整图输入 | probability、components、F1 centered、CLG centered |
+| `train-produce-prob-f1` | train | 模型来源级校准、checkpoint、完整图输入 | probability、components、F1 centered |
 | `train-produce-prob-f1-clg` | train | 模型来源级校准、checkpoint、完整图输入 | probability、components、F1 centered、CLG centered |
 | `selected-refined` | 显式指定 | 可读 `components` 角色、`selection.npz`、`geometry.json`、模型检查点、完整图输入 | `Selected_Refined_Centered` |
 
@@ -752,7 +755,9 @@ Selector 入口：
 | `python -m src.selector.inference calibrate` | Selector 运行目录 `calibration.json` |
 | `python -m src.selector.inference selection` | 显式输出路径的单 PDB `selection.npz` |
 
-除 `freeze-thresholds` 外，Stage1 的五个 PDB 级推理子命令都按清单位置分片：
+F1-only 命令完成后，可以在同一输出根目录运行对应的 `*-f1-clg` 命令。后者按已有 `_COMPLETE` 保持 probability、components 和 F1 centered 不变，只补充缺少的 CLG centered。
+
+除 `freeze-thresholds` 外，Stage1 的八个 PDB 级推理子命令都按清单位置分片：
 
 `record_index % shard_count == shard_index`
 
