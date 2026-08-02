@@ -15,3 +15,6 @@ Data_Preprocessing/Ori_Data/**/*.json text eol=lf
 Data_Preprocessing/Ori_Data/**/*.md text eol=lf
 Data_Preprocessing/Ori_Data/*.ini text eol=lf
 Data_Preprocessing/Ori_Data/*.toml text eol=lf
+训练与运行/*.sh text eol=lf
+训练与运行/**/*.sh text eol=lf
+训练与运行/**/*.sbatch text eol=lf

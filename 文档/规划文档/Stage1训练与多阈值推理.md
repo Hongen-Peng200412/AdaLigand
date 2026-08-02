@@ -186,14 +186,15 @@ $$
 
 `min_voxels=32` 固定。
 
-`max_voxels` 在正式组件生产前通过一次性服务器统计冻结：根据 `Data_Preprocessing/Ori_Data/README.md` 读取 GT occurrence 的 ligand-area 体素数，求 Q95，再乘 1.5 并向上取整。当前全量有效 Stage E 清单覆盖 22,309 个 PDB、673,364 个 occurrence，得到 `Q95=682`，因此正式第一版固定 `max_voxels=ceil(682×1.5)=1023`。格点已经重采样到约 1 Å，不引入实际 voxel volume 换算。该任务只把最终数值交回配置，临时文件不构成永久统计流水线；组件代码不得在该值缺失时猜默认值。
+`max_voxels` 在正式组件生产前通过一次性服务器统计冻结：根据 `Data_Preprocessing/Ori_Data/README.md` 读取 GT occurrence 的 ligand-area 体素数，求 Q95，再乘 3.0 并向上取整。当前全量有效 Stage E 清单覆盖 22,309 个 PDB、673,364 个 occurrence，得到 `Q95=682`，因此正式第一版固定 `max_voxels=ceil(682×3.0)=2046`。格点已经重采样到约 1 Å，不引入实际 voxel volume 换算。该任务只把最终数值交回配置，临时文件不构成永久统计流水线；组件代码不得在该值缺失时猜默认值。
 
 ### 3.4 calibration 报告
 
 每个 `stage1_model_name` 都报告：
 
 - ligand-area voxel PR-AUC/AP；
-- `t_F1` 下语义 Dice；
+- `semantic_dice_micro_t_F1`：先跨 calibration PDB 汇总 TP、FP、FN，再计算 `2TP/(2TP+FP+FN)`；
+- `semantic_dice_macro_t_F1`：逐 PDB 计算同一 `t_F1` 下的 Dice 后等权平均；单个 PDB 分母为 0 时按 `0.0` 进入平均；
 - coverage F1，双向 coverage 阈值 0.3/0.5；
 - one-to-one F1，双向 coverage 阈值 0.3/0.5；
 - top-3/top-4/top-5 success ratio，双向 coverage 阈值 0.3/0.5；
@@ -329,12 +330,14 @@ $$
 
 每个完成输出是一份可独立消费的 BOX：包含几何、来源身份、权威 voxel 集合、该 producer 实际产生的 V/P/A 特征与概率。两个 Find 的 centered ligand probability 均在 sigmoid 后乘当前 BOX hardmask 的补集；unet_c1 不乘。模型没有的模态或层不以全零数组伪造。每个 producer/split/PDB 的同类 BOX 用一个 role 级聚合 NPZ 保存，而不是一 BOX 一文件或 `index+parts`。
 
+`source_tree_id` 与树内局部 `source_node_id` 共同确定原始滑窗 forest 节点；`source_threshold_grid_index=j` 和 `source_threshold_value=j/denominator` 标识该节点所在阈值层，不是成员体素概率。F1/CLG 的权威成员坐标来自原始滑窗 forest，坐标上的 `centered_probability` 与特征则来自当前 centered 重算。`voxel_index_local_zyx` 是 BOX 内离散 ZYX 坐标；CLG 的 `candidate_voxel_index` 只是引用所属条目 voxel 值表的局部行号，不是坐标或完整图索引。
+
 ### 6.2 F1_centered
 
 对 `t_F1` 层每个 eligible `global_component_node` 生成一个 `F1_centered`：
 
 - 权威 voxel 集合仍是原 `global_component_mask`；
-- 居中 forward 的局部概率只在这组 voxel 上保存为 `centered_probability[K_v] float32`；
+- 当前居中 forward 经 sigmoid 和 producer 后处理得到的局部概率，只在这组来源组件 voxel 坐标上保存为 `centered_probability[K_v] float32`；不复用原始滑窗融合概率；
 - 局部重跑出现的其它 26-连通组件全部忽略；
 - 不创建 CLG、candidate membership、selector 或 selection 身份。
 
@@ -347,7 +350,7 @@ $$
 - 权威 voxel 表是 `CLG_oldest_node` 的原全图 mask；
 - 每个 `candidate_node` 通过 offsets+indices 引用该共享 voxel 表；
 - Find 保存共享 P 表、共享 A 表，以及每个 candidate 的 A membership；P 属于整个 BOX，不做人为 candidate membership；
-- `centered_probability` 只对齐 oldest voxel 表；
+- 当前居中 forward 的 `centered_probability` 只对齐 oldest 来源组件 voxel 表，不复用原始滑窗融合概率；
 - 不保存稠密 threshold-rank map 或 auxiliary mask；
 - 局部额外组件不产生候选、不修改全图 component mask。
 
@@ -368,9 +371,9 @@ selector 选择的每个 `selected_node` 携带其原全图阈值 `t_source`。S
 stage1_model_name / split / pdb_id / source_tree_id / source_node_id
 ```
 
-指回唯一来源。`refine_status uint8` 固定为：`0=success`，表示至少一个局部组件与投影后的 source mask 有正交集并已选出 IoU 最大者；`1=empty`，表示按 `t_source` 二值化后没有局部组件；`2=no_overlap`，表示存在局部组件但它们与 source mask 的交集全为 0；`3=failed`，表示该 source 的 forward、组件构造或必要校验执行失败。后三者只保留来源身份、BOX 几何与状态，形成一对零记录，不伪造权威 voxel 或特征 payload。来源全图 mask 可由 component forest 解析，不在 Selected 输出重复复制。
+指回唯一来源。`refine_status uint8` 固定为：`0=success`，表示至少一个局部组件与投影后的 source mask 有正交集并已选出 IoU 最大者；`1=empty`，表示按 `t_source` 二值化后没有局部组件；`2=no_overlap`，表示存在局部组件但它们与 source mask 的交集全为 0。后两者只保留来源身份、BOX 几何与状态，形成一对零记录，不伪造权威 voxel 或特征 payload。模型前向、组件构造或必要校验失败会终止当前角色且不发布 `_COMPLETE`，不编码成 `refine_status`。来源全图 mask 可由 component forest 解析，不在 Selected 输出重复复制。
 
-Selected 聚合文件用 `feature_entry_index[N_feature] int32` 严格列出 `refine_status=success` 的 entry 行；四张固定 V grid 的第一维是 `N_feature`，按该索引与成功 entry 对齐，而不是为失败 entry 保存全零占位。voxel/aux/P/A 的 offsets 仍按全部 `N_entry+1` 切分，失败 entry 对应空段。
+Selected 聚合文件不保存固定多尺度 V 网格。voxel/aux/P/A 的 offsets 按全部 `N_entry+1` 切分，非 success 归档项对应空段。
 
 Selected 输出的 V/P/A 和 `centered_probability` 必须对齐新的 `refined_blob`，不能继续对齐旧 source mask；Find 的 A 表仍按该 refined blob 的 10 Å包络与当前 BOX 的交集定义。这正是 Selected 重跑区别于 F1/CLG 居中观察的意义。
 
@@ -394,28 +397,24 @@ V 对三个 producer 都存在：
 
 ```text
 voxel_final[K_v,48]
-voxel_ds_2[256,20,20,20]
-voxel_ds_3[256,10,10,10]
-voxel_ds_4[256,5,5,5]
-voxel_c4[256,5,5,5]
 ```
 
-`voxel_final` 只在权威 voxel 集合上稀疏保存；四张低分辨率原生网格每 BOX 各存一次。不得保存完整 `[48,80,80,80]` final grid，也不得把四张网格预采样并复制成每 voxel 的高维行。低分辨率特征的三线性采样属于消费模型 forward。
+`voxel_final` 只在权威 voxel 集合上稀疏保存。不得保存完整 `[48,80,80,80]` final grid，也不得落盘保存 Stage1 骨干内部的 `voxel_ds_2`、`voxel_ds_3`、`voxel_ds_4` 或 `voxel_c4`。
 
 Find 的 centered A 表固定为“来源 blob 的 10 Å包络 ∩ 当前 80³ BOX”中的 receptor atoms；它不是 Dataset 的加载 buffer，也不读取 BOX 外原子。A 表保存 `A_global_index`、坐标、`A_probability` 和两个 Find 都真实具有的学习特征：
 
-- `A_feat_L1`：point-side embed 完成、进入 density/point backbone 前的表示；
-- `A_feat_L2`：embed 表示与 point density 表示完成组合后，实际送入 point backbone 的表示；
-- `A_feat_L3`：A/P interaction 之前的表示；
-- `A_feat_L4`：interaction 之后、A head 输入的表示。
+- `A_feat_L1`：`outputs["A_feat_L1"]`，点侧嵌入与界面归一化完成、真实原子密度调制发生之前的 A 表示；
+- `A_feat_L2`：`outputs["A_feat_L2"]`，真实原子密度调制完成后送入点骨干网络的 A 输入表示；
+- `A_feat_L3`：`outputs["real_feat_before_interaction"]`，点骨干网络处理完成、A↔P 交叉注意力发生之前的 A 最终表示。
 
-正式消费输入还包含 `A_feat_L0[N_A,49] float32`，它由 `A_global_index` 从每 PDB 唯一的整图 receptor 49D 基础表无损索引得到，不在每个 centered BOX 重复落盘。`A_probability=sigmoid(A_logit)`。
+正式 centered 归档还直接保存 `A_feat_L0[N_A,49] float32`。生产时从当前 BOX 输入 `atom_feat` 中按 `A_global_index` 对齐到模型输出 A 行序，保留原始 float32 精度；Selector 不再二次读取整图 receptor 49D 基础表。`A_global_index` 继续承担身份追踪。`A_probability=sigmoid(A_logit)`。
 
 Find 的 P 表保存坐标、`P_probability=sigmoid(P_logit)` 与：
 
-- `P_feat_L2`：pseudo-density feature 经过 density/class/interface normalization 后的表示；
-- `P_feat_L3`：A/P interaction 之前的表示；
-- `P_feat_L4`：interaction 之后、P head 输入的表示。
+- `P_feat_L2`：`outputs["pseudo_density_feat"]`，密度、伪原子类别与界面归一化共同形成的 P 初始表示，也是点骨干网络接收的 P 输入；
+- `P_feat_L3`：`outputs["pseudo_feat_before_interaction"]`，点骨干网络处理完成、A↔P 交叉注意力发生之前的 P 最终表示。
+
+Stage1-Find 前向计算继续产生交叉注意力后的 `A_feat_L4` 与 `P_feat_L4`，但 centered 归档不保存这两组张量，Selector 也不消费它们。A/P 分类概率仍使用 Stage1-Find 原有分类头结果。
 
 `unet_c1` 只保存其真实 V 与 voxel probability，不伪造 P/A。
 
@@ -451,12 +450,11 @@ $$
 
 每个消费模型拥有自己的 adapter 参数。缺失来源直接不进入该 producer 对应的 adapter 配置，不补零；adapter 的有序来源清单属于该消费模型配置。
 
-### 7.4 V5+D
+### 7.4 V48+D
 
-V 分支默认先实现可严格退化的 V5+D：
+V 分支实现可严格退化的 V48+D：
 
 - `b`：`voxel_final` 经投影形成完整 V48 基线；
-- `m`：在模型内部按目标 voxel 中心三线性采样四张低分辨率网格，经 `residual_swiglu` 融合；
 - `c`：消费模型自己的 `DensityMUNetLite` 读取 `density_input`，现场产生任务专属密度上下文 value。
 
 密度输入固定为：
@@ -468,18 +466,17 @@ density_context_feature = DensityMUNetLite(density_input)
 
 它不是新的盘上 density artifact。`DensityMUNetLite` 使用四层 80³→40³→20³→10³、通道 `[32,64,64,128]`，每层一个 residual convolution block；encoder/decoder 不用 Transformer，只在 10³ bottleneck 使用 4-head、1-layer Transformer。decoder 的 full-resolution 32D 特征只在实际 V voxel 坐标 gather，再线性投影 32→48 得到 `c`，不生成或落盘 dense48。selector、Stage2、Stage3 各自拥有随机初始化、端到端训练的独立参数，不依赖 Emap2lig 运行时或 checkpoint。
 
-由 `[b,m,c,meta]` 产生两个独立逐通道 gate：
+由 `[b,c,meta]` 产生密度逐通道 gate：
 
 $$
-g_m=\sigma(MLP_m[b,m,c,meta]),\qquad
-g_c=\sigma(MLP_c[b,m,c,meta]),
+g_c=\sigma(MLP_c[b,c,meta]),
 $$
 
 $$
-v_{out}=LN(b+g_m\odot m+g_c\odot c).
+v_{out}=LN(b+g_c\odot c).
 $$
 
-关闭 `m` 与 `c` 时必须严格退化为 V48，而不是另一套基线。全量居中特征生产前，允许小规模比较 V48、V5 和 V5+D；实操默认先尝试 V5+D。若以后真实训练速度不可接受，可以人工改试 V48 等 mini 版本；“H100 上约三天”只是一条运行体验参考，不是当前自动回退规则。
+关闭 `c` 时必须严格退化为 V48，而不是另一套基线。Selector 不读取或采样固定多尺度 V 网格。
 
 ---
 
@@ -746,14 +743,14 @@ component forest/CLG 可读后，`F1_centered` 与 `CLG_centered` 是彼此独�
 8. 每个成功 CLG 恰有一个 `CLG_seed_node` 和一个 `CLG_oldest_node`，oldest mask 覆盖全部 candidate masks。
 9. F1/CLG 居中额外组件不产生 candidate；`centered_probability` 与权威 voxel 集逐项对齐。
 10. Selected 使用 source 原阈值，max-IoU 匹配 source mask，并保持 source tree/node 一对一或一对零关系。
-11. 两个 Find 保存真实 V/P/A 与 A_feat_L1–L4，并可由 A_global_index 恢复 A_feat_L0；unet 只保存真实 V。
-12. residual_swiglu 缺失来源不补零；V5+D 关闭额外分支后严格等于 V48。
+11. 两个 Find 保存真实 V/P/A、float32 `A_feat_L0` 与 float16 A_feat_L1–L3；`A_global_index` 保留身份追踪但不要求下游恢复 L0。unet 只保存真实 V；三者均不保存固定多尺度 V 网格。
+12. residual_swiglu 缺失来源不补零；V48+D 关闭密度分支后严格等于 V48。
 13. selector 的 logsumexp/max DP 与小树穷举逐值一致；oracle 不落盘。
 14. 只有完整、原子发布并带 role `_COMPLETE` 的 PDB/role 被下游扫描；`_RUNNING` 不可读，`_BLOB_EXCEED` 不被普通重跑或下游消费。
 
 ### 10.2 必须报告的运行统计
 
-- 每个 producer 的 calibration 阈值、PR-AUC、Dice、coverage/one-to-one F1、top-3/4/5；
+- 每个 producer 的 calibration 阈值、PR-AUC、`semantic_dice_micro_t_F1`、`semantic_dice_macro_t_F1`、coverage/one-to-one F1、top-3/4/5；
 - 每层 component 数、eligible/invalid 原因、F1 component 数；
 - 每 PDB CLG 数、candidate 数、cap reached、`n_CLG_rejected_by_node_cap`；
 - F1/CLG centered 完成数、失败数、吞吐和磁盘占用；

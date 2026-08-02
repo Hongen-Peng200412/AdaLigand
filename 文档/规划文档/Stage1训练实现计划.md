@@ -274,7 +274,7 @@ $$
 
 三个 producer 均使用 Pocket_Plus 当前 RAUNet64 voxel backbone，启用 voxel ligand head 与 voxel auxiliary head；训练时随机 1–3 次 recycle，validation/calibration/推理固定 3 次，跨 recycle state detach。
 
-两个 Find 还共用同一个 point-side `Stage1EmbedHead` 和 point backbone。配置固定为无 trunk block、无 voxel block、三个 point blocks，buffer 依次裁为 8 Å、4 Å、0 Å；共享 atom MLP 为 `49→128→128`，最终 point value 投影为 64D 并加 `Linear(49→64)` raw residual。两个 Find 都能导出 A_feat_L1–L4；下游另以 `atom_global_indices/A_global_index` 从每 PDB 唯一 receptor 表读取 raw49，作为 `A_feat_L0 float32`，不在每个 BOX 重复保存。两个 Find 的科学差异只在 voxel 分支进入 RAUNet 前的 receptor grid 构造。
+两个 Find 还共用同一个 point-side `Stage1EmbedHead` 和 point backbone。配置固定为无 trunk block、无 voxel block、三个 point blocks，buffer 依次裁为 8 Å、4 Å、0 Å；共享 atom MLP 为 `49→128→128`，最终 point value 投影为 64D 并加 `Linear(49→64)` raw residual。两个 Find 的模型前向都能导出 A_feat_L1–L4；centered 归档只保存 A_feat_L1–L3，不保存交叉注意力后的 A_feat_L4。centered 生产还把当前输入 `atom_feat` 按模型输出的 `A_global_index` 对齐并直接保存为 `A_feat_L0 float32 (N_A,49)`；下游不再为恢复 raw49 二次读取完整 receptor 表。`A_global_index` 仍保留原子身份追踪用途。两个 Find 的科学差异只在 voxel 分支进入 RAUNet 前的 receptor grid 构造。
 
 所有 ligand/auxiliary 输出头前的额外 3×3 Conv3d block 数固定为 0：
 

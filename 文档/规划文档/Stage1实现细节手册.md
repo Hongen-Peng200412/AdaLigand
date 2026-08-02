@@ -330,23 +330,23 @@ continue scan
 
 ---
 
-## 10. Centered 导出与 V5+D
+## 10. Centered 导出与 V48+D
 
 ### 10.1 feature hooks
 
-V/P/A 的 hook 应位于主文档定义的真实层出口，具名返回 dict。每个字段在 Docstring 中写清 `torch.Tensor` shape、实体对齐和层语义。两个 Find 都返回 A_feat_L1–L4；A_feat_L0 是按 `A_global_index` 从每 PDB 49D receptor 基础表现场读取的 float32 输入，不在每个 BOX 重复保存。unet 不含 P/A key。
+V/P/A 的 hook 应位于主文档定义的真实层出口，具名返回 dict。每个字段在 Docstring 中写清 `torch.Tensor` shape、实体对齐和层语义。两个 Find 的模型前向仍返回 A/P 交叉注意力前后的特征，但 centered 归档只保存 A_feat_L1–L3 与 P_feat_L2–L3；`A_feat_L0` 从当前 centered 输入 `atom_feat` 按 `A_global_index` 对齐到模型输出行序后，以 float32 直接落盘。Selector 不再二次读取 receptor 基础表；`A_global_index` 只保留身份追踪。unet 不含 P/A key。
 
-四张低分辨率 V grid 在 forward 中各保留一份 native tensor；`voxel_final` 只按权威 voxel index gather。概率在 sigmoid 后转 float32；learning features 转 float16 后写盘。Selected 聚合时只堆叠 success entry 的四张固定网格，并写 `feature_entry_index` 映射；失败 entry 的 ragged 段为空且不造零网格占位。
+Stage1 模型内部可以继续保留低分辨率 V 张量供 Find 点—体素融合使用；centered 归档只把 `voxel_final` 按权威 voxel index gather，不保存固定多尺度 V 网格。概率在 sigmoid 后转 float32；落盘学习特征转 float16。Selected 非 success 归档项的变长数据段为空。
 
 ### 10.2 residual_swiglu
 
 建议实现一个接收有序 `dict[str, Tensor]` 的 adapter。初始化时根据 producer/consumer 配置创建实际来源投影；forward 不接受“缺失 source 自动补零”。config 测试应断言 source 顺序和输入通道。
 
-### 10.3 V5+D
+### 10.3 V48+D
 
-低分辨率 grid sampling 使用 `grid_sample` 或等价可微三线性采样，在消费模型内部把 BOX voxel centers 映射到各层规范化坐标。`DensityMUNetLite` 只读取现场构造的 `exp_clipnorm_nopost[B,1,80,80,80]`，使用 80→40→20→10、通道 `[32,64,64,128]`、每层一个 residual convolution block；encoder/decoder 无 Transformer，只在 10³ bottleneck 使用 4-head、1-layer Transformer。decoder 的 32D 全分辨率结果仅在实际 V 坐标 gather 后投影 32→48，不生成或落盘 dense48；参数属于当前 selector/Stage2/Stage3 checkpoint。
+`DensityMUNetLite` 只读取现场构造的 `exp_clipnorm_nopost[B,1,80,80,80]`，使用 80→40→20→10、通道 `[32,64,64,128]`、每层一个 residual convolution block；encoder/decoder 无 Transformer，只在 10³ bottleneck 使用 4-head、1-layer Transformer。decoder 的 32D 全分辨率结果仅在实际 V 坐标 gather 后投影 32→48，不生成或落盘 dense48；参数属于当前 Selector、Stage2 或 Stage3 checkpoint。
 
-V48、V5、V5+D 共用同一 V adapter 接口；显式关闭 `m/c` 后必须逐元素退化为 V48。首版实现 V5+D；是否因真实训练速度改试 mini/V48 由人后续决定，不自动降级。
+V48 与 V48+D 共用同一 V adapter 接口；显式关闭密度分支 `c` 后必须逐元素退化为 V48。消费模型不读取或采样固定多尺度 V 网格。
 
 ---
 
@@ -407,12 +407,12 @@ tests/artifacts/test_atomic_resume.py
 ```text
 tests/artifacts/test_box_contract_roundtrip.py
 tests/selector/test_residual_swiglu.py
-tests/selector/test_v5d.py
+tests/selector/test_input_fusion.py
 tests/selector/test_antichain_dp.py
 tests/selector/test_input_freeze.py
 ```
 
-覆盖：ragged round-trip、必需字段缺失即失败、Selected success-only `feature_entry_index`、缺模态不补零、V5+D→V48 退化、DP 与穷举 partition/MAP/gradient、启动后 Dataset 不增长、零 CLG PDB inventory/空 scores、跨 CLG 重复 node 的 max-gate 校正与有序去重、PDB-grouped sampler。
+覆盖：ragged round-trip、必需字段缺失即失败、Selected 非 success 变长数据段为空、缺模态不补零、V48+D→V48 退化、DP 与穷举 partition/MAP/gradient、启动后 Dataset 不增长、零 CLG PDB inventory/空 scores、跨 CLG 重复 node 的 max-gate 校正与有序去重、PDB-grouped sampler。
 
 ---
 

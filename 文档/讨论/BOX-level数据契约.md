@@ -1,551 +1,812 @@
 # AdaLigand BOX 级数据契约
 
-> **本文定位**：本文是 Stage1 训练预定位、完整图概率、组件森林/CLG、三类居中 BOX、selector score 与正式 selection 的盘上唯一权威。它只规定身份、目录、字段、shape、dtype、ragged 关系和完成语义；算法与 loss 见两份 Stage1 规划文档。
->
-> **上游**：`文档/规划文档/数据处理_v2.md` 与 `Data_Preprocessing/Ori_Data/README.md` 提供整图密度、受体、标签和 occurrence 资产，到此不切 Stage1 BOX。
->
-> **生产者**：`文档/规划文档/Stage1训练实现计划.md` 与 `文档/规划文档/Stage1训练与多阈值推理.md`。
->
-> **消费者**：selector、Stage2、Stage3 与后续精修模型。它们不得靠猜测补出本契约中不存在的模态或层。
->
-> **逻辑与物理**：本文规定解码后的逻辑数组。实现可按 PDB 分片以控制文件数，但所有 NumPy 归档统一使用 `np.savez_compressed`，禁止 object array/pickle。学习特征保存 float16；概率与几何保存 float32。
+本文定义 AdaLigand Stage1 训练预定位、完整图概率、阈值校准、组件森林、组件谱系组、三类居中 BOX、Selector 分数和最终选择结果的磁盘契约。本文面向产物的生产者与消费者；只看本文，读者应能确定正式文件、字段、形状、坐标、空值、索引目标、完成状态和跨文件对齐关系。
 
----
+Pocket Plus 仓库的 `src/artifacts/readme.md` 覆盖相同产物，并额外说明每个产物的完整生产命令、嵌套 JSON 字段和程序化校验入口。两份文档不得对同一文件给出不同定义。
 
-## 0. 总体原则
+## 1. 范围、术语与共同规则
 
-一个 BOX 不是预切好的密度大包，而是：
+### 1.1 三个身份轴
 
-```text
-冻结身份 + 80³ 几何 + 稀疏权威 voxel 集
-+ producer 实际产生的 V/P/A 特征和概率
-```
+- Stage1 模型来源：对应命令参数 `--producer`，只允许 `Find_0`、`Find_1`、`Find_2`、`unet_c1`。
+- 数据划分：对应命令参数 `--split`，正式推理只允许 `calibration`、`validation`、`train`。
+- PDB 身份：对应 `pdb_id`，正式值为小写且非空；同一清单不得出现重复身份。
 
-raw density、sim、GT 和 49D receptor 基础表继续整图存一次；Dataset/消费者根据 `pdb_id + box_start_zyx` 现场裁剪。完整图 `probability_map` 也每 PDB、每 producer 存一次。
+三个 Find 模型来源使用体素模态 V、点模态 P 和原子模态 A；`unet_c1` 只使用体素模态 V。本文保留目录术语 `centered`，表示为一个来源组件解析合法 80³ BOX 并在该 BOX 中重新执行模型。
 
-契约遵守：
+“组件”表示在一个冻结概率阈值上得到的 26 邻域连通体素集合。“组件谱系组”保留字段缩写 CLG，表示从一个合格的 `t_F1` 组件沿冻结阈值谱系扩展得到的一组候选组件。“归档项”表示 centered NPZ 第一维中的一个 BOX。
 
-1. 训练预定位池与推理居中 BOX 物理分开。
-2. 固定 producer/split/PDB/role 路径就是正式身份，不再叠加一层不透明的运行身份。
-3. checkpoint 信息不在每个输出重复记录；调用入口选中的 checkpoint 已唯一决定 producer 输出。
-4. 默认每个 producer 只有一套正式 CLG 规则，不写 `CLG_hash`。只有未来确实要让多套 CLG 规则长期并存时，才在 CLG/CLG_centered 层增加该真实区分键。
-5. 字段名直接使用 component、candidate、cover、entry、index 等真实数据结构语义。
-6. 缺失模态就是缺失，不用全零数组伪造。
-7. 下游只读取已经原子发布且具有对应 role `_COMPLETE` 标记的产物。
+`hardmask` 是受体占据位置的完整图布尔掩码；值为 `True` 的体素是受体原子所在位置。三个 Find 模型来源在完整图融合后把这些位置的配体概率置零。
 
----
+### 1.2 文件格式与发布
 
-## 1. 整图资产与几何
+- JSON 文件使用 UTF-8。
+- NPZ 不得包含 `object` dtype，必须能由 `numpy.load(path, allow_pickle=False)` 读取。
+- 正式 JSON 和 NPZ 先写临时文件，重读并校验后，再原子替换正式路径。
+- NPZ 字段集合是精确集合；缺少字段或出现未声明字段都属于契约不一致。本文明确允许整组缺席的 Find P/A 字段除外。
+- 文件存在不代表角色完成。PDB 级消费者还必须检查角色完成标记和异常状态。
 
-整图资产字段、实际服务器路径和版本以 `Data_Preprocessing/Ori_Data/README.md` 为准。Stage1 依赖的逻辑内容：
+字段名中的 `offsets` 表示变长表边界数组。第 `i` 个对象对应半开区间 `[offsets[i],offsets[i+1])`；每个具体 offsets 切分哪些值表，会在相应文件字段表中逐一写明。
 
-| 内容 | 解码 shape / dtype | 作用 |
-|---|---|---|
-| experimental density | `[1,D,H,W] float32` | 三个 producer；下游 density_input |
-| simulated density | `[1,D,H,W] float32` | Find 56D density recipe |
-| ligand-area union mask | `[D,H,W] bool` 或等价稀疏表示 | voxel ligand target、语义评估 |
-| per-occurrence ligand-area mask | ragged sparse voxel sets | center/bias、instance overlap |
-| receptor coordinates | `[N_rec,3] float32` XYZ Å | Dataset 的 core+8 Å查询、centered A-pocket、hardmask |
-| receptor feature | `[N_rec,49] float32` | Find raw A input |
-| binding atom label | `[N_rec] bool` | A/voxel auxiliary target |
-| occurrence identities/coords | ragged | overlap 与评估 |
+### 1.3 形状记号
 
-数组轴恒为 ZYX；世界坐标恒为 XYZ Å。完整网格几何由上游 `origin_xyz` 和 `voxel_size_xyz` 给出，其中 `origin_xyz` 是网格物理下角点，`index_xyz` 处的体素中心为：
+| 记号 | 含义 |
+| --- | --- |
+| `D,H,W` | 完整图 Z、Y、X 三轴长度 |
+| `N_occ` | 当前 PDB 的真实配体 occurrence 数；occurrence 指一个真实配体实例 |
+| `N_node` | 组件森林节点数 |
+| `N_CLG` | 组件谱系组数 |
+| `N_candidate` | 全部组件谱系组中的候选组件总数 |
+| `N_entry` | centered NPZ 的归档项数 |
+| `N_success` | Selected 归档中精修成功的归档项数 |
+| `L_*` | 相应变长值表的第一维总长度 |
+| `C_*` | checkpoint 实际产生的特征宽度 |
 
-$$
-origin_{xyz}+(index_{xyz}+0.5)\odot voxel\_size_{xyz}.
-$$
+NumPy 形状写成 `(N,3)`；JSON 数组使用“长度 3”描述。
 
-所有 BOX 固定 `[80,80,80]`，其起点必须满足：
+### 1.4 缺失和空值
 
-$$
-0\le box\_start_a\le full\_shape_a-80.
-$$
+- 不存在的模态使用字段组整体缺席，不得用全零数组伪造。
+- 存在模态但某个归档项没有值时，相应 offsets 段为空。
+- 没有归档项时，长度为 `N_entry+1` 的 offsets 精确为 `[0]`。
+- 完全没有成功载荷且无法确定体素特征宽度时，`voxel_final.shape == (0,0)`；不得猜测 48 或其他固定通道数。
+- 零 CLG PDB 仍可发布字段齐全的空 `scores.npz`，其中 `candidate_offsets == [0]`。
 
-因此 BOX 永远是完整真实 crop，不存空间 padding mask。
+## 2. 完整图资产与几何
 
-令 `box_start_xyz=box_start_zyx[[2,1,0]]`、`box_shape_xyz=box_shape_zyx[[2,1,0]]`，则：
+### 2.1 坐标
 
-$$
-box\_origin\_world=origin_{xyz}+box\_start_{xyz}\odot voxel\_size_{xyz},
-$$
+- 数组空间轴和离散体素索引使用 ZYX 顺序。
+- 世界坐标和连续局部坐标使用 XYZ 顺序，长度单位为 Å。
+- `origin_xyz` 和 `box_origin_world` 表示网格角点，不是第一个体素中心。
+- `voxel_size_xyz` 和 `voxel_size_world` 使用 XYZ 顺序，单位为 Å/voxel。
 
-$$
-atom\_coord\_local\_voxel=
-\frac{atom\_coord\_world-box\_origin\_world}{voxel\_size_{xyz}},
-$$
+完整图体素中心：
 
-$$
-atom\_coord\_centered\_world=atom\_coord\_world-
-\left(box\_origin\_world+\frac12box\_shape_{xyz}\odot voxel\_size_{xyz}\right).
-$$
+`world_xyz = origin_xyz + (index_xyz + 0.5) * voxel_size_xyz`
 
----
+BOX 局部连续坐标：
 
-## 2. 冻结数据准备契约
+`local_xyz = (world_xyz - box_origin_world) / voxel_size_xyz`
 
-### 2.1 split 与边界筛选
+BOX 角点：
 
-推荐布局：
+`box_origin_world = origin_xyz + box_start_xyz * voxel_size_xyz`
 
-```text
-stage1_preparation/
-  split/
-    train.json
-    validation.json
-    calibration.json
-    held_out_pool.json
-    summary.json
-```
+80³ BOX 的世界坐标中心：
 
-split 文件的每个条目至少包含 `pdb_id` 与上游 pair identity；同一 PDB 不得跨文件。train 约为总数的 `floor(0.75N)`，validation 恰为 300，calibration 恰为 100，其余进 held-out pool。挑选 validation/calibration 时直接要求完整网格三轴均不小于 80。train 不做独立全量 eligibility 扫描；只有在 BOX pool 预计算中得到真实 80³ crop 的 pair 才产生记录。held-out pool 当前不检查尺寸、不去冗余。
+`box_origin_world + 40 * voxel_size_xyz`
 
-不得创建 `stage1_preparation/eligibility`、eligible/excluded pair 清单或对应独立入口。BOX pool 的普通 `summary.json` 可以记录未产生合法 crop 的计数，但不是另一份排除清单。
+合法 BOX 起点逐轴满足：
 
-### 2.2 训练预定位池
+`0 <= box_start_axis <= full_shape_axis - 80`
 
-```text
-stage1_preparation/box_pool/
-  config.json
-  train/{pdb_id}.npz
-  validation/{pdb_id}.npz
-  validation_selection.npz
-  _COMPLETE
-```
+训练和推理都读取真实 80³ 裁剪，不使用空间填充。
 
-每个 PDB 的 pool：
+### 2.2 不重复保存的完整图资产
 
-| 字段 | shape / dtype | 语义 |
-|---|---|---|
-| `occurrence_id` | `[N_occ] int32` | 上游 occurrence identity |
-| `center_start_zyx` | `[N_occ,3] int32` | 每 occurrence 唯一解析起点 |
-| `bias_start_zyx` | `[N_occ,30,3] int32` | 球内均匀 bias 后的解析起点；重复保留 |
-| `context_start_zyx` | `[N_context,3] int32` | 现有 context 生成器耗尽尝试前产出的全部合法起点；`N_context` 可为 0、1、2 |
+以下文件按 PDB 保存在数据根目录中。Stage1 产物引用它们，但不把完整数组复制到 centered NPZ。
 
-`config.json` 至少记录 BOX shape、bias 30 及半径公式、每 epoch 选 5、context generator 配置、每 PDB occurrence cap 50、比例 `1:5:3`、旋转开关和随机 seed 规则。不保存实际 density/target crop。
+| 文件 | 关键字段 | Stage1 用途 |
+| --- | --- | --- |
+| `density/{pdb_id}/exp.npz` | `grid`、`voxel_size`、`origin` | 所有模型来源的实验密度和完整图几何 |
+| `density/{pdb_id}/sim.npz` | `grid`、`voxel_size`、`origin` | Find 额外使用的模拟密度；几何必须与实验密度一致 |
+| `density/{pdb_id}/ligand_area.npz` | `union_mask`、`grid_shape_zyx`、`mask_{occurrence_id}` | 训练目标、校准真值和候选组件与真实配体的交集 |
+| `density/{pdb_id}/ligand_dist.npz` | `distance` | 最近配体原子距离；训练时转换为 `1 / (1 + distance_Å)` |
+| `parse/{pdb_id}/receptor_tokens.npz` | `coords`、49 维 `feat`、`res_type`、`atom_name` | Find 原子输入、受体辅助目标和 hardmask |
+| `labels/{pdb_id}/atom_labels.npz` | `binding_atom` | 与完整受体原子表对齐的结合区域标签 |
 
-`validation_selection.npz` 冻结 validation 真实读取项；指向固定 PDB 表的字段统一使用 `*_pdb_index`：
+`ligand_area.npz` 的 `union_mask` 是 `bool (1,D,H,W)`；`True` 表示至少一个真实配体实例占据该体素，`False` 表示未占据。每个 `mask_{occurrence_id}` 是整数 `(K_occ,3)` ZYX 稀疏坐标表。
 
-| 字段 | shape / dtype | 语义 |
-|---|---|---|
-| `validation_pdb_id` | `[N_val_pdb]` fixed-width string | 固定 PDB 表 |
-| `center_pdb_index` | `[N_center] int32` | 指向上述 PDB 表 |
-| `center_occurrence_id` | `[N_center] int32` | 固定 occurrence |
-| `bias_pdb_index` | `[N_bias] int32` | 指向 PDB 表 |
-| `bias_occurrence_id` | `[N_bias] int32` | occurrence identity |
-| `bias_candidate_index` | `[N_bias] int16` | `0..29` |
-| `context_pdb_index` | `[N_context_selected] int32` | 指向 PDB 表 |
-| `context_candidate_index` | `[N_context_selected] int32` | 指向对应 context pool |
+Find centered 产物中的 `A_global_index` 指向 `receptor_tokens.npz` 第一维，以恢复未持久化的 49 维基础特征。
 
-每个 PDB 最多 50 个 occurrence。若该 PDB 至少有一个合法 context，center:bias:context 的名义条目数为每个入选 occurrence `1:5:3`；context 池只有 1–2 项时有放回选满 3 项，池为空时只保留 `1:5:0`，不得伪造起点或使 pool/训练失败。validation 不保存增强结果。
+### 2.3 80³ BOX 的运行时物化
 
-train-only 同步 90° 旋转若以奇数个 quarter-turn 交换两个数组轴，必须同步交换 `voxel_size_world` 的对应 XYZ 轴尺度，并以新尺度重算 BOX 中心、`atom_coord_world` 与 `atom_coord_centered_world`；不得以“近似 1 Å”替代几何一致性。
+BOX 池和 centered 几何都不保存实际密度裁剪。Dataset 或推理运行时使用 `pdb_id + box_start_zyx` 从完整图现场裁出精确 `80×80×80` 数组。
 
----
+centered 正式推理默认把 12 个有序 BOX 放入同一次完整 wrapper forward，显存受限时可以由运行命令下调。训练同源 Collator 堆叠 dense V 输入并拼接变长 A 表；forward 后，V 网格按 batch 第 0 维拆分，A 表按模型输出的 `atom_counts` 连续段拆分，P 表按 `anchor_batch_index` 归属拆分。执行批量不得改变归档项顺序、`centered_box_index`、来源身份或 offsets/value 对齐。
 
-## 3. 正式 Stage1 输出目录
+- 三个 Find 模型来源按固定顺序构造全部 56 个密度通道；通道来自 `exp`、`sim`、`diff`、`posdiff` 四种基础运算，两个归一化方案和七个后处理方案。
+- `unet_c1` 的密度输入精确为单通道 `exp_clipnorm_nopost`。
+- Find 从完整受体表选择 80³ 核心及其外侧 8 Å 缓冲范围内的原子，并保留这些原子在完整受体表中的编号；`unet_c1` 不构造原子输入表。
+- 需要监督时，Dataset 现场构造配体体素标签、配体区域并集、蛋白主链类别、核酸主链类别、配体反距离和受体原子结合标签；这些训练数组不写入 BOX 池或 centered 推理产物。
 
-### 3.1 固定寻址
+## 3. 冻结数据准备产物
 
-核心根目录：
+数据准备产物位于调用方指定的准备目录，不属于 `stage1_outputs`。
+
+### 3.1 冻结数据划分
+
+生产入口是 `python -m src.datasets.ops.stage1_split`。输出：
 
 ```text
-stage1_outputs/
-  {stage1_model_name}/
-    calibration/
-      thresholds.json
-      metrics.json
-      _COMPLETE
-    {split}/
-      {pdb_id}/
-        _RUNNING/                    # 仅运行时暂存的 PDB 级原子 mkdir 锁
-        _BLOB_EXCEED                 # 可选，与正常下游完成互斥的 JSON 终态
-        status/
-          {output_role}/_COMPLETE
-        probability/
-        components/
-        centered/
-          F1_centered.npz
-          CLG_centered.npz
-          Selected_Refined_Centered.npz
+<数据划分目录>/
+├── train.json
+├── validation.json
+├── calibration.json
+├── held_out_pool.json
+├── config.json
+├── summary.json
+└── _COMPLETE
 ```
 
-`stage1_model_name` 只取 `Find_0`、`Find_1`、`unet_c1`。每个居中 BOX 的逻辑键固定为：
+四个数据划分文件都是 JSON 对象数组。每项保留输入 keep-list 的原始字段，并且至少包含 `pdb_id: str`。同一个 PDB 不得跨数据划分。
+
+选择规则：
+
+- `validation` 和 `calibration` 只接收完整图 Z、Y、X 三轴都不小于 80 的 PDB。
+- 默认请求 300 个 validation PDB 和 100 个 calibration PDB。
+- 设输入中的唯一 PDB 总数为 `N`；train 从两个评估数据划分之外选择 `floor(0.75 * N)` 个 PDB，其余进入 `held_out_pool`。
+- train 不预先排除短图；后续 BOX 池不为短图发布 PDB NPZ。
+- `held_out_pool` 不执行额外去重或形状过滤。
+- 当前实现不创建独立的 `eligibility` 目录、合格或排除 PDB 清单，也没有对应生产命令。短图计数只出现在普通 `summary.json` 中。
+
+命令参数 `--seed` 的默认值是 3407。`config.json` 字段：
+
+| 字段 | 类型与含义 |
+| --- | --- |
+| `schema_version` | `int`，当前为 `1` |
+| `seed` | `int`，排名种子 |
+| `train_fraction` | `float`，当前为 `0.75` |
+| `validation_pdb_count` | `int`，请求的 validation PDB 数 |
+| `calibration_pdb_count` | `int`，请求的 calibration PDB 数 |
+| `minimum_validation_calibration_shape_zyx` | 长度 3 的 `int` 数组，当前为 `[80,80,80]` |
+| `assignment` | `str`，当前为 `"sha256(seed|purpose|pdb_id) ascending"` |
+| `keep_list_path` | `str`，输入 keep-list 路径 |
+| `keep_list_sha256` | `str`，输入文件的 64 个十六进制字符 SHA-256 文本 |
+| `held_out_deduplication` | `bool`，当前为 `false` |
+
+`summary.json` 保存 `seed`、`source_pdb_count`、`source_row_count`、`validation_calibration_shape_checked_pdb_count`、`short_map_encountered_while_selecting_eval_count`，类型均为 `int`。`splits` 对象对每个数据划分保存 `pdb_count: int` 和 `row_count: int`；这里的 `row_count` 是既有字段名，表示保留的 keep-list 记录数。
+
+`_COMPLETE` 是零字节文件，在其他文件全部成功发布后最后创建。
+
+### 3.2 训练预定位 BOX 池
+
+生产入口是 `python -m src.datasets.ops.stage1_box_pool`。输出：
 
 ```text
-(stage1_model_name, split, pdb_id, centered_role, centered_box_index)
+<BOX池目录>/
+├── train/{pdb_id}.npz
+├── validation/{pdb_id}.npz
+├── manifest.json
+├── validation_selection.npz
+├── config.json
+├── summary.json
+└── _COMPLETE
 ```
 
-`output_role` 表示可独立原子发布和续跑的一类 Stage1 产物，只取：`probability`（完整图概率与几何）、`components`（forest、CLG、overlap 与摘要）、`F1_centered`（F1 阈值节点居中的观察结果）、`CLG_centered`（成功 CLG 的 oldest node 居中结果）、`Selected_Refined_Centered`（selector 选中节点重新定形后的结果）。没有额外概率/组件/物化 run ID。正式 producer 更换 checkpoint 时，应由执行者显式清理或归档该 producer 的旧未用输出后重跑；不能在同一正式目录混入两套 checkpoint。
+每个 PDB NPZ 的精确字段：
 
-### 3.2 原子完成
+| 字段 | dtype 与形状 | 含义 |
+| --- | --- | --- |
+| `pdb_id` | Unicode 标量 | 当前 PDB 身份 |
+| `occurrence_id` | `int32 (N_occ,)` | 真实配体实例编号 |
+| `center_start_zyx` | `int32 (N_occ,3)` | 与 `occurrence_id` 同序的居中正样本 BOX 起点 |
+| `bias_start_zyx` | `int32 (N_occ,30,3)` | 每个真实配体实例的 30 个偏置正样本 BOX 起点 |
+| `context_start_zyx` | `int32 (N_context,3)` | 与真实配体实例无关的受体上下文 BOX 起点 |
 
-worker 可先只读检查目标 role；仍有工作时，对 PDB 根原子 `mkdir _RUNNING`，成功者重新检查各 role 后顺序补齐，其他 worker 立即跳过。每个 role 写独立临时文件，关闭数组并完成基本校验后以原子 rename/replace 发布，最后写 `status/{output_role}/_COMPLETE`。持有者必须在 `finally` 中移除自己的 `_RUNNING`。消费者忽略：
+上下文 BOX 从逐轴合法的整数起点均匀采样。80³ 核心中至少包含 1000 个受体重原子才保留；生成器不按配体位置过滤。每个 PDB 目标上限为 500 个上下文 BOX，最多尝试 3000 次，因此 `N_context` 可以是 0 到 500。
 
-- 没有对应 role `_COMPLETE` 的产物；
-- `_RUNNING` PDB、临时文件与任何未发布内容；
-- offsets 越界或字段不完整的 role 文件。
+不同 bias 随机样本解析到同一合法整数 BOX 起点时，重复起点原样保留。
 
-`probability`、`components` 和三种 centered role 分别完成；因此 F1 可以早于 CLG/Selected 被消费。若正式 `N_F1_eligible>200`，保留 probability 及其 `_COMPLETE`，写 `_BLOB_EXCEED` JSON，至少含 `N_F1_eligible` 与 `limit=200`；不写 components/centered `_COMPLETE`。`_BLOB_EXCEED` 是普通重跑必须跳过、下游不得消费的明确终态。异常遗留 `_RUNNING` 或临时文件只由显式运维工具按所有者/年龄清理，不由科学 runner 猜测。
+训练和验证请求采用 `center:bias:context = 1:5:3`。每个 PDB 每次最多选择 50 个 occurrence；上下文池有 1 或 2 项时允许放回采样至 3 项；上下文池为空时不伪造请求。
 
----
+validation 使用冻结请求，不保存增强后的数组。train 的随机 90° 旋转会同步旋转密度、监督图和 Find 原子坐标；奇数次四分之一转交换空间轴时，还会交换 `voxel_size_world` 的对应 XYZ 尺度，并重新计算 BOX 中心和原子世界坐标，不能用“体素尺寸近似 1 Å”代替几何变换。
 
-## 4. 完整图概率与 calibration 表
+`manifest.json`：
 
-### 4.1 probability
+- `schema_version: int`，当前为 `1`。
+- `splits` 只含 `train` 和 `validation`。
+- 每个数据划分是对象数组；每项精确包含 `pdb_id: str` 与相对 BOX 池根目录的 POSIX 风格 `path: str`。
+
+`validation_selection.npz`：
+
+| 字段 | dtype 与形状 | 索引目标 |
+| --- | --- | --- |
+| `validation_pdb_id` | 固定宽度 bytes `(N_pdb,)` | validation PDB 身份表 |
+| `center_pdb_index` | `int32 (N_center,)` | 索引 `validation_pdb_id` 第一维 |
+| `center_occurrence_id` | `int32 (N_center,)` | 在相应 PDB 的 `occurrence_id` 中按值查找 |
+| `bias_pdb_index` | `int32 (N_bias,)` | 索引 `validation_pdb_id` 第一维 |
+| `bias_occurrence_id` | `int32 (N_bias,)` | 在相应 PDB 的 `occurrence_id` 中按值查找 |
+| `bias_candidate_index` | `int16 (N_bias,)` | 索引相应真实配体实例的 `bias_start_zyx` 第二维，范围 `0..29` |
+| `context_pdb_index` | `int32 (N_context_selected,)` | 索引 `validation_pdb_id` 第一维 |
+| `context_candidate_index` | `int32 (N_context_selected,)` | 索引相应 PDB 的 `context_start_zyx` 第一维 |
+
+命令参数 `--seed` 的默认值是 3407。`config.json` 保存以下当前规则：
+
+- `box_shape_zyx=[80,80,80]`
+- `bias_candidates_per_occurrence=30`
+- `bias_radius_formula="R=(3*K_occ/(4*pi))**(1/3)"`
+- `bias_selected_per_epoch=5`
+- `context_generator` 中的均匀合法起点、目标数 500、最大尝试数 3000、核心受体重原子下限 1000、`ligand_filter=false`
+- `occurrence_cap_per_pdb_per_epoch=50`
+- `entry_ratio={"center":1,"bias":5,"context":3}`
+- `train_random_rotation_90_degree=true`
+- `seed: int`
+- `seed_rule="sha256(base_seed|split_name|pdb_id) first_uint64"`
+
+`summary.json` 保存：
+
+- `seed: int`
+- train 的 `requested_pdb`、`published_pdb`、`short_map_count`、`zero_context_pdb_count`、`underfilled_context_pdb_count`
+- validation 的 `requested_pdb`、`published_pdb`、`zero_context_pdb_count`、`underfilled_context_pdb_count`
+- `validation_selection` 的 `pdb_count`、`center_count`、`bias_count`、`context_count`
+- `manifest` 的 train 与 validation 文件数
+
+上述计数全部是 `int`。`_COMPLETE` 是最后创建的零字节文件。
+
+### 3.3 比例请求表
+
+训练 Dataset 或验证入口第一次以 `box_sample_fraction < 1` 构造请求时，请求层可以创建：
 
 ```text
-probability/
-  probability_map.npz
-  geometry.json
+<BOX池目录>/train_selection_{fraction}_seed{seed}.npz
+<BOX池目录>/validation_selection_{fraction}_seed{seed}.npz
 ```
 
-`probability_map.npz`：
+`stage1_box_pool` 命令本身不创建这些文件；比例等于 1 时也不创建。
 
-| 字段 | shape / dtype | 语义 |
-|---|---|---|
-| `probability_map` | `[D,H,W] float32` | Gaussian 融合并完成 producer-specific 后处理后的正式 ligand probability；两个 Find 在 full-grid receptor hardmask 处为 0，unet 不遮蔽 |
+| 字段 | dtype 与形状 | 含义 |
+| --- | --- | --- |
+| `pdb_id` | Unicode `(N_req,)` | 请求所属 PDB |
+| `box_start_zyx` | `int32 (N_req,3)` | 完整图离散 BOX 起点 |
+| `role` | Unicode `(N_req,)` | `center`、`bias` 或 `context` |
+| `occurrence_id` | `int32 (N_req,)` | 真实配体实例编号；不适用时为 `-1` |
+| `candidate_index` | `int32 (N_req,)` | bias 或 context 候选编号；不适用时为 `-1` |
+| `require_targets` | `bool (N_req,)` | `True` 表示 Dataset 必须构造监督字段 |
+| `box_sample_fraction` | `float64` 标量 | 请求保留比例 |
+| `request_seed` | `int64` 标量 | 抽样种子 |
+| `selection_epoch` | `int64` 标量 | 固定为 `0` |
+| `source_manifest_sha256` | Unicode 标量 | 来源 `manifest.json` 摘要 |
+| `source_validation_sha256` | Unicode 标量 | validation 文件中保存的来源 `validation_selection.npz` 摘要；train 文件中不存在 |
+| `schema_version` | `uint16` 标量 | 当前为 `1` |
 
-`geometry.json` 只保存解析该数组所需的 `full_shape_zyx`、`origin_xyz`、`voxel_size_xyz`、window shape 80、stride 40、Gaussian sigma 0.5 和 `contract_version`。不复制 checkpoint 路径，不保存 full-map V/P/A。
+比例小于 1 时各 epoch 复用冻结请求；比例等于 1 时 train 请求可以按 epoch 重新选择。
 
-### 4.2 thresholds
+## 4. Stage1 正式输出目录与状态
 
-每个 producer 的 `calibration/thresholds.json`：
+### 4.1 固定寻址
 
 ```text
-stage1_model_name
-denominator                  # 32768
-alpha_values                 # [1/2,2/3,4/5,1,5/4,3/2,2]
-alpha_threshold_grid_index   # [7]，逐 alpha 实际扫描整数 j
-t_alpha                      # [7]，逐项等于 j/32768
-t_F1
-min_voxels                   # 32
-max_voxels                   # 1023；全量 GT occurrence Q95=682 后乘 1.5 并向上取整
-connectivity                 # 26
+<stage1_outputs>/
+└── {producer}/
+    ├── calibration/
+    │   ├── thresholds.json
+    │   ├── threshold_scan.npz
+    │   ├── metrics.json
+    │   └── _COMPLETE
+    └── {split}/{pdb_id}/
+        ├── _RUNNING/owner.json
+        ├── _BLOB_EXCEED
+        ├── status/
+        │   ├── probability/_COMPLETE
+        │   ├── components/_COMPLETE
+        │   ├── F1_centered/_COMPLETE
+        │   ├── CLG_centered/_COMPLETE
+        │   └── Selected_Refined_Centered/_COMPLETE
+        ├── probability/
+        │   ├── probability_map.npz
+        │   └── geometry.json
+        ├── components/
+        │   ├── forest.npz
+        │   ├── clg.npz
+        │   ├── overlap.npz
+        │   └── summary.json
+        ├── centered/
+        │   ├── F1_centered.npz
+        │   ├── CLG_centered.npz
+        │   └── Selected_Refined_Centered.npz
+        └── selector/selection.npz
 ```
 
-`alpha_values`、`alpha_threshold_grid_index` 与 `t_alpha` 严格逐项对齐；`t_F1` 是 alpha=1 对应项。组件 runtime 对实际 `j` 去重并按降序使用，重复 alpha 阈值自然只形成 `7-k` 层。`metrics.json` 保存 calibration-fitted 指标与扫描曲线引用。阈值表不重复写入每个 PDB，也不保存 `physical_threshold_values`、`alpha_to_threshold_index` 或另一套 R/K 映射。
+`selector/selection.npz` 是 Selected 生产命令的默认输入位置，不由 `probability`、`components`、`F1_centered` 或 `CLG_centered` 生产命令创建。
 
----
+### 4.2 PDB 租约
 
-## 5. Component forest 与 CLG
+`_RUNNING/owner.json` 的精确字段：
+
+| 字段 | 类型与含义 |
+| --- | --- |
+| `owner_token` | `str`，本次租约身份 |
+| `pid` | `int`，进程号 |
+| `host` | `str`，主机名 |
+| `created_at_utc` | `str`，ISO 格式 UTC 时间 |
+
+代码不会自行判断残留租约是否陈旧。已有 `_RUNNING` 时，当前 PDB 返回 `skipped_running`。
+
+### 4.3 角色完成标记
+
+PDB 级角色只有 `probability`、`components`、`F1_centered`、`CLG_centered`、`Selected_Refined_Centered`。
+
+每个 `status/{role}/_COMPLETE` 是 JSON，对象精确包含：
+
+- `output_role: str`，必须等于目录中的角色名；
+- `completed_at_utc: str`，ISO 格式 UTC 完成时间。
+
+载荷成功发布并通过重读校验后，才发布角色完成标记。已经完成的角色再次运行时返回 `skipped_complete`。
+
+### 4.4 组件超量终态
+
+组件阶段的 `N_F1_eligible` 大于本次命令使用的上限时，发布 `_BLOB_EXCEED` JSON：
+
+- `N_F1_eligible: int`
+- `limit: int`
+
+默认上限是 200，但消费者必须读取 `limit` 的实际值。此时已经完成的 `probability` 角色可以保留；`components`、`F1_centered` 和 `CLG_centered` 不发布。消费者必须拒绝存在 `_BLOB_EXCEED` 的 PDB。
+
+PDB 处理汇总状态只有 `completed`、`skipped_complete`、`skipped_running`、`blob_exceed`。
+
+## 5. 完整图概率与模型来源级校准
+
+### 5.1 完整图概率
+
+融合规则：
+
+- 80³ 窗口，40³ 步长，不填充；
+- 每个轴补入最后一个合法起点；
+- 按 Z、Y、X 的笛卡尔积确定性枚举；
+- 使用 `[-1,1]^3` 上归一化高斯权重，`sigma=0.5`；
+- 概率加权和、权重和与最终除法使用 `float32`；
+- 三个 Find 模型来源的概率在写盘前乘受体 hardmask，`unet_c1` 不执行该处理。
+
+窗口起点与融合 `weight_sum` 只存在于内存。
+
+`probability/probability_map.npz` 的精确字段只有：
+
+| 字段 | dtype 与形状 | 含义 |
+| --- | --- | --- |
+| `probability_map` | `float32 (D,H,W)` | ZYX 完整图上的有限融合概率 |
+| `origin_xyz` | `float32 (3,)` | 完整网格角点的世界 XYZ 坐标，单位 Å；与 `geometry.json` 的同名字段逐值一致 |
+| `voxel_size_xyz` | `float32 (3,)` | 世界 XYZ 三轴的体素尺寸，单位 Å/voxel；三个值均为正，并与 `geometry.json` 的同名字段逐值一致 |
+
+三个字段的数值都必须有限。单个 `probability_map.npz` 已包含概率分析、体素索引到世界坐标换算和可视化所需的最小完整信息；`geometry.json` 继续保存窗口、步幅和高斯参数等运行元数据。
+
+`probability/geometry.json`：
+
+| 字段 | 类型与含义 |
+| --- | --- |
+| `full_shape_zyx` | 长度 3 的 `int` 数组，必须等于 `probability_map.shape` |
+| `origin_xyz` | 长度 3 的 `float` 数组，网格角点世界坐标，单位 Å；转换为 `float32` 后必须与 `probability_map.npz` 的同名字段逐值一致 |
+| `voxel_size_xyz` | 长度 3 的正 `float` 数组，XYZ 体素尺寸，单位 Å/voxel；转换为 `float32` 后必须与 `probability_map.npz` 的同名字段逐值一致 |
+| `window_shape_zyx` | 长度 3 的 `int` 数组，固定为 `[80,80,80]` |
+| `stride_zyx` | 长度 3 的 `int` 数组，固定为 `[40,40,40]` |
+| `gaussian_sigma` | `float`，固定为 `0.5` |
+
+### 5.2 `calibration/thresholds.json`
+
+概率 `p` 的阈值编号是 `floor(p * denominator)` 裁剪到 `[0,denominator]`。alpha 顺序固定为 `[0.5,2/3,0.8,1.0,1.25,1.5,2.0]`；并列最优时取低到高扫描中首次出现的最大值。
+
+| 字段 | 类型与含义 |
+| --- | --- |
+| `stage1_model_name` | `str`，模型来源 |
+| `denominator` | `int`，阈值离散分母 |
+| `alpha_values` | 长度 7 的 `float` 数组 |
+| `alpha_threshold_grid_index` | 长度 7 的 `int` 数组 |
+| `t_alpha` | 长度 7 的 `float` 数组 |
+| `t_F1` | `float`，alpha 等于 1 的冻结阈值 |
+| `min_voxels` | `int`，候选组件体素数下限，包含端点 |
+| `max_voxels` | `int`，候选组件体素数上限，包含端点 |
+| `connectivity` | `int`，固定为 `26` |
+
+默认 `denominator=32768`、`min_voxels=32`、`max_voxels=2046`，但消费者必须读取实际值。
+
+### 5.3 `calibration/threshold_scan.npz`
+
+| 字段 | dtype 与形状 |
+| --- | --- |
+| `denominator` | `int32` 标量 |
+| `alpha_values` | `float64 (7,)` |
+| `f_alpha_curve` | `float64 (7,denominator+1)` |
+| `tp` | `int64 (denominator+1,)` |
+| `fp` | `int64 (denominator+1,)` |
+| `fn` | `int64 (denominator+1,)` |
+
+`denominator` 和 `alpha_values` 必须与 `thresholds.json` 同值同序。曲线与计数的第二维或第一维都由阈值编号直接索引。
+
+### 5.4 `calibration/metrics.json` 与完成标记
+
+固定字段：
+
+- `stage1_model_name: str`
+- `result_scope: str`，固定为 `"calibration_fitted"`
+- `threshold_scan: str`，指向 `threshold_scan.npz` 文件名
+
+体素指标字段：
+
+- `voxel_average_precision_macro: float`；没有有效 PDB 时为 NaN
+- `n_valid_voxel_ap_pdb: int`
+- `n_total_pdb: int`
+- `semantic_dice_micro_t_F1: float`；先汇总全部 calibration PDB 的 TP、FP、FN，再按 `2TP/(2TP+FP+FN)` 计算；总分母为 0 时为 `0.0`
+- `semantic_dice_macro_t_F1: float`；逐 PDB 计算 Dice 后等权平均；单个 PDB 的分母为 0 时，该项按 `0.0` 进入平均
+- `semantic_tp_t_F1: int`；全部 calibration PDB 的 micro 汇总 TP
+- `semantic_fp_t_F1: int`；全部 calibration PDB 的 micro 汇总 FP
+- `semantic_fn_t_F1: int`；全部 calibration PDB 的 micro 汇总 FN
+- `n_blob_exceed_pdb: int`；统计 `t_F1` 合格组件数大于固定界限 200 的 PDB
+
+实例指标包括 `n_pred_instances: int`、`n_gt_instances: int`。对 `tag` 为 `0p3`、`0p5`，保存双向覆盖匹配和一对一匹配的精确率、召回率与 F1；字段名分别使用 `coverage_*` 和 `one_to_one_*`，类型均为 `float`。对 `K` 为 3、4、5，保存 `top{K}_success_{tag}: int` 与 `top{K}_success_ratio_{tag}: float`，并保存 `n_topk_eligible_pdb: int`；这些字段统计按组件平均概率排序的前 K 个预测中是否出现达标交集。
+
+校准 `_COMPLETE` 是 JSON，只含 `stage1_model_name: str` 和 `result_scope: str`。它在三个校准载荷全部成功发布后最后创建。
+
+## 6. 组件森林与组件谱系组
+
+### 6.1 `components/forest.npz`
+
+主节点表按 `(tree_id,node_id)` 升序排列，两者共同构成全局节点身份。每棵树的 `node_id` 从 0 开始连续编号。父节点位于相邻的较低阈值层，子节点位于相邻的较高阈值层。
+
+| 字段 | dtype 与形状 | 含义 |
+| --- | --- | --- |
+| `tree_id` | `int32 (N_node,)` | 组件树编号 |
+| `node_id` | `int32 (N_node,)` | 当前树内节点编号 |
+| `threshold_grid_index` | `int32 (N_node,)` | 阈值编号 |
+| `threshold_value` | `float32 (N_node,)` | 阈值编号除以 `denominator` |
+| `parent_node_id` | `int32 (N_node,)` | 同一树中的父节点编号；根为 `-1` |
+| `children_offsets` | `int64 (N_node+1,)` | 切分 `children_node_id` |
+| `children_node_id` | `int32 (L_child,)` | 同一树中的子节点编号 |
+| `node_voxel_offsets` | `int64 (N_node+1,)` | 切分 `node_voxel_global_linear_index` |
+| `node_voxel_global_linear_index` | `int64 (L_voxel,)` | 来源完整图 `(D,H,W)` 的全局 C-order 线性体素编号，等价于 `np.ravel_multi_index((z,y,x),(D,H,W))`；不是 BOX 内坐标，需用完整图形状反解为全局 ZYX |
+| `voxel_count` | `int32 (N_node,)` | 必须等于相应节点体素段长度 |
+| `bbox_min_zyx` | `int32 (N_node,3)` | 包围盒最小体素索引，端点包含 |
+| `bbox_max_zyx` | `int32 (N_node,3)` | 包围盒最大体素索引，端点包含 |
+| `centroid_zyx` | `float32 (N_node,3)` | 连续体素索引空间中的质心 |
+| `probability_mean` | `float32 (N_node,)` | 节点平均概率 |
+| `probability_max` | `float32 (N_node,)` | 节点最大概率 |
+| `candidate_eligible` | `bool (N_node,)` | `True` 表示可作为正式候选 |
+| `ineligible_reason_code` | `uint8 (N_node,)` | 候选资格原因码 |
+
+`children_offsets[i:i+2]` 给出节点 `i` 在 `children_node_id` 中的半开区间；首值为 0，末值为 `L_child`。`node_voxel_offsets` 同理切分节点体素表，首值为 0，末值为 `L_voxel`。每个节点的体素编号在自己的段内升序且不重复。
+
+原因码：
+
+| 值 | 含义 |
+| --- | --- |
+| `0` | 合格 |
+| `1` | 体素数小于 `min_voxels` |
+| `2` | 体素数大于 `max_voxels` |
+| `3` | 节点包围盒不能被合法 80³ BOX 完整包含 |
+
+### 6.2 `components/clg.npz`
+
+| 字段 | dtype 与形状 | 含义 |
+| --- | --- | --- |
+| `CLG_id` | `int32 (N_CLG,)` | 从 0 开始连续编号 |
+| `tree_id` | `int32 (N_CLG,)` | 所属组件树 |
+| `CLG_seed_node_id` | `int32 (N_CLG,)` | `t_F1` 合格种子节点在 `tree_id` 指定 forest 树内的局部编号 |
+| `CLG_oldest_node_id` | `int32 (N_CLG,)` | 解析 centered BOX 的最老节点在 `tree_id` 指定 forest 树内的局部编号 |
+| `candidate_offsets` | `int64 (N_CLG+1,)` | 同时切分下面两个候选值表 |
+| `candidate_node_id` | `int32 (N_candidate,)` | 当前树内的候选节点编号 |
+| `candidate_threshold_grid_index` | `int32 (N_candidate,)` | 与候选节点同序的阈值编号 |
+
+第 `i` 个组件谱系组的候选段是 `[candidate_offsets[i],candidate_offsets[i+1])`。首值为 0，末值同时等于两个候选值表长度。
+
+组件谱系组数量上限：
+
+`min(300, 3 * max(2, N_F1_eligible))`
+
+### 6.3 `components/overlap.npz`
+
+只保存候选组件与真实配体实例的正交集；零交集不写入。
+
+| 字段 | dtype 与形状 | 含义与索引目标 |
+| --- | --- | --- |
+| `candidate_occurrence_offsets` | `int64 (N_candidate+1,)` | 同时切分下面两个交集值表 |
+| `overlap_occurrence_index` | `int32 (N_overlap,)` | 索引 `occurrence_id` 与 `occurrence_voxel_count` 第一维 |
+| `intersection_voxel_count` | `int32 (N_overlap,)` | 正交集体素数 |
+| `occurrence_id` | `int32 (N_occ,)` | 升序真实配体实例身份表 |
+| `occurrence_voxel_count` | `int32 (N_occ,)` | 与身份表同序的真实体素数 |
+
+第 `j` 个候选组件的交集段是 `[candidate_occurrence_offsets[j],candidate_occurrence_offsets[j+1])`。首值为 0，末值同时等于两个交集值表长度。候选组件自身的体素数从 `forest.npz` 对应节点读取。
+
+### 6.4 `components/summary.json`
+
+森林部分保存 `denominator`、`threshold_grid_indices_descending`、`connectivity`、`min_voxels`、`max_voxels`、`n_trees`、`n_nodes`、原因码映射和 `layers`。
+
+原因名精确映射为 `"0":"eligible"`、`"1":"below_min_voxels"`、`"2":"above_max_voxels"`、`"3":"bbox_not_contained_by_resolved_box"`。
+
+每个阈值层包含 `threshold_grid_index`、`n_nodes`、`n_eligible`、`n_below_min_voxels`、`n_above_max_voxels`、`n_bbox_not_contained_by_resolved_box`，类型均为 `int`。
+
+组件谱系组部分保存：
+
+- `max_split_events: int`
+- `max_merge_events: int`
+- `max_nodes_per_CLG: int`
+- `n_f1_eligible_seeds: int`
+- `n_CLG_cap: int`
+- `n_CLG_completed: int`
+- `n_CLG_rejected_by_node_cap: int`
+- `mean_candidates_per_completed_CLG: float`
+- `CLG_cap_reached: bool`
+
+`CLG_cap_reached` 只有在完成数等于 `n_CLG_cap` 且仍有未消费的活跃种子时为 `true`。
+
+## 7. 三类 centered NPZ 的共同契约
+
+本节定义三类 centered NPZ 共用的字段、数据类型和 offsets；第 8 节在共同结构上补充每类角色如何决定权威体素成员。消费任一 centered NPZ 时必须同时应用这两节。一个 PDB 的同一 centered 角色只发布一个 NPZ。来源组件必须能被合法 80³ BOX 完整包含。
+
+### 7.1 共同归档项字段
+
+| 字段 | dtype 与形状 | 含义 |
+| --- | --- | --- |
+| `centered_box_index` | `int32 (N_entry,)` | 严格等于 `0..N_entry-1` |
+| `box_start_zyx` | `int32 (N_entry,3)` | 完整图中的离散 BOX 起点 |
+| `box_shape_zyx` | `uint8 (N_entry,3)` | 每项固定为 `[80,80,80]` |
+| `box_origin_world` | `float32 (N_entry,3)` | BOX 角点世界 XYZ，单位 Å |
+| `voxel_size_world` | `float32 (N_entry,3)` | XYZ 体素尺寸，单位 Å/voxel |
+| `source_tree_id` | `int32 (N_entry,)` | 来源 `components/forest.npz` 的组件树编号 |
+| `source_node_id` | `int32 (N_entry,)` | 来源节点在 `source_tree_id` 指定树内的局部编号；二者共同组成 forest 节点身份 |
+| `source_threshold_grid_index` | `int32 (N_entry,)` | 来源 forest 节点所在阈值层的整数网格编号 `j`，不是体素索引 |
+| `source_threshold_value` | `float32 (N_entry,)` | 来源节点的二值化阈值 `j/denominator`；不是该条目任一体素的预测概率 |
+
+### 7.2 共同体素表
+
+| 字段 | dtype 与形状 | 含义 |
+| --- | --- | --- |
+| `voxel_offsets` | `int64 (N_entry+1,)` | 同时切分下面三个权威体素值表 |
+| `voxel_index_local_zyx` | `int16 (L_voxel,3)` | 当前角色权威成员体素在本条目 80³ BOX 内的离散 ZYX 坐标，各轴范围 `0..79`；不是完整图索引，成员集合由第 8 节定义 |
+| `centered_probability` | `float32 (L_voxel,)` | 当前 centered BOX 重跑完整模型后，经 sigmoid 和模型专属后处理得到的概率，再按 `voxel_index_local_zyx` 逐行取值；不是原始滑窗完整图概率 |
+| `voxel_final` | `float16 (L_voxel,C_voxel)` | 与体素同序的最终体素特征 |
+| `voxel_aux_offsets` | `int64 (N_entry+1,)` | 同时切分下面两个辅助体素值表 |
+| `voxel_aux_index_local_zyx` | `int16 (L_aux,3)` | 当前 centered 输入 `hardmask == True` 的位置在本条目 80³ BOX 内的离散 ZYX 坐标；不是完整图索引或权威配体成员集合 |
+| `voxel_aux_probability` | `float32 (L_aux,)` | 当前 centered 前向的受体辅助头经 sigmoid 后，按 `voxel_aux_index_local_zyx` 逐行取出的概率 |
+
+`voxel_offsets` 首值为 0，末值同时等于三个权威体素值表的第一维长度。`voxel_aux_offsets` 首值为 0，末值同时等于两个辅助体素值表长度。
+
+`C_voxel` 由 checkpoint 决定。`voxel_aux_probability` 不是 Find 完整图融合使用的 hardmask。模型可能还返回蛋白主链、核酸主链和配体反距离辅助 logits，但当前 centered NPZ 不保存这些值。
+
+### 7.3 Find P 点表
+
+| 字段 | dtype 与形状 | 含义 |
+| --- | --- | --- |
+| `P_offsets` | `int64 (N_entry+1,)` | 同时切分下面四个 P 值表 |
+| `P_coord_local_xyz` | `float32 (L_P,3)` | BOX 局部连续 XYZ |
+| `P_probability` | `float32 (L_P,)` | P 点概率 |
+| `P_feat_L2` | `float16 (L_P,C_L2)` | `outputs["pseudo_density_feat"]`；密度、伪原子类别与界面归一化共同形成的 P 初始表示，也是点骨干网络接收的 P 输入 |
+| `P_feat_L3` | `float16 (L_P,C_L3)` | `outputs["pseudo_feat_before_interaction"]`；点骨干网络处理完成、A↔P 交叉注意力发生之前的 P 最终表示 |
+
+`P_offsets` 首值为 0，末值等于四个 P 值表长度。P 表保存当前 BOX 的全部 P 点，不表示 CLG 候选成员关系。
+
+### 7.4 Find A 原子表
+
+| 字段 | dtype 与形状 | 含义与索引目标 |
+| --- | --- | --- |
+| `A_offsets` | `int64 (N_entry+1,)` | 同时切分下面八个 A 值表 |
+| `A_global_index` | `int64 (L_A,)` | 索引完整 `receptor_tokens.npz` 第一维，仅用于原子身份和来源追踪 |
+| `A_coord_local_xyz` | `float32 (L_A,3)` | BOX 局部连续 XYZ |
+| `A_coord_centered_world` | `float32 (L_A,3)` | 相对 BOX 中心的世界 XYZ，单位 Å |
+| `A_probability` | `float32 (L_A,)` | A 原子概率 |
+| `A_feat_L0` | `float32 (L_A,49)` | 当前 centered 输入 `batch["atom_feat"]` 中、按 `A_global_index` 对齐到模型输出 A 行序的原始受体特征；位于点侧嵌入层之前并保留 float32 精度 |
+| `A_feat_L1` | `float16 (L_A,C_L1)` | `outputs["A_feat_L1"]`；点侧嵌入与界面归一化完成、真实原子密度调制发生之前的 A 表示 |
+| `A_feat_L2` | `float16 (L_A,C_L2)` | `outputs["A_feat_L2"]`；真实原子密度调制完成后送入点骨干网络的 A 输入表示 |
+| `A_feat_L3` | `float16 (L_A,C_L3)` | `outputs["real_feat_before_interaction"]`；点骨干网络处理完成、A↔P 交叉注意力发生之前的 A 最终表示 |
+
+`A_offsets` 首值为 0，末值等于八个 A 值表长度。A 表保存 80³ 核心与来源组件 10 Å 包络的交集。Selector 直接读取已持久化的 `A_feat_L0`；`A_global_index` 继续承担身份追踪，不再用于二次加载原始特征。
+
+Stage1-Find 前向计算仍可产生交叉注意力后的 `A_feat_L4` 与 `P_feat_L4`，但 centered 归档不保存这两组张量。Selector 只读取本节列出的 L3 及以前特征；A/P 分类概率仍使用 Stage1-Find 原有分类头结果。
+
+`unet_c1` 不得出现 P/A 字段。Find 中 P/A 必须整组出现；完全为空的 F1 或 CLG 归档无法确定特征宽度时，两组可以同时整体缺席。Selected 至少有一个成功项产生相应模态时才保存整组字段；未成功项的 P/A 段为空。
+
+## 8. 三类 centered 角色的权威成员语义
+
+三种角色都重新执行当前 80³ BOX 的完整模型前向，所以 `centered_probability`、`voxel_final` 和适用的 P/A 表都来自本次 centered 前向。角色差异只在 `voxel_index_local_zyx` 所代表的权威体素集合如何确定。
+
+### 8.1 `centered/F1_centered.npz`
+
+- 每个归档项对应 `t_F1` 层一个合格组件。
+- 排序键依次是 `probability_mean` 降序、`tree_id` 升序、`node_id` 升序。
+- 权威体素集合是原始滑窗融合 `probability_map` 在 `t_F1` 上形成的来源 forest 组件成员，完整图成员由 `node_voxel_global_linear_index` 给出后换算为当前 BOX 内 ZYX 坐标。
+- 这些坐标上的 `centered_probability` 与 `voxel_final` 来自当前 centered 重算，不复用滑窗融合概率或滑窗特征。
+- 没有合格组件时可以发布 `N_entry == 0` 的空归档。
+- 除第 7 节共同字段和适用模态字段外，没有角色专属字段。
+
+### 8.2 `centered/CLG_centered.npz`
+
+每个组件谱系组使用 `CLG_oldest_node_id` 解析 80³ BOX。权威体素集合是该最老 forest 节点的完整图组件成员换算到当前 BOX 后的坐标；概率和特征仍来自当前 centered 重算。归档额外保存：
+
+| 字段 | dtype 与形状 | 含义 |
+| --- | --- | --- |
+| `CLG_id` | `int32 (N_entry,)` | 与 `components/clg.npz` 同序 |
+| `CLG_seed_node_id` | `int32 (N_entry,)` | 种子节点在 `source_tree_id` 指定 forest 树内的局部编号 |
+| `CLG_oldest_node_id` | `int32 (N_entry,)` | 最老节点在 `source_tree_id` 指定 forest 树内的局部编号，并决定本条目的 BOX 与权威体素集合 |
+| `candidate_offsets` | `int64 (N_entry+1,)` | 同时切分候选节点和候选阈值编号 |
+| `candidate_node_id` | `int32 (N_candidate,)` | 候选节点在所属条目 `source_tree_id` 指定 forest 树内的局部编号 |
+| `candidate_threshold_grid_index` | `int32 (N_candidate,)` | 候选 forest 节点所在阈值层的整数网格编号 `j` |
+| `candidate_voxel_offsets` | `int64 (N_candidate+1,)` | 切分 `candidate_voxel_index` |
+| `candidate_voxel_index` | `int32 (L_candidate_voxel,)` | 所属条目权威体素值表的局部行号；既不是 BOX 内 ZYX 坐标，也不是完整图线性索引 |
+| `candidate_A_offsets` | `int64 (N_candidate+1,)` | 切分 `candidate_A_index`；只在 Find A 组存在时出现 |
+| `candidate_A_index` | `int32 (L_candidate_A,)` | 所属归档项 A 原子段内的局部值表编号 |
+
+`candidate_offsets` 首值为 0，末值等于两个候选值表长度。`candidate_voxel_offsets` 首值为 0，末值等于 `candidate_voxel_index` 长度。Find A 组存在时，`candidate_A_offsets` 首值为 0，末值等于 `candidate_A_index` 长度。
+
+若候选属于条目 `i`，`voxel_offsets[i] + candidate_voxel_index[k]` 才是它在归档级 `voxel_index_local_zyx` 中的实际行号，随后从该行读取 BOX 内离散 ZYX 坐标。`candidate_A_index` 同理引用所属条目 `A_offsets` 段内的局部 A 行。两者都不是坐标或完整图全局索引。
+
+### 8.3 `centered/Selected_Refined_Centered.npz`
+
+Selector 选择先恢复到 forest 来源节点，再重新执行当前 80³ BOX 的模型前向，使用该节点自己的 `source_threshold_value` 对当前 centered 概率二值化并重建 26 邻域连通组件。存在多个局部组件时，只在与原始来源组件相交的组件中保留交并比最大的一个；多个 CLG 选择同一来源节点时只发布一次。因此成功条目的权威体素集合是新精修结果，可能与原始滑窗来源组件不同。
+
+归档项按 CLG 顺序和各 CLG 内的来源候选顺序处理；同一来源节点重复出现时保留第一次。
+
+专属字段：
+
+| 字段 | dtype 与形状 | 含义 |
+| --- | --- | --- |
+| `refine_status` | `uint8 (N_entry,)` | 精修状态码 |
+| `refine_status_names` | Unicode `(3,)` | 固定为 `["success","empty","no_overlap"]` |
+
+状态：
+
+| 值 | 名称 | 含义 |
+| --- | --- | --- |
+| `0` | `success` | 至少一个局部组件与来源组件相交；保存最大交并比组件及模型载荷 |
+| `1` | `empty` | 阈值化后没有局部组件 |
+| `2` | `no_overlap` | 有局部组件，但都不与来源组件相交 |
+
+只有成功项可以携带体素和 P/A 载荷。部分成功时，所有 `voxel_final` 值使用成功载荷的统一 `C_voxel`；未成功项的变长段为空。完全没有成功项时 `voxel_final.shape == (0,0)`。
+
+模型 forward、字段读取或精修实现异常不属于 `refine_status`。异常会阻止当前 role 发布 `_COMPLETE`，修复后由续跑流程重新生产。
+
+## 9. Selector 产物
+
+### 9.1 目录
+
+Selector 运行目录由调用方显式指定：
 
 ```text
-components/
-  forest.npz
-  clg.npz
-  overlap.npz                # train/validation/calibration 有 GT 时
-  summary.json
+<selector_run_dir>/
+├── input_CLG_list.json
+├── calibration.json
+└── {split}/{pdb_id}/scores.npz
 ```
 
-### 5.1 forest.npz
-
-设总 node 数为 `N_node`，全部 node voxel index 拼接长度为 `L_voxel`，children 拼接长度为 `L_child`：
-
-| 字段 | shape / dtype | 语义 |
-|---|---|---|
-| `tree_id` | `[N_node] int32` | 当前 PDB 内树 identity |
-| `node_id` | `[N_node] int32` | 对应 tree 内 node identity |
-| `threshold_grid_index` | `[N_node] int32` | 实际扫描整数 `j∈[0,32768]`；同一层相同 |
-| `threshold_value` | `[N_node] float32` | `threshold_grid_index/32768`，便于冷读 |
-| `parent_node_id` | `[N_node] int32` | direct parent；root 为 `-1` |
-| `children_offsets` | `[N_node+1] int64` | 切分 `children_node_id`；第 i 个 node 的 direct children 为对应半开区间 |
-| `children_node_id` | `[L_child] int32` | 与本 node 同 tree 的 child IDs |
-| `node_voxel_offsets` | `[N_node+1] int64` | 切分 `node_voxel_global_linear_index`；每段是一个 node mask |
-| `node_voxel_global_linear_index` | `[L_voxel] int64` | ZYX C-order 全图线性 index；node 内唯一 |
-| `voxel_count` | `[N_node] int32` | mask 大小 |
-| `bbox_min_zyx` | `[N_node,3] int32` | 完整 mask bbox |
-| `bbox_max_zyx` | `[N_node,3] int32` | 闭区间 bbox |
-| `centroid_zyx` | `[N_node,3] float32` | mask voxel-index centroid |
-| `probability_mean` | `[N_node] float32` | mask 内 full-map probability mean |
-| `probability_max` | `[N_node] float32` | mask 内 max |
-| `candidate_eligible` | `[N_node] bool` | 体积与 centered bbox 规则是否通过 |
-| `ineligible_reason_code` | `[N_node] uint8` | 0=eligible；其它值由 summary 解释 |
+代码不强制运行目录的外层实验命名。`selection.npz` 的位置由命令参数决定；若 Selected 生产命令使用默认寻址，调用方必须把它发布到 Stage1 PDB 目录的 `selector/selection.npz`。
 
-`parent_node_id` 与 children 必须互相一致。sisters 现场从 children 派生，不落重复 sister 表。森林是只读原件；工作副本状态不得写回。
+### 9.2 `input_CLG_list.json`
 
-### 5.2 clg.npz
+Selector 训练启动时扫描一次可消费的 `CLG_centered` 并冻结清单。同一运行目录后续只允许严格复用相同清单。
 
-设成功 CLG 数 `N_CLG`，flatten 后 candidate 数 `N_candidate`：
-
-| 字段 | shape / dtype | 语义 |
-|---|---|---|
-| `CLG_id` | `[N_CLG] int32` | 当前 PDB 内连续本地 identity；即来源顺序 |
-| `tree_id` | `[N_CLG] int32` | 所属原树 |
-| `CLG_seed_node_id` | `[N_CLG] int32` | 本次枚举开始时唯一 selected seed 的 forest node ID |
-| `CLG_oldest_node_id` | `[N_CLG] int32` | 候选中沿低阈值方向最老、mask 覆盖全部候选的唯一 node ID |
-| `candidate_offsets` | `[N_CLG+1] int64` | 切分 `candidate_node_id` 与 `candidate_threshold_grid_index`；第 g 个 CLG 对应 `[offsets[g],offsets[g+1])` |
-| `candidate_node_id` | `[N_candidate] int32` | 原 forest node identity |
-| `candidate_threshold_grid_index` | `[N_candidate] int32` | 对应 forest node 的扫描整数 `j`，便于批读取 |
-
-失败或因 node cap 拒绝的尝试不进入该文件。`summary.json` 至少保存 depth 配置和以下字段：
-
-| 字段 | 语义 |
-|---|---|
-| `n_f1_eligible_seeds` | `t_F1` 层满足 candidate 资格、进入工作树初始 seed 集的节点数 |
-| `n_CLG_cap` | 本 PDB 允许成功发布的 CLG 上限 `min(300,3*max(2,n_f1_eligible_seeds))` |
-| `n_CLG_completed` | 实际成功发布的 CLG 数，必须等于 `N_CLG` |
-| `n_CLG_rejected_by_node_cap` | 因一次原子扩展会超过当前 depth 节点上限而整次拒绝的 CLG 尝试数 |
-| `mean_candidates_per_completed_CLG` | 全部成功 CLG 的 candidate 数均值；没有成功 CLG 时为 0.0 |
-| `CLG_cap_reached` | 仅当仍有 active seeds，却因 `n_CLG_completed=n_CLG_cap` 提前停止时为 true；自然恰好完成相同数量不算 reached |
-
-祖先、LCA、姐妹和 antichain conflict 从 `forest.npz` 现场计算，不重复保存 NxN 关系表。
-
-### 5.3 overlap.npz
-
-这是 selector online oracle 的基础事实，不是持久 oracle。按 `clg.npz` flatten 后的 candidate 顺序，保存 candidate 与 occurrence 的非零交集：
+| 字段 | 类型与含义 |
+| --- | --- |
+| `schema_version` | `int`，当前为 `1` |
+| `stage1_model_name` | `str`，模型来源 |
+| `split_order` | `list[str]`，数据划分顺序 |
+| `split_counts` | 对象，数据划分名到 CLG 数 |
+| `split_pdb_counts` | 对象，数据划分名到 PDB 数 |
+| `pdb_ids_by_split` | 对象，数据划分名到完整 PDB 身份数组；包含零 CLG PDB |
+| `items` | 对象数组，每项精确包含 `split: str`、`pdb_id: str`、`CLG_id: int` |
 
-| 字段 | shape / dtype | 语义 |
-|---|---|---|
-| `candidate_occurrence_offsets` | `[N_candidate+1] int64` | 同时切分 `overlap_occurrence_index` 与 `intersection_voxel_count`；每段是一个 candidate 的非零相交 occurrence |
-| `overlap_occurrence_index` | `[N_overlap] int32` | 指向下述 `occurrence_id[N_gt]` 的当前 PDB 局部行号，取值范围 `[0,N_gt)`；不是 occurrence identity 本身 |
-| `intersection_voxel_count` | `[N_overlap] int32` | 全图 candidate mask 与 GT mask 交集 |
-| `occurrence_id` | `[N_gt] int32` | 当前 PDB 全部 GT identities |
-| `occurrence_voxel_count` | `[N_gt] int32` | 各 GT mask 大小 |
-
-candidate voxel count 从 forest 读取，因此可现场求 IoU。`q_i`、`S*`、`y_G`、lambda 专属标签和反链结果不得写入本文件。
-
----
-
-## 6. Centered BOX 的物理组织
-
-### 6.1 每 role 一个聚合文件
-
-每个 producer/split/PDB 的 `centered/` 最终只保存：
-
-```text
-F1_centered.npz
-CLG_centered.npz
-Selected_Refined_Centered.npz
-```
+`items` 依次按 `split_order`、PDB 身份和来源 `CLG_id` 排列；同一 PDB 的项目完整复制来源 CLG 顺序。
 
-三者是时间上独立的原子发布单元；没有 `index.npz+part_*.npz`，也不按 BOX 生成小文件。每个文件以 entry 主表加 ragged value 表容纳当前 PDB 的全部同类 BOX。共同 entry 字段：
+### 9.3 `{split}/{pdb_id}/scores.npz`
 
-| 字段 | shape / dtype | 语义 |
-|---|---|---|
-| `centered_box_index` | `[N_entry] int32` | 文件内连续 `0..N_entry-1` |
-| `box_start_zyx` | `[N_entry,3] int32` | 已解析合法起点，数组顺序 ZYX |
-| `box_shape_zyx` | `[N_entry,3] uint8` | 固定 `[80,80,80]` |
-| `box_origin_world` | `[N_entry,3] float32` | 当前 BOX 物理下角点，XYZ Å |
-| `voxel_size_world` | `[N_entry,3] float32` | XYZ Å/voxel |
-| `source_tree_id` | `[N_entry] int32` | 来源 forest tree |
-| `source_node_id` | `[N_entry] int32` | F1 source、CLG oldest 或 Selected source node |
-| `source_threshold_grid_index` | `[N_entry] int32` | 来源 node 的扫描整数 `j` |
-| `source_threshold_value` | `[N_entry] float32` | `j/32768` |
-
-`CLG_centered.npz` 另有 `CLG_id[N_entry] int32`、`CLG_seed_node_id[N_entry] int32`、`CLG_oldest_node_id[N_entry] int32`。F1 不伪造 CLG 字段。Selected 另有 `refine_status[N_entry] uint8` 与 `feature_entry_index[N_feature] int32`；前者固定映射为 `0=success`、`1=empty`、`2=no_overlap`、`3=failed`，后者必须逐项等于 `refine_status=0` 的 entry 行号，不另造每 BOX 状态文件。各值的行为定义见 §7.5。
+| 字段 | dtype 与形状 | 对齐关系 |
+| --- | --- | --- |
+| `CLG_id` | `int32 (N_CLG,)` | 与来源 `components/clg.npz` 同序同值 |
+| `CLG_logit` | `float32 (N_CLG,)` | 有限的 CLG 未归一化门控分数；字段名保留 `logit` |
+| `CLG_valid_probability` | `float32 (N_CLG,)` | `sigmoid(CLG_logit)`，有限且位于 `[0,1]` |
+| `candidate_offsets` | `int64 (N_CLG+1,)` | 逐值复制来源 CLG，同步切分下面两个候选值表 |
+| `predicted_max_iou` | `float32 (N_candidate,)` | 有限且位于 `[0,1]` 的候选最大交并比预测 |
+| `selection_logit` | `float32 (N_candidate,)` | 有限的候选未归一化结构选择分数；只用于精确反链选择，不是概率或候选质量 |
 
-### 6.2 通用 ragged 编码
+`candidate_offsets` 首值为 0，末值同时等于两个候选值表长度。零 CLG PDB 仍发布字段齐全的空表。
 
-每个聚合 NPZ 的每类变长实体都使用 `offsets + values`：
+“反链”表示同一组件树中任意两个选中节点都不存在祖先与后代关系。`selection_logit` 只为这种结构化选择提供能量，不应解释为概率。
 
-```text
-voxel_offsets[N_entry+1]                    # 同时切分 voxel_index/centered_probability/voxel_final
-voxel_index_local_zyx[L_voxel,3]
+### 9.4 `calibration.json`
 
-P_offsets[N_entry+1]                        # 同时切分全部 P_* values
-P_...
+Selector 校准汇集 calibration PDB 的有限 `CLG_valid_probability`，按实际出现概率的升序唯一值扫描门控阈值，以全局 `M_instance` 首个最大值对应的阈值作为 `tau_G`。没有任何有限 CLG 概率时命令失败，不发布伪校准。
 
-A_offsets[N_entry+1]                        # 同时切分全部 A_* values
-A_...
-```
+根字段：
 
-同一 entry 内 index 唯一。offsets 为 int64、首项为 0、末项等于所切分 value 表长度并单调不减。`voxel_index_local_zyx` 是当前 role 的权威 voxel 集，结合对应 entry 的 `box_start_zyx` 可恢复全图 ZYX。固定 shape 的低分辨率 V grid 不使用 offsets：F1/CLG 直接以 `N_entry` 为第一维；Selected 以 `N_feature` 为第一维，并由 `feature_entry_index` 映射到成功 entry，不能为失败状态伪造全零网格。
+- `schema_version: int`，当前为 `1`
+- `stage1_model_name: str`
+- `split: str`，正式值为 `"calibration"`
+- `calibration_fitted: bool`，固定为 `true`
+- `lambda_count: float`
+- `coverage_thresholds: list[float]`，固定为 `[0.3,0.5]`
+- `scan_definition: str`，固定为 `"ascending_unique_actual_CLG_valid_probability"`
+- `pdb_count: int`，包含零 CLG PDB
+- `tau_G: float`
+- `best_curve_index: int`
+- `metrics: object`
+- `macro_diagnostic: object`
+- `curve: list[object]`
 
----
+`metrics` 和每个曲线项的 `global` 保存 `n_pred_instances`、`n_gt_instances`，以及 `0p3`、`0p5` 下双向覆盖匹配和一对一匹配的精确率、召回率与 F1，并保存四个 F1 的算术均值 `M_instance`。
 
-## 7. 三类 Centered payload
+`macro_diagnostic` 和每个曲线项的同名对象只保存四个逐 PDB 算术平均 F1 与 `M_instance`。每个曲线项还保存 `tau_G: float`。
 
-### 7.1 共同 voxel 字段
+### 9.5 `selection.npz`
 
-设 `voxel_offsets` 的末项为 `L_voxel`，`voxel_aux_offsets[N_entry+1]` 切分两个 `voxel_aux_*` value 表且末项为 `L_aux`。令 `N_Ventry=N_entry`（F1/CLG），而 Selected 的 `N_Ventry=N_feature`。所有成功 entry 的共同字段：
+| 字段 | dtype 与形状 | 含义 |
+| --- | --- | --- |
+| `CLG_id` | `int32 (N_CLG,)` | 与来源 CLG 同序同值 |
+| `CLG_gate_pass` | `bool (N_CLG,)` | `True` 表示 `CLG_valid_probability >= tau_G` |
+| `selected_candidate_offsets` | `int64 (N_CLG+1,)` | 切分 `selected_candidate_index` |
+| `selected_candidate_index` | `int16 (N_selected,)` | 所属 CLG 候选段内的局部编号，段内严格递增且无重复 |
 
-| 字段 | shape / dtype | 对齐对象 |
-|---|---|---|
-| `voxel_offsets` | `[N_entry+1] int64` | 同时切分下面三个长度 `L_voxel` 的 value 表 |
-| `voxel_index_local_zyx` | `[L_voxel,3] int16` | 各 entry 当前权威 voxel 集 |
-| `centered_probability` | `[L_voxel] float32` | 居中 forward 在相同 voxel 行的 ligand probability |
-| `voxel_final` | `[L_voxel,48] float16` | 与相同 voxel 行对齐的 producer final feature |
-| `voxel_ds_2` | `[N_Ventry,256,20,20,20] float16` | 每个成功 feature entry 一张 native low-resolution grid |
-| `voxel_ds_3` | `[N_Ventry,256,10,10,10] float16` | 每个成功 feature entry 一张 native low-resolution grid |
-| `voxel_ds_4` | `[N_Ventry,256,5,5,5] float16` | 每个成功 feature entry 一张 native low-resolution grid |
-| `voxel_c4` | `[N_Ventry,256,5,5,5] float16` | 每个成功 feature entry 一张 native bottleneck grid |
-| `voxel_aux_offsets` | `[N_entry+1] int64` | 同时切分两个长度 `L_aux` 的 auxiliary value 表 |
-| `voxel_aux_index_local_zyx` | `[L_aux,3] int16` | hardmask 唯一 receptor home voxels |
-| `voxel_aux_probability` | `[L_aux] float32` | 与相同 auxiliary voxel 行对齐的 sigmoid probability |
+第 `i` 个 CLG 的选择段是 `[selected_candidate_offsets[i],selected_candidate_offsets[i+1])`。首值为 0，末值等于 `N_selected`。局部编号必须小于来源 `candidate_offsets[i+1] - candidate_offsets[i]`。
 
-不保存 dense final 48D grid、稠密 centered ligand probability、threshold rank map 或按 K_v 重复的低分辨率预采样特征。
+`CLG_gate_pass == False` 时选择段为空；`CLG_gate_pass == True` 时，精确且非空的最大后验选择至少产生一个候选编号。
 
-`centered_probability` 已完成与完整图相同的 producer-specific 后处理：两个 Find 在当前 BOX hardmask home voxels 为 0，unet_c1 不使用 receptor hardmask。该字段不能再由消费者二次遮蔽。
+零 CLG PDB 的 `CLG_id` 和 `CLG_gate_pass` 形状都是 `(0,)`，`selected_candidate_offsets` 精确为 `[0]`，`selected_candidate_index` 形状为 `(0,)`。
 
-### 7.2 Find 的 P 与 A 字段
+## 10. 正式生产入口与依赖顺序
 
-设 `P_offsets[N_entry+1]` 切分全部 P value 表，末项为 `L_P`。Find 的 P 表：
+Stage1 推理入口是 `python -m src.inference.cli`：
 
-| 字段 | shape / dtype | 语义 |
-|---|---|---|
-| `P_offsets` | `[N_entry+1] int64` | 同时切分本表全部 `P_*` value 数组；第 e 段是 entry e 的完整 P 表 |
-| `P_coord_local_xyz` | `[L_P,3] float32` | 当前 80³ BOX 内连续 XYZ voxel 坐标 |
-| `P_probability` | `[L_P] float32` | `sigmoid(P_logit)`，与 P 行逐项对齐 |
-| `P_feat_L2` | `[L_P,C_P2] float16` | density/class/interface normalization 后、进入 point backbone 的 P 初始表示 |
-| `P_feat_L3` | `[L_P,C_P3] float16` | A/P interaction 前的 P 表示 |
-| `P_feat_L4` | `[L_P,C_P4] float16` | interaction 后且送入 P head 的 P 表示 |
+| 子命令 | 数据划分 | 必须已经存在的输入 | 新增产物 |
+| --- | --- | --- | --- |
+| `cal-probability` | calibration | checkpoint、完整图输入 | probability |
+| `freeze-thresholds` | calibration | 清单中全部 PDB 的可读 probability、真实配体实例 | 模型来源级校准目录 |
+| `cal-produce-f1-clg` | calibration | probability、模型来源级校准、checkpoint | components、F1 centered、CLG centered |
+| `val-produce-prob-f1-clg` | validation | 模型来源级校准、checkpoint、完整图输入 | probability、components、F1 centered、CLG centered |
+| `train-produce-prob-f1-clg` | train | 模型来源级校准、checkpoint、完整图输入 | probability、components、F1 centered、CLG centered |
+| `selected-refined` | 显式指定 | 可读 `components` 角色、`selection.npz`、`geometry.json`、模型检查点、完整图输入 | `Selected_Refined_Centered` |
 
-P 字段语义固定为：L2 是 pseudo-density feature 完成 density/class/interface normalization 后的表示；L3 是 A/P interaction 前表示；L4 是 interaction 后、P head 输入；`P_probability=sigmoid(P_logit)`。
+`selected-refined` 读取 `forest.npz`、`clg.npz` 和 `probability/geometry.json`，不读取 `probability_map.npz`。未指定外置选择根目录时，它读取 `{PDB正式目录}/selector/selection.npz`；指定后读取 `{selection_root}/{producer}/{split}/{pdb_id}/selection.npz`。
 
-设 `A_offsets[N_entry+1]` 切分全部 A value 表，末项为 `L_A`。每个 entry 的 A 集合是“该 entry 来源 blob 的 10 Å包络 ∩ 当前 80³ BOX”内的 receptor atoms；不含 BOX 外原子。两个 Find 都保存：
+Selector 入口：
 
-| 字段 | shape / dtype | 语义 |
-|---|---|---|
-| `A_offsets` | `[N_entry+1] int64` | 同时切分本表全部 `A_*` value 数组；第 e 段是 entry e 的 A-pocket |
-| `A_global_index` | `[L_A] int64` | 指向当前 PDB 唯一 receptor 表的原子行，用于无损恢复 49D `A_feat_L0` |
-| `A_coord_local_xyz` | `[L_A,3] float32` | 当前 80³ BOX 内连续 XYZ voxel 坐标 |
-| `A_coord_centered_world` | `[L_A,3] float32` | 以当前 BOX 物理中心为原点的 XYZ Å 坐标 |
-| `A_probability` | `[L_A] float32` | `sigmoid(A_logit)`，与 A 行逐项对齐 |
-| `A_feat_L1` | `[L_A,C_A1] float16` | point-side embed 后、real-atom density-cube 调制前的 A 表示 |
-| `A_feat_L2` | `[L_A,C_A2] float16` | L1 与原子 density-cube 编码 combine 后、进入 point backbone 的 A 表示 |
-| `A_feat_L3` | `[L_A,C_A3] float16` | A/P interaction 前的 A 表示 |
-| `A_feat_L4` | `[L_A,C_A4] float16` | interaction 后且送入 A head 的 A 表示 |
+| 命令 | 产物 |
+| --- | --- |
+| `python -m src.selector.train --config <selector.yaml>` | 训练启动时冻结 `input_CLG_list.json` |
+| `python -m src.selector.inference scores` | 逐 PDB `scores.npz` |
+| `python -m src.selector.inference calibrate` | Selector 运行目录 `calibration.json` |
+| `python -m src.selector.inference selection` | 显式输出路径的单 PDB `selection.npz` |
 
-`A_feat_L1` 是 point-side embed 后、进入 density/point backbone 前的表示；L2 是 embed 与 point density 组合后、实际送入 point backbone的表示；L3 是 A/P interaction 前表示；L4 是 interaction 后、A head 输入；`A_probability=sigmoid(A_logit)`。正式消费时另按 `A_global_index` 从每 PDB 唯一 receptor 49D 表读取 `A_feat_L0[L_A,49] float32`；L0 不在 centered NPZ 重复落盘。`unet_c1` 不保存任何 P/A 字段。
+除 `freeze-thresholds` 外，Stage1 的五个 PDB 级推理子命令都按清单位置分片：
 
-### 7.3 F1_centered
+`record_index % shard_count == shard_index`
 
-每个 entry 对应一个 eligible F1 component：
+清单位置从 0 开始。checkpoint 恢复优先使用训练目录中的 `src_snapshot/src` 和解析配置；只有显式允许时才使用当前工作区源码。
 
-- `source_tree_id/source_node_id` 唯一指向 forest；
-- `voxel_index_local_zyx` 等于 source `global_component_mask` 投影到 BOX；
-- Find 保存 §7.2 的完整 P/A；unet 只保存 §7.1；
-- 不保存 candidate membership、CLG identity 或 selector 字段。
+## 11. 跨文件对齐
 
-### 7.4 CLG_centered
+### 11.1 完整图到组件
 
-每个 entry 对应一个成功 CLG，`source_node_id=CLG_oldest_node_id`。除共同 entry 字段及 `CLG_id/CLG_seed_node_id/CLG_oldest_node_id` 外，设当前文件所有 candidates flatten 后为 `N_candidate`：
+- `probability_map.shape == full_shape_zyx`。
+- `probability_map.npz` 与 `geometry.json` 的 `origin_xyz`、`voxel_size_xyz` 转换为 `float32` 后分别逐值一致。
+- forest 全局线性体素编号落在 `[0,D*H*W)`。
+- `threshold_value == threshold_grid_index / denominator`。
+- `(tree_id,node_id)`、父子关系、体素数、包围盒和原因码相互一致。
 
-| 字段 | shape / dtype | 语义 |
-|---|---|---|
-| `candidate_offsets` | `[N_entry+1] int64` | 切分 `candidate_node_id` 与 `candidate_threshold_grid_index`；每个 entry 对应一段 candidates |
-| `candidate_node_id` | `[N_candidate] int32` | 与来源 `clg.npz` 同顺序的 forest node ID |
-| `candidate_threshold_grid_index` | `[N_candidate] int32` | 每个 candidate 的实际扫描整数 `j` |
-| `candidate_voxel_offsets` | `[N_candidate+1] int64` | 切分 `candidate_voxel_index`；每段是该 candidate 对其 entry voxel 段的局部 membership |
-| `candidate_voxel_index` | `[L_cv] int32` | 指向所属 entry 的 `voxel_index_local_zyx` 局部行 |
-| `candidate_A_offsets` | `[N_candidate+1] int64` | Find only；切分 `candidate_A_index` |
-| `candidate_A_index` | `[L_ca] int32` | Find only；指向所属 entry A 段的局部行 |
+### 11.2 组件到 centered
 
-所有 candidate 共享完整 P 表，不保存 `candidate_P_membership`。不同 candidate 可以交叉引用同一个 voxel/A index；同一 candidate 内 index 唯一。`unet_c1` 只有 voxel membership。
+- F1 centered 来源节点是 `t_F1` 层合格节点。
+- CLG centered 的身份、种子、最老节点和候选顺序与 `components/clg.npz` 对齐。
+- `candidate_voxel_index` 落在所属归档项的体素段局部范围内。
+- Find A 组存在时，`candidate_A_index` 落在所属归档项的 A 原子段局部范围内。
+- `unet_c1` 不含 P/A 字段。
 
-### 7.5 Selected_Refined_Centered
+### 11.3 CLG 到 Selector
 
-每个 entry 指向一个 source `selected_node`。成功时：
+- `input_CLG_list.json` 覆盖冻结 PDB 清单，零 CLG PDB也保留在 `pdb_ids_by_split`。
+- `scores.npz` 的 `CLG_id` 与 `candidate_offsets` 逐值复制来源 CLG。
+- `selection.npz` 的 `CLG_id` 与 scores 和来源 CLG 同序。
+- `selected_candidate_index` 是所属 CLG 候选段内的局部编号，不是 forest 节点编号。
 
-- `voxel_index_local_zyx` 是新的 `refined_blob`；
-- `centered_probability`、`voxel_final`、P/A 均来自此次 Selected forward，并与新 blob/当前 BOX 对齐；
-- source mask 由 forest 解析，不重复保存；
-- 不分配新 tree/node identity。
+### 11.4 Selector 到 Selected
 
-每个状态的数值与语义固定为：
+- Selected 生产命令读取可消费的 `components` 角色、`selection.npz`、`geometry.json`、完整图输入和模型检查点。
+- 来源节点由 `CLG_id + selected_candidate_index` 唯一恢复。
+- 重复来源节点只发布一次。
+- 只有成功项携带模型载荷；未成功项的变长段为空。
 
-- `0=success`：阈值化后至少有一个局部组件与投影后的 source mask 具有正交集；选取 IoU 最大者作为新的 `refined_blob` 并保存完整 payload。
-- `1=empty`：阈值化后没有任何局部组件；保留来源与 BOX 几何，全部变长 payload 为空。
-- `2=no_overlap`：存在局部组件，但它们与投影后的 source mask 交集全为 0；不把无关局部组件误认作精修结果，变长 payload 为空。
-- `3=failed`：该 source 的 forward、组件构造或必要校验执行失败；保留来源与 BOX 几何，变长 payload 为空，错误细节写当前运行日志/汇总而不是 object array。
+## 12. 冷读验收
 
-一个 source node 在正式 Selected 目录中最多出现一次。
+交付或消费产物前，至少执行以下检查：
 
-`feature_entry_index` 必须严格升序且精确等于全部 `refine_status=0` 的 entry 行。四张固定 V grid 逐行与它对齐；后三种非成功状态不得占固定网格行。全部 ragged offsets 仍保持 `[N_entry+1]`，非成功 entry 的 voxel/aux/P/A 段都为空。
+1. 路径中的模型来源、数据划分和小写 `pdb_id` 与请求一致。
+2. 所需 `status/{role}/_COMPLETE` 存在，且 `output_role` 与角色名一致。
+3. PDB 目录中不存在 `_RUNNING` 和 `_BLOB_EXCEED`。
+4. NPZ 可在 `allow_pickle=False` 下读取，字段集合、dtype、维度、固定形状和有限值符合本文。
+5. 每个 offsets 长度正确、首值为 0、单调不减、末值等于本文点名的全部值表长度。
+6. 每个索引字段落在本文点名的目标数组或所属变长段范围内。
+7. 完整图概率与几何字段相互一致，尤其是 `probability_map.npz` 与 `geometry.json` 的 `origin_xyz`、`voxel_size_xyz`；组件森林、组件谱系组、交集、居中归档、Selector 分数和选择表的身份与顺序一致。
+8. `unet_c1` 不含 P/A；Find 的 P/A 整组出现，或只在本文允许的空归档条件下整组缺席。
+9. Selected 只有成功项携带载荷，且未知特征宽度的全空 `voxel_final` 使用 `(0,0)`。
 
----
+## 13. 契约边界
 
-## 8. Selector score 与 selection
-
-实验 selector 输出与正式 centered 产物分开：
-
-```text
-selector_outputs/
-  {stage1_model_name}/
-    {selector_variant}/
-      {selector_run_dir}/
-        input_CLG_list.json
-        calibration.json
-        {split}/{pdb_id}/scores.npz
-        {split}/{pdb_id}/selection.npz
-```
-
-`selector_variant` 是真实网络/条件损失配置名；`selector_run_dir` 是一次训练的独立输出目录，不允许通过共享 `latest` 清单改变其输入。`input_CLG_list.json` 按固定顺序至少记录 `stage1_model_name`、`split_order`、`pdb_ids_by_split`、`split_pdb_counts`、逐 `(split,pdb_id,CLG_id)` 的 `items` 和对应 `split_counts`。`pdb_ids_by_split` 是完整已发布 PDB inventory；合法的零 CLG PDB 保留在这里但不伪造 item。只允许同一 producer 的其它 selector 方案显式复用。指定清单中的任一 PDB、CLG 缺失或未完成都必须在训练前报告，不能静默取交集；正式 validation 完整性按 PDB inventory 而不是非空 CLG item 判断。
-
-`scores.npz` 按 `clg.npz` 顺序保存：
-
-| 字段 | shape / dtype | 语义 |
-|---|---|---|
-| `CLG_id` | `[N_CLG] int32` | 当前 producer/split/PDB 内的 CLG 本地身份；值和顺序与来源 `clg.npz` 逐项一致 |
-| `CLG_logit` | `[N_CLG] float32` | Selector 对“该 CLG 是否含值得结构化选择的候选”的未归一化 readout `a_G` |
-| `CLG_valid_probability` | `[N_CLG] float32` | `sigmoid(CLG_logit)=p_G`；只用于 CLG 门控与 `tau_G` 扫描 |
-| `candidate_offsets` | `[N_CLG+1] int64` | 逐元素复制来源 offsets，同时切分 `predicted_max_iou` 与 `selection_logit` |
-| `predicted_max_iou` | `[N_candidate] float32` | `qhat_i∈[0,1]`；由 `E_i^content` 回归的候选最大 GT IoU，用于 `L_blob`、top-K 与质量报告 |
-| `selection_logit` | `[N_candidate] float32` | `z_i`；由 `E_i^tree` 产生的结构化选择能量，只进入反链 DP，不是概率或候选质量分 |
-
-`CLG_id` 必须与来源 `clg.npz` 完全同序；`CLG_logit=a_G` 是 CLG readout 原始值，`CLG_valid_probability=sigmoid(a_G)=p_G` 用于门控与 `tau_G` 扫描。`candidate_offsets` 必须逐元素复制来源 offsets，同时切分两个 candidate value 表。`predicted_max_iou=qhat_i∈[0,1]` 由 tree Transformer 前的 `E_i^content` 产生，用于 `L_blob`、top-K 与质量报告；`selection_logit=z_i` 由 `E_i^tree` 产生，只用于反链能量，不是概率或质量分。
-
-`selection.npz`：
-
-| 字段 | shape / dtype | 语义 |
-|---|---|---|
-| `CLG_id` | `[N_CLG] int32` | 与同 PDB `scores.npz` 和来源 `clg.npz` 完全同序的 CLG 本地身份 |
-| `CLG_gate_pass` | `[N_CLG] bool` | 冻结阈值下 `CLG_valid_probability≥tau_G`；通过才允许非空预测 MAP |
-| `selected_candidate_offsets` | `[N_CLG+1] int64` | 切分 `selected_candidate_index`；第 g 段是该 CLG 的最终选择 |
-| `selected_candidate_index` | `[N_selected] int16` | 所属 CLG candidate 段内的局部下标；按来源 candidate 原顺序保存，不是 forest node ID |
-
-`CLG_gate_pass` 表示 `CLG_valid_probability≥tau_G`；通过时必须保存精确 DP 的非空预测 MAP 反链，失败时该 CLG 对应空段。`selected_candidate_offsets` 切分 `selected_candidate_index`；每个 selected index 是所属 CLG candidate 段内的局部下标，按来源 candidate 原始顺序保存。对 CLG 行 `g` 的局部下标 `k`，绝对 candidate 行为 `candidate_offsets[g]+k`，再由该行 `candidate_node_id` 恢复 forest node。
-
-零 CLG PDB 仍发布 `CLG_id.shape=(0,)`、`candidate_offsets=[0]` 的空 `scores.npz`，以及相应字段完整的空 `selection.npz`。同一 `(tree_id,node_id)` 可以出现在多个 CLG 的 selection 段；恢复下游 Selected source 时按 CLG/来源顺序有序去重。校正统计对该 node 只计一次，门控概率取所有选中它的 CLG 的最大 `CLG_valid_probability`。
-
-`calibration.json` 保存 validation total loss 选出的 selector BEST 对应的 `tau_G`、从该 run `resolved_config.yaml` 读取的 `lambda_count` 与 calibration-fitted 指标。顺序固定为 BEST → calibration scores/`tau_G` → 所需 split selections；calibration 不另收一份 lambda 参数，也不反选 checkpoint 或方案。零 CLG PDB 以零预测和真实 GT 进入指标。
-
-只有用户选定的正式 selector variant 才生产核心目录中的 `Selected_Refined_Centered`；其它消融只保留各自 score/selection 结果。
-
----
-
-## 9. Runtime 装配边界
-
-Dataset/消费者按模型配置声明的有序 source list 读取字段：
-
-- Find_0：V + P(L2/L3/L4) + A(L0/L1/L2/L3/L4)；
-- Find_1：V + P(L2/L3/L4) + A(L0/L1/L2/L3/L4)；
-- unet_c1：V only；
-- `voxel_aux_probability` 当前不在默认 source list；
-- `A_feat_L0` 按 `A_global_index` 从每 PDB 49D receptor 表读取，其余 A/P learning features 来自 centered NPZ；
-- DensityMUNetLite 从整图 experimental density 现场构造 `exp_clipnorm_nopost`，不读取新的 density-context 文件；
-- 四张低分辨率 V 网格在消费模型内部按目标 voxel center 三线性采样；
-- residual_swiglu 和 V5+D 的数学定义由推理计划负责，本文只保证字段可读。
-
-缺字段时，如果该 producer 本来不产生该字段，则应选择对应 producer adapter；如果配置声称需要而文件缺失，则输入不完整，不能补零继续。
-
----
-
-## 10. 冷读不变量与验收
-
-一个不读取训练/推理代码的检查器必须能仅凭目录和本契约验证：
-
-1. split 数量正确、同 PDB 不跨 split；validation/calibration 三轴均不小于 80，train pool 只有真实 80³ crop，且不存在独立 eligibility 目录。
-2. 每个 pool 起点都在合法范围，bias 第二维为 30，validation 字段使用 `*_pdb_index`。
-3. 三个 producer 只使用固定路径寻址，不叠加不透明 Stage1 运行身份，也不重复保存 checkpoint 信息。
-4. `probability_map` shape 与 geometry 一致、dtype float32，对应 role 有 `_COMPLETE`；Find 已做 hardmask 后处理，unet 未做。
-5. forest 的 parent/children 双向一致、node mask index 不越界且 node 内唯一。
-6. CLG candidates 均能回到同 tree 的 eligible nodes；唯一 seed/oldest node 可恢复，oldest mask 覆盖全部 candidate masks；candidate 数不超过 32（depth1）或 64（depth2）。
-7. `n_CLG_rejected_by_node_cap` 只记统计，失败 CLG 不出现在 `clg.npz`。
-8. F1/CLG 的权威 voxel 集能回到来源 component；Selected 成功 voxel 集代表 refined blob，失败 entry payload 可为空。
-9. `centered_probability`、`voxel_final` 与权威 voxel 数严格相等。
-10. 三个 role 都是单个聚合 NPZ；所有 offsets 明确切分的 value 表且合法；四张低分辨率 V grid shape 固定，feature dtype float16，概率/坐标 float32。
-11. Find P/A ragged offsets 合法；两个 Find 均有 A_feat_L1–L4 且 A_global_index 可恢复 L0；unet 无 P/A；BOX 外无伪学习特征。
-12. CLG candidate memberships 不越界、候选内唯一；P 没有 candidate membership。
-13. Selected source tree/node 存在，成功一对一、失败一对零，无新 node ID。
-14. selector online oracle 所需的 overlap 足够，但盘上不存在 `q_i/S*/y_G` 缓存。
-15. 下游扫描只纳入完整 role；`_RUNNING` 不可读，`_BLOB_EXCEED` 不可训练/普通重跑；新增未完成 PDB 不会污染已经冻结 `input_CLG_list.json` 的 selector run。
-
----
-
-## 11. 磁盘预算与未来容器变化
-
-第一版以 `np.savez_compressed`、FP16 learning features、FP32 probabilities/geometries 为正式选择。25 TB 是 A–G 之外的目标预算；若实测需要 30–35 TB，必须由用户根据效果/吞吐另行接受，不能通过静默改成 FP16 probability、丢源或预先三线性采样来凑预算。
-
-未来若文件数、随机读取或压缩性能要求改用 Zarr/其它容器，只能更换物理包装；本契约的固定身份、字段、解码 shape/dtype、offsets+indices、缺失模态语义和 `_COMPLETE` 原子完成规则不得改变。
+- checkpoint、优化器状态、训练日志和 Selector 外层实验目录名不属于正式推理产物。
+- 滑窗起点、高斯 `weight_sum`、运行时缓存和未发布临时文件不持久化。
+- 当前 centered NPZ 不保存蛋白主链、核酸主链或配体反距离辅助 logits。
+- 修改字段、dtype、坐标、状态或路径规则时，必须同步修改写入器、冷读校验器、本文和 Pocket Plus 的 `src/artifacts/readme.md`。

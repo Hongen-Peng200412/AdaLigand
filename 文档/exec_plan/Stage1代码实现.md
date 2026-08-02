@@ -250,3 +250,29 @@ Selector 验收要求 DensityMUNetLite、`residual_swiglu`、V5+D、CCLN attenti
 ---
 
 2026-07-20：初始化本文。原因是用户批准以指定文件作为本轮外部记忆，并要求端到端实施、服务器 smoke、无需用户输入 `Continue`；同时明确取消本轮正式训练提交。
+
+## 2026-08-01：正式生产前收紧 centered 与 Selector 契约
+
+Stage1 正式推理尚未开始时，centered 归档删除了 `voxel_ds_2`、`voxel_ds_3`、`voxel_ds_4`、`voxel_c4` 和仅为这些固定网格服务的 `feature_entry_index`。原因是四张固定网格会对每个预测 BOX 重复占用大量磁盘，并在聚合归档时制造额外峰值内存；运行时消费者只有 Selector。
+
+同次调整删除了 centered 归档中的 `A_feat_L4`、`P_feat_L4` 以及 Selector 对这两组特征的消费。已有 Stage1-Find 训练观测显示交叉注意力后的全局原子损失缺乏明确收敛趋势，因此不再为该薄层单独保存特征。Stage1-Find 模型代码、配置、交叉注意力与 L4 前向输出保持不变，A/P 分类概率也保持原分类头行为。
+
+Selector 的 V 输入由 V5+D 收紧为 V48+D：稀疏 `voxel_final` 经惰性投影形成 48 通道基底，DensityMUNetLite 现场产生密度上下文并通过逐通道门修正；固定多尺度网格采样分支已删除。当前规格、BOX 数据契约、Pocket_Plus artifact/inference/Selector README 与测试同步采用该契约。此前记录的 V5+D smoke 仍是当时真实发生的历史证据，不改写为新架构的验证结果。
+
+## 2026-08-02：补齐 centered L0、指标命名与索引语义
+
+Stage1 正式推理尚未开始，因此本轮直接收紧新契约，不提供旧归档兼容或迁移逻辑。Find centered 归档新增 `A_feat_L0`，以 `float32 (L_A,49)` 保存当前 BOX 输入中的原始 A 原子特征；保存顺序与同一归档中的 `A_global_index` 对齐。Selector 直接读取该字段，不再通过 `A_global_index` 二次读取 `receptor_tokens.npz/feat`，并删除 `recover_a_feat_l0`。`upstream_root` 仍保留，只用于读取实验密度 `density/{pdb_id}/exp.npz`。Stage1-Find 模型与配置中的现有前向结构不变。
+
+校准汇总字段 `semantic_dice_t_F1` 改名为 `semantic_dice_micro_t_F1`，明确表示由全局 `semantic_tp_t_F1`、`semantic_fp_t_F1`、`semantic_fn_t_F1` 汇总得到的微平均 Dice；新增 `semantic_dice_macro_t_F1`，先按 PDB 计算 Dice，再对所有校准 PDB 等权平均。单个 PDB 的分母为零时，该 PDB 的 Dice 记为 `0.0`。旧字段名不保留别名。
+
+Pocket_Plus 与 AdaLigand 的说明文档同步明确了三类 centered 归档的集合来源和概率来源：F1 使用原始滑窗概率图在 `t_F1` 下的森林连通组件，CLG 使用森林最老节点的连通组件，Selected 使用来源节点阈值对当前 centered 概率重新二值化并做局部 26-连通组件细化；三者保存的概率与特征均来自当前 centered 重跑。文档还区分了 `candidate_voxel_index`、局部 ZYX 坐标、全图线性索引以及只在 `tree_id` 内唯一的节点编号，并说明 `j` 与 `j/denominator` 标识来源森林节点阈值，不是体素概率。
+
+本地验证结果如下：
+
+- 本轮直接相关的 artifact、calibration、centered 与 Selector 测试共 `77 passed`。
+- 排除两个因仓库缺少 `.project-root` 而无法收集的既有测试文件后，扩展测试为 `374 passed, 3 failed`；三个失败都来自仓库当前缺少 CPC v3 配置文件，与本轮修改无关。
+- 未排除测试的全量收集在 `tests/test_adaligand_stage1_checkpoint.py` 与 `tests/test_warmup_plateau_scheduler.py` 导入 `src/train.py` 时，因找不到 `.project-root` 终止，未进入测试执行。
+
+用户审核确认 centered 契约修改合格后，将 `max_voxels` 的冻结倍率从 Q95 的 1.5 倍调整为 3.0 倍。一次性服务器统计得到的 `Q95=682` 不变，当前正式值改为 `ceil(682×3.0)=2046`；Pocket_Plus 的 CLI 默认值、代码契约、回归断言以及 AdaLigand 的当前规划、BOX 契约和映射索引均已同步。历史段落中的 `1023` 只记录 2026-07-20 当时采用的初始冻结值，不再代表当前规格。包含 artifact、calibration、component lineage、inference 与 Selector 的本地回归为 `87 passed`。
+
+用户授权后已完成 Pocket_Plus 的一对一提交重建。候选生成覆盖 53 个受影响提交和 12 个本地分支；候选主端点树与审核通过的文件树完全相同，每个提交的父节点数量、父节点顺序和提交主题均通过旧→新映射核验。12 个本地分支在同一引用事务中移动，三个登记工作区随后同步到各自新端点；没有增加提交或分支，远端引用未修改。AdaLigand 的本轮文档与记忆修改继续留在未暂存区，原有暂存区树对象保持不变。
