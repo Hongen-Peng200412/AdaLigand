@@ -42,7 +42,7 @@ model:
   phase2_blocks: 4
   dropout: 0.1
   mode: coupled_plus_modal
-  # 四个整数依次是 U-Net 四级通道；当前值通过 A800 正常负载的 72 GiB 显存门槛。
+  # 四个整数依次是 U-Net 四级通道；当前值无 OOM，但 60 分钟画像的 reserved 峰值为 72.910 GiB。
   map_channels: [24, 48, 72, 96]
   # map_candidate_chunk_size 的单位是候选数；null 表示一次处理当前 batch 的全部候选。
   map_candidate_chunk_size: 64

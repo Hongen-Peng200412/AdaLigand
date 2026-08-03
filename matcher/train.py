@@ -443,6 +443,7 @@ def run_training(config: DictConfig) -> None:
     train_dataset = AnchorPocketDataset(_data_config(config, "train", True))
     validation_dataset = AnchorPocketDataset(_data_config(config, "validation", False))
     train_dataset.set_epoch(0)
+    prepared_train_epoch = 0
     train_sampler = OccurrenceBudgetBatchSampler(
         [entry["num_occurrences"] for entry in train_dataset.entries],
         budget=int(config.data.occurrence_budget_per_batch),
@@ -507,7 +508,9 @@ def run_training(config: DictConfig) -> None:
             return
 
     for epoch in range(start_epoch, max_epochs):
-        train_dataset.set_epoch(epoch)
+        if epoch != prepared_train_epoch:
+            train_dataset.set_epoch(epoch)
+            prepared_train_epoch = epoch
         train_sampler.set_epoch(epoch)
         train_sampler.set_indices(train_dataset.available_indices)
         _append_jsonl(
