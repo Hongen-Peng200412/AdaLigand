@@ -65,7 +65,7 @@ model:
   phase2_use_FiLM_plus: false
   phase2_condition_mlp_ratio: 2.0
   phase2_condition_dropout: 0.0
-  # fine_pair_chunk_size 的单位是配体原子—A 原子配对数；null 表示当前 PDB 一次计算全部配对。
+  # fine_pair_chunk_size 是一次联合 FinePair forward 中的候选框—occurrence 配对数上限；null 表示当前 PDB 一次计算完整 C×S 配对网格。
   fine_pair_chunk_size: 2048
   fine_pair_activation_checkpoint: true
   fine_attention_use_ffn: false  # 显式关闭细注意力后的额外 FFN。
