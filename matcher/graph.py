@@ -73,60 +73,105 @@ def build_molecular_graph(
     device = coordinates.device
     dtype = coordinates.dtype
     num_nodes = coordinates.shape[0]
-    records: dict[tuple[int, int], Tensor] = {}
-
+    radius_keys: list[Tensor] = []
+    radius_distances: list[Tensor] = []
     if num_nodes:
         distances = torch.cdist(coordinates, coordinates)
+        node_indices = torch.arange(num_nodes, device=device)
         for target in range(num_nodes):
             valid = (
                 (geometry_group == geometry_group[target])
                 & (distances[:, target] <= radius)
-                & (torch.arange(num_nodes, device=device) != target)
+                & (node_indices != target)
             )
             sources = torch.nonzero(valid, as_tuple=False).flatten()
             if sources.numel() > max_radius_neighbors:
                 order = torch.argsort(distances[sources, target], stable=True)
                 sources = sources[order[:max_radius_neighbors]]
-            for source in sources.tolist():
-                field = torch.zeros(15 + rbf_bins, device=device, dtype=dtype)
-                field[13] = 1.0
-                field[14] = 1.0
-                field[15:] = _distance_rbf(
-                    distances[source, target].reshape(1), radius, rbf_bins
-                )[0]
-                records[(source, target)] = field
+            if sources.numel():
+                radius_keys.append(sources * num_nodes + target)
+                radius_distances.append(distances[sources, target])
 
-    for edge_i in range(chemical_edge_index.shape[1]):
-        left = int(chemical_edge_index[0, edge_i])
-        right = int(chemical_edge_index[1, edge_i])
-        for source, target in ((left, right), (right, left)):
-            field = records.get((source, target))
-            if field is None:
-                field = torch.zeros(15 + rbf_bins, device=device, dtype=dtype)
-            else:
-                field = field.clone()
-            field[:5] = bond_order[edge_i].to(dtype)
-            field[5:8] = bond_role[edge_i].to(dtype)
-            field[8:12] = ring_size[edge_i].to(dtype)
-            field[12] = 1.0
-            if geometry_group[source] == geometry_group[target]:
-                distance = torch.linalg.vector_norm(coordinates[source] - coordinates[target])
-                field[14] = 1.0
-                field[15:] = _distance_rbf(distance.reshape(1), radius, rbf_bins)[0]
-            records[(source, target)] = field
+    # 先收集全部 radius 边，再一次性计算 RBF，避免逐边创建小张量。
+    if radius_keys:
+        radius_key = torch.cat(radius_keys)
+        radius_distance = torch.cat(radius_distances)
+    else:
+        radius_key = torch.empty(0, dtype=torch.long, device=device)
+        radius_distance = torch.empty(0, dtype=dtype, device=device)
 
-    if not records:
+    # 每条无向化学边依次展开正、反两个方向。
+    chemical_pairs = torch.stack(
+        (chemical_edge_index.T, chemical_edge_index.flip(0).T), dim=1
+    ).reshape(-1, 2)
+    chemical_key = chemical_pairs[:, 0] * num_nodes + chemical_pairs[:, 1]
+    if chemical_key.numel():
+        # 稳定排序后取同一端点对的最后一次记录，保持旧实现的覆盖语义。
+        chemical_order = torch.argsort(chemical_key, stable=True)
+        sorted_chemical_key = chemical_key[chemical_order]
+        unique_chemical_key, chemical_counts = torch.unique_consecutive(
+            sorted_chemical_key, return_counts=True
+        )
+        last_chemical_index = chemical_order[chemical_counts.cumsum(0) - 1]
+    else:
+        unique_chemical_key = chemical_key
+        last_chemical_index = chemical_key
+
+    # source * N + target 按端点排序，也用于把两类边写回统一字段矩阵。
+    edge_key = torch.unique(
+        torch.cat((radius_key, unique_chemical_key)), sorted=True
+    )
+    if not edge_key.numel():
         return MolecularGraph(
             edge_index=torch.empty((2, 0), dtype=torch.long, device=device),
             edge_input=torch.empty((0, 15 + rbf_bins), dtype=dtype, device=device),
             edge_class=torch.empty((0,), dtype=torch.long, device=device),
         )
 
-    ordered_pairs = sorted(records)
-    edge_index = torch.tensor(ordered_pairs, dtype=torch.long, device=device).T.contiguous()
-    edge_input = torch.stack([records[pair] for pair in ordered_pairs])
+    edge_input = torch.zeros((len(edge_key), 15 + rbf_bins), device=device, dtype=dtype)
+    if radius_key.numel():
+        radius_row = torch.searchsorted(edge_key, radius_key)
+        edge_input[radius_row, 13] = 1.0
+        edge_input[radius_row, 14] = 1.0
+        edge_input[radius_row, 15:] = _distance_rbf(
+            radius_distance, radius, rbf_bins
+        )
+
+    if unique_chemical_key.numel():
+        chemical_row = torch.searchsorted(edge_key, unique_chemical_key)
+        chemical_input_index = torch.div(
+            last_chemical_index, 2, rounding_mode="floor"
+        )
+        edge_input[chemical_row, :5] = bond_order[chemical_input_index].to(dtype)
+        edge_input[chemical_row, 5:8] = bond_role[chemical_input_index].to(dtype)
+        edge_input[chemical_row, 8:12] = ring_size[chemical_input_index].to(dtype)
+        edge_input[chemical_row, 12] = 1.0
+
+        chemical_pair = chemical_pairs[last_chemical_index]
+        same_group = (
+            geometry_group[chemical_pair[:, 0]]
+            == geometry_group[chemical_pair[:, 1]]
+        )
+        if same_group.any():
+            chemical_pair = chemical_pair[same_group]
+            row = chemical_row[same_group]
+            chemical_distance = torch.linalg.vector_norm(
+                coordinates[chemical_pair[:, 0]] - coordinates[chemical_pair[:, 1]],
+                dim=-1,
+            )
+            edge_input[row, 14] = 1.0
+            edge_input[row, 15:] = _distance_rbf(
+                chemical_distance, radius, rbf_bins
+            )
+
+    edge_index = torch.stack(
+        (
+            torch.div(edge_key, num_nodes, rounding_mode="floor"),
+            torch.remainder(edge_key, num_nodes),
+        )
+    )
     chemical = edge_input[:, 12].bool()
-    edge_class = torch.zeros(len(ordered_pairs), dtype=torch.long, device=device)
+    edge_class = torch.zeros(len(edge_key), dtype=torch.long, device=device)
     edge_class[chemical] = edge_input[chemical, :5].argmax(dim=-1) + 1
     return MolecularGraph(edge_index, edge_input, edge_class)
 
