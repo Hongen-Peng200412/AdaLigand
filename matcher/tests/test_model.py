@@ -251,23 +251,26 @@ def test_fine_pair_batch_matches_independent_pairs() -> None:
     )
     slot_embedding = torch.randn(3, 12)
 
-    batched = branch(ligand_atoms, A_atoms, ligand_mask, A_mask, slot_embedding)
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        batched = branch(ligand_atoms, A_atoms, ligand_mask, A_mask, slot_embedding)
+    assert batched[0].dtype == torch.bfloat16
     for pair_index in range(3):
         ligand_width = int(ligand_mask[pair_index].sum())
         A_width = max(int(A_mask[pair_index].sum()), 1)
-        independent = branch(
-            ligand_atoms[pair_index : pair_index + 1, :ligand_width],
-            A_atoms[pair_index : pair_index + 1, :A_width],
-            ligand_mask[pair_index : pair_index + 1, :ligand_width],
-            A_mask[pair_index : pair_index + 1, :A_width],
-            slot_embedding[pair_index : pair_index + 1],
-        )
-        assert torch.allclose(batched[0][pair_index], independent[0][0], atol=1.0e-6)
+        with torch.autocast("cpu", dtype=torch.bfloat16):
+            independent = branch(
+                ligand_atoms[pair_index : pair_index + 1, :ligand_width],
+                A_atoms[pair_index : pair_index + 1, :A_width],
+                ligand_mask[pair_index : pair_index + 1, :ligand_width],
+                A_mask[pair_index : pair_index + 1, :A_width],
+                slot_embedding[pair_index : pair_index + 1],
+            )
+        assert torch.allclose(batched[0][pair_index], independent[0][0], atol=2.0e-2)
         assert torch.allclose(
-            batched[1][pair_index, :ligand_width], independent[1][0], atol=1.0e-6
+            batched[1][pair_index, :ligand_width], independent[1][0], atol=2.0e-2
         )
         assert torch.allclose(
-            batched[2][pair_index, :A_width], independent[2][0], atol=1.0e-6
+            batched[2][pair_index, :A_width], independent[2][0], atol=2.0e-2
         )
 
 

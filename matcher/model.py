@@ -1032,7 +1032,7 @@ class FinePairBranch(nn.Module):
                 (normalized_A[nonempty_A],),
                 query_mask=ligand_mask[nonempty_A],
                 context_mask=A_mask[nonempty_A],
-            )
+            ).to(recall_increment.dtype)
         fine_recall_atoms = ligand_query + self.dropout(recall_increment)
         precision_increment = torch.zeros_like(A_atoms)
         if has_nonempty_A:
@@ -1041,7 +1041,7 @@ class FinePairBranch(nn.Module):
                 (normalized_ligand[nonempty_A],),
                 query_mask=A_mask[nonempty_A],
                 context_mask=ligand_mask[nonempty_A],
-            )
+            ).to(precision_increment.dtype)
         fine_precision_atoms = A_atoms + self.dropout(precision_increment)
         fine_recall_atoms = fine_recall_atoms * ligand_mask[:, :, None]
         fine_precision_atoms = fine_precision_atoms * A_mask[:, :, None]
@@ -1054,9 +1054,7 @@ class FinePairBranch(nn.Module):
                 self.precision_ffn_norm(fine_precision_atoms)
             ) * A_mask[:, :, None]
         recall_repr = self.recall_readout(fine_recall_atoms, ligand_mask)
-        precision_repr = ligand_atoms.new_zeros(
-            (len(ligand_atoms), self.precision_readout.output[-1].normalized_shape[0])
-        )
+        precision_repr = torch.zeros_like(recall_repr)
         if has_nonempty_A:
             precision_repr[nonempty_A] = self.precision_readout(
                 fine_precision_atoms[nonempty_A], A_mask[nonempty_A]
