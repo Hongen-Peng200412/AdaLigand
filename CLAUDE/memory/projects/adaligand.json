@@ -120,7 +120,9 @@
     "2026-07-27：Job 328567 生成的新 Stage1 正式训练准备目录完成独立核验。5个实际存在且缺辅助标签的PDB已从清单与BOX池删除，另外11个原本不存在；577483个候选配体实例、13910个BOX文件和29529个验证请求自洽，当前Dataset读取成功。本地相关测试共32项通过。Pocket_Plus字段说明已按训练读取优先级重排并补齐16个候选配体字段；正式启动脚本切换到新目录前，暂不删除Dataset的excluded_pdb_ids机制。详细交接见CLAUDE/memory/handoffs/2026-07-27-stage1正式训练准备产物核验.md。",
     "2026-07-28：完成Pocket_Plus Stage1请求入口最小清理：删除未使用的JSON/JSONL、多文件请求和缺字段回退，冻结比例NPZ改为一次打开并执行完整字段检查，单PDB BOX文件必须保存并匹配pdb_id；正式训练、验证和内存推理入口未变。相关49项测试通过，冻结比例文件的绝对路径和字段契约已写入src/datasets/readme.md。详细交接见CLAUDE/memory/handoffs/2026-07-28-stage1请求入口清理与冻结比例说明.md。",
     "2026-08-02：Stage1 centered 契约补齐并完成历史收口：Find 归档新增原始 float32 A_feat_L0，Selector 取消 receptor_tokens 二次读取；语义 Dice 改为显式 micro 名并新增按 PDB 等权 macro；max_voxels 冻结倍率从 Q95 的1.5倍改为3.0倍，正式值从1023改为2046。相关87项测试通过；Pocket_Plus 的53个受影响提交与12个本地分支已一对一重建，提交数量和分支拓扑保持不变，远端引用未修改。详细交接见 CLAUDE/memory/handoffs/2026-08-02-stage1-centered-contract-clarification.md。",
-    "2026-08-03：Matcher FinePair 在不改变完整C×S、Hungarian、标签或损失的前提下完成chunk联合批处理与可选varlen Flash优化，本地40 passed、1项CUDA专项待服务器执行；新增普通Dataset限时吞吐入口。无限时A800 Job335261保留pre-lock，登录节点SSH在密钥交换前持续断开，未解锁或提交第二个GPU任务。详细交接见 CLAUDE/memory/handoffs/2026-08-03-matcher-finepair性能修复与A800暂停点.md。"
+    "2026-08-03：AdaLigand通用调度入口删除旧--hold并新增独立的--pre_hold与--after_hold；默认获得资源后执行一次并自动释放，只有--after_hold会在任务结束后创建try_lock保留allocation。与Pocket_Plus共用的9项调度契约测试全部通过，改动保持未暂存。详细交接见CLAUDE/memory/handoffs/2026-08-03-task-hold-semantics.md。",
+    "2026-08-03：Matcher FinePair 在不改变完整C×S、Hungarian、标签或损失的前提下完成chunk联合批处理与可选varlen Flash优化，本地40 passed、1项CUDA专项待服务器执行；新增普通Dataset限时吞吐入口。无限时A800 Job335261保留pre-lock，登录节点SSH在密钥交换前持续断开，未解锁或提交第二个GPU任务。详细交接见 CLAUDE/memory/handoffs/2026-08-03-matcher-finepair性能修复与A800暂停点.md。",
+    "2026-08-04：Matcher 完成 FinePair、建图和 DataLoader 等价优化。A800 普通 Dataset 60 分钟画像完成 708 步，平均 5.088 秒/batch，无 OOM；真 9cpk 完整步为 9.476 秒。Job335261已COMPLETED并释放，正式 Phase1/Phase2 尚待用户审阅 YAML、shell 和无--time的A800命令后授权。详细交接见 CLAUDE/memory/handoffs/2026-08-04-matcher正式训练授权前收口.md。"
   ],
   "blockers": [],
   "failures": [
