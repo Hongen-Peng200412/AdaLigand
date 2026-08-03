@@ -108,3 +108,13 @@ D:\Anaconda\envs\Pocket_Plus_windows\python.exe -m pytest matcher/tests -q
 - 两份正式配置与 shell 的结构已经生成，但 `map_channels` 仍等待两类重负载的双步画像后最终固定。服务器环境已通过正式 shell 语法、训练模块和推理模块的静态入口检查；没有提交正式长训练。
 
 当前门槛包括两类重负载画像、正式通道回填、阶段性双审查、双线 Git 再闭合和用户人工授权。获得明确授权前不得运行 `训练与运行/submit_task.sh` 的正式 A800 命令。
+
+## 2026-08-03：FinePair 等价加速与无限时 A800 工作台
+
+- Job `334868` 在运行 2 小时 30 分 21 秒后达到 Slurm 时限，没有生成结果 JSON。它与 `334841` 一样只证明旧实现持续计算，不能作为超大 PDB 的显存或吞吐验收结果。后续画像任务不再设置 Slurm 时限。
+- `9cpk` 单个正式测量优化步约 629 秒，不能接受。代码审计确认主要问题位于 FinePair 执行方式：旧实现虽然配置了 chunk，chunk 内仍按候选框—occurrence 配对逐次执行 Python 循环和独立 attention；带 padding 的 PyTorch scaled-dot-product attention 也无法利用真实变长序列减少计算。
+- 性能修复没有改变完整 `C×S` 配对网格、候选、标签、Hungarian、损失或归一化。当前实现把 chunk 内全部候选框—occurrence 配对作为一个批量执行；配体和 A 先补齐并携带真实原子掩码，每个 chunk 再裁去不需要的尾部 padding。接触标签在 activation checkpoint 外按候选框—真实 occurrence 批量构造并复用，辅助损失仍返回 `[C,S_pred,S_gt]`。
+- CUDA BF16/FP16、单上下文且无 attention bias 时，`TypedAttention` 会先移除 padding，再调用 `flash_attn_varlen_func`；其它情况仍使用 PyTorch scaled-dot-product attention。显式 Flash 是执行后端优化，不改变 attention 数学定义。空 A、`present=False`、可选 FFN 和 attention bias fallback 均有独立回归。
+- 本地完整 Matcher 测试为 40 项通过、1 项 CUDA/Flash 专项因 Windows 无 CUDA 跳过。契约审查确认同身份多真实 occurrence 形成完整 `[S_pred,S_gt]` 笛卡尔关系，并与已有 Hungarian 槽位交换测试共同覆盖最终选择；可读性审查确认生产代码只新增一个补齐函数，没有新增后端类或通用框架，chunk 是 `_run_fine_pairs` 中唯一保留的性能循环。
+- 新增 `ops/profile_matcher_throughput.py`。该入口强制 Phase2，复用正式 Dataset、occurrence 装箱、loss、BF16、反向传播、梯度裁剪与 AdamW，在用户指定时长内记录平均 batch、PDB、occurrence 时间、数据等待、峰值显存及 OOM 阶段。它不执行周期性验证或保存 checkpoint，因此只回答训练步吞吐。
+- 无限时 A800 工作台为 Job `335261`，节点 `gnode10`，16 CPU，QOS `cpu96`，Slurm `TimeLimit=UNLIMITED`。当前仍保留 `pre_lock_335261`，尚未执行旧画像脚本。加速代码已通过项目安全同步上传；随后登录节点在 SSH 密钥交换前主动断开连接，因此没有删除 pre-lock，也没有误启旧命令。连接恢复后首先执行服务器 CUDA Flash↔SDPA 输出与梯度等价测试，再分别测量 `9cpk` 极端样本和普通 Dataset 一小时吞吐。
