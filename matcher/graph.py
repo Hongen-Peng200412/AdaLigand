@@ -73,29 +73,23 @@ def build_molecular_graph(
     device = coordinates.device
     dtype = coordinates.dtype
     num_nodes = coordinates.shape[0]
-    radius_keys: list[Tensor] = []
-    radius_distances: list[Tensor] = []
     if num_nodes:
         distances = torch.cdist(coordinates, coordinates)
-        node_indices = torch.arange(num_nodes, device=device)
-        for target in range(num_nodes):
-            valid = (
-                (geometry_group == geometry_group[target])
-                & (distances[:, target] <= radius)
-                & (node_indices != target)
-            )
-            sources = torch.nonzero(valid, as_tuple=False).flatten()
-            if sources.numel() > max_radius_neighbors:
-                order = torch.argsort(distances[sources, target], stable=True)
-                sources = sources[order[:max_radius_neighbors]]
-            if sources.numel():
-                radius_keys.append(sources * num_nodes + target)
-                radius_distances.append(distances[sources, target])
-
-    # 先收集全部 radius 边，再一次性计算 RBF，避免逐边创建小张量。
-    if radius_keys:
-        radius_key = torch.cat(radius_keys)
-        radius_distance = torch.cat(radius_distances)
+        same_geometry_group = geometry_group[:, None] == geometry_group[None, :]
+        valid_radius = same_geometry_group & (distances <= radius)
+        valid_radius.fill_diagonal_(False)
+        masked_distance = distances.masked_fill(~valid_radius, torch.inf)
+        # 每列对应一个 target；稳定排序保证等距来源仍按原子索引截断。
+        radius_source = torch.argsort(masked_distance, dim=0, stable=True)[
+            :max_radius_neighbors
+        ]
+        radius_target = torch.arange(num_nodes, device=device).expand_as(
+            radius_source
+        )
+        radius_distance = masked_distance.gather(0, radius_source)
+        keep = torch.isfinite(radius_distance)
+        radius_key = radius_source[keep] * num_nodes + radius_target[keep]
+        radius_distance = radius_distance[keep]
     else:
         radius_key = torch.empty(0, dtype=torch.long, device=device)
         radius_distance = torch.empty(0, dtype=dtype, device=device)
@@ -148,13 +142,13 @@ def build_molecular_graph(
         edge_input[chemical_row, 12] = 1.0
 
         chemical_pair = chemical_pairs[last_chemical_index]
-        same_group = (
+        chemical_same_group = (
             geometry_group[chemical_pair[:, 0]]
             == geometry_group[chemical_pair[:, 1]]
         )
-        if same_group.any():
-            chemical_pair = chemical_pair[same_group]
-            row = chemical_row[same_group]
+        if chemical_same_group.any():
+            chemical_pair = chemical_pair[chemical_same_group]
+            row = chemical_row[chemical_same_group]
             chemical_distance = torch.linalg.vector_norm(
                 coordinates[chemical_pair[:, 0]] - coordinates[chemical_pair[:, 1]],
                 dim=-1,
