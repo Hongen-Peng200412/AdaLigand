@@ -29,6 +29,10 @@ def main() -> None:
 
     config = OmegaConf.merge(OmegaConf.load(args.config), OmegaConf.from_dotlist(args.overrides))
     device = torch.device(str(config.run.device))
+    num_workers = int(config.data.num_workers)
+    if num_workers > 0:
+        # AnchorBatch 包含较多独立张量；文件系统共享避免 worker 耗尽文件描述符。
+        torch.multiprocessing.set_sharing_strategy("file_system")
     checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
     model = _model(config).to(device)
     model.load_state_dict(checkpoint["model"], strict=True)
@@ -50,7 +54,7 @@ def main() -> None:
     loader = DataLoader(
         dataset,
         batch_sampler=sampler,
-        num_workers=int(config.data.num_workers),
+        num_workers=num_workers,
         pin_memory=device.type == "cuda",
         collate_fn=collate_anchor_batch,
     )
