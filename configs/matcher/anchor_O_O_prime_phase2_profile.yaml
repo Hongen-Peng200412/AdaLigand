@@ -58,6 +58,7 @@ model:
   O_initial_prior: 0.01
   O_prime_initial_value: 0.2
   graph_update_edge: true
+  graph_activation_checkpoint: false
   phase2_use_FiLM_plus: false
   phase2_condition_mlp_ratio: 2.0
   phase2_condition_dropout: 0.0

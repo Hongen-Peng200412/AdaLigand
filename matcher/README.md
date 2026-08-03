@@ -19,3 +19,26 @@
 ## 配置与运行
 
 正式配置位于 `configs/matcher/`，训练入口为 `python -m matcher.train`。本地或服务器 smoke 产物必须写入 `tmp/`；正式运行通过 `训练与运行/sh/matcher/` 的薄脚本调用项目通用任务提交系统。正式服务器训练需要用户在审阅 YAML 与 `.sh` 后单独授权。
+
+## 显存画像
+
+`ops/profile_matcher_memory.py` 先预热一个完整 Phase2 训练步，再测量第二个 forward、loss、backward 与 AdamW step 的峰值显存。画像只生成临时 JSON，不参与正式训练。普通测量命令为：
+
+```bash
+python -m ops.profile_matcher_memory \
+  --config configs/matcher/anchor_O_O_prime_phase2.yaml \
+  --channels 24,48,72,96 \
+  --output tmp/matcher_profile/memory_profile.json
+```
+
+需要按人工给定的显存上限验收时使用：
+
+```bash
+python -m ops.profile_matcher_memory \
+  --config configs/matcher/anchor_O_O_prime_phase2.yaml \
+  --channels 24,48,72,96 \
+  --memory-limit-gib 72 \
+  --output tmp/matcher_profile/memory_profile.json
+```
+
+命令末尾接受与 `matcher.train` 相同的 OmegaConf 点号覆盖，可直接调整 `occurrence_budget_per_batch`、两个 chunk size、activation checkpoint 和 bottleneck 参数。省略 `--experiment-manifest` 时，脚本准备正式训练清单的 epoch 0，并测量第一个 occurrence 装箱批次。若需指定重负载批次，可传入只用于画像的小清单；该清单应在 `splits.train` 的每个 PDB 中冻结 `candidate_start_zyx`。清单与输出 JSON 都必须位于 `tmp/`，不能成为正式训练输入。

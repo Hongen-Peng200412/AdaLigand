@@ -11,6 +11,7 @@ from matcher.anchor_data import (
     AnchorDataConfig,
     AnchorPocketDataset,
     _ligand_node_input,
+    _load_ligand,
     sample_candidate_starts,
 )
 from matcher.element_properties import ELEMENT_PROPERTIES
@@ -137,3 +138,37 @@ def test_ligand_node_input_places_fixed_element_properties_at_145_to_149() -> No
     assert features.shape == (1, 149)
     assert features[0, 10] == 1.0
     assert features[0, 145:].tolist() == pytest.approx(ELEMENT_PROPERTIES[6])
+
+
+def test_ligand_loader_copies_unaligned_structured_fields(tmp_path: Path) -> None:
+    atom_dtype = np.dtype(
+        [
+            ("padding", np.uint8),
+            ("ref_pos", np.float32, (3,)),
+            ("name", np.float32, (4,)),
+            ("element", np.int64),
+            ("charge", np.float32),
+            ("chirality", np.float32, (7,)),
+            ("in_ring", np.float32, (4,)),
+            ("residue_id", np.int64),
+        ],
+        align=False,
+    )
+    atoms = np.zeros(1, dtype=atom_dtype)
+    atoms["element"] = 6
+    bond_dtype = np.dtype(
+        [
+            ("atom_1", np.int64),
+            ("atom_2", np.int64),
+            ("type", np.bool_, (5,)),
+            ("in_ring", np.bool_, (4,)),
+        ]
+    )
+    ligand_root = tmp_path / "ligand_objects"
+    ligand_root.mkdir()
+    np.savez(ligand_root / "CCD_TST.npz", atoms=atoms, bonds=np.empty(0, dtype=bond_dtype))
+
+    ligand = _load_ligand(tmp_path, "CCD:TST", _config(tmp_path))
+
+    assert ligand.raw_graph.coordinates.shape == (1, 3)
+    assert ligand.raw_graph.element.tolist() == [6]

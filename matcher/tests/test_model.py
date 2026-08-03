@@ -32,6 +32,67 @@ def test_phase1_outputs_eight_independent_heads_and_supports_empty_A() -> None:
     assert model.prediction_heads[0].OHead is not model.prediction_heads[1].OHead
 
 
+def test_phase1_supports_bfloat16_autocast() -> None:
+    model = Matcher(
+        phase=1,
+        A_node_input_dim=7,
+        node_dim=16,
+        edge_dim=8,
+        repr_dim=32,
+        num_heads=4,
+        coarse_layers_per_block=1,
+        map_channels=(2, 4, 8, 8),
+        map_norm_groups=2,
+        map_candidate_chunk_size=1,
+    )
+    model.train()
+
+    with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+        output = model(collate_anchor_batch([make_sample()]))[0]
+        loss = output.block_outputs[-1].O_logit.sum()
+    loss.backward()
+
+    assert output.block_outputs[-1].O_logit.dtype == torch.bfloat16
+    assert any(parameter.grad is not None for parameter in model.parameters())
+
+
+def test_graph_checkpoint_preserves_outputs_and_gradients() -> None:
+    kwargs = dict(
+        phase=1,
+        A_node_input_dim=7,
+        node_dim=16,
+        edge_dim=8,
+        repr_dim=32,
+        num_heads=4,
+        coarse_layers_per_block=1,
+        phase1_blocks=2,
+        phase2_blocks=1,
+        map_channels=(2, 4, 8, 8),
+        map_norm_groups=2,
+        map_candidate_chunk_size=1,
+        dropout=0.0,
+    )
+    plain = Matcher(**kwargs, graph_activation_checkpoint=False)
+    checkpointed = Matcher(**kwargs, graph_activation_checkpoint=True)
+    checkpointed.load_state_dict(plain.state_dict())
+    batch = collate_anchor_batch([make_sample()])
+
+    plain_output = plain(batch)[0].block_outputs[-1].O_logit
+    checkpointed_output = checkpointed(batch)[0].block_outputs[-1].O_logit
+    plain_output.sum().backward()
+    checkpointed_output.sum().backward()
+
+    assert torch.allclose(plain_output, checkpointed_output)
+    checkpointed_parameters = dict(checkpointed.named_parameters())
+    for name, parameter in plain.named_parameters():
+        checkpointed_gradient = checkpointed_parameters[name].grad
+        if parameter.grad is None and checkpointed_gradient is None:
+            continue
+        assert parameter.grad is not None
+        assert checkpointed_gradient is not None
+        assert torch.allclose(parameter.grad, checkpointed_gradient)
+
+
 def test_packed_graph_encoding_keeps_pdb_outputs_isolated() -> None:
     model = Matcher(
         phase=1,

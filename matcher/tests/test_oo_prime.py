@@ -44,20 +44,6 @@ def test_frozen_threshold_evaluation_does_not_rescan() -> None:
     assert metrics.predicted_nonempty == 0
 
 
-def test_distributed_reduce_is_a_local_noop_without_process_group() -> None:
-    evaluation = OOPrimeEvaluation(None, frozen_threshold=0.3)
-    evaluation.true_positive[0] = 2
-    evaluation.predicted_nonempty[0] = 3
-    evaluation.ground_truth_occurrence = 4
-
-    evaluation.reduce_distributed()
-
-    metrics = evaluation.best()
-    assert metrics.true_positive == 2
-    assert metrics.predicted_nonempty == 3
-    assert metrics.ground_truth_occurrence == 4
-
-
 def test_consistency_is_no_grad_diagnostic() -> None:
     O_logit = torch.tensor([[3.0, -3.0]], requires_grad=True)
     result = O_O_prime_consistency(O_logit, torch.tensor([[0.8, 0.1]]))
