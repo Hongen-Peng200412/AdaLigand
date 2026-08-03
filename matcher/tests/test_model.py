@@ -185,7 +185,8 @@ def test_phase2_runs_fine_pairs_once_at_final_output() -> None:
     hook = model.fine_pair_branch.register_forward_hook(
         lambda _module, inputs, _output: fine_pair_batches.append(len(inputs[0]))
     )
-    output = model(collate_anchor_batch([sample]))[0]
+    with torch.autocast("cpu", dtype=torch.bfloat16):
+        output = model(collate_anchor_batch([sample]))[0]
     hook.remove()
 
     assert output.block_outputs[:4] == (None, None, None, None)
@@ -194,6 +195,8 @@ def test_phase2_runs_fine_pairs_once_at_final_output() -> None:
     assert torch.isfinite(output.block_outputs[-1].O_logit).all()
     assert output.fine_recall_pair_loss.shape == (2, 2, 2)
     assert output.fine_precision_pair_loss.shape == (2, 2, 2)
+    assert output.fine_recall_pair_loss.dtype == torch.float32
+    assert output.fine_precision_pair_loss.dtype == torch.float32
 
 
 @pytest.mark.parametrize("use_ffn", [False, True])

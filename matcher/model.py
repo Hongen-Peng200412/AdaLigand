@@ -1401,8 +1401,10 @@ class Matcher(nn.Module):
                 chunk_A_mask,
                 self.slot_embedding(slot_index[occurrence_chunk]),
             )
-            recall_by_gt = coarse_chunk.new_zeros((len(coarse_chunk), occurrence_count))
-            precision_by_gt = coarse_chunk.new_zeros((len(coarse_chunk), occurrence_count))
+            recall_by_gt = coarse_chunk.new_zeros(
+                (len(coarse_chunk), occurrence_count), dtype=torch.float32
+            )
+            precision_by_gt = torch.zeros_like(recall_by_gt)
             if contact_recall is not None and contact_precision is not None:
                 same_identity = (
                     occurrence_to_ligand[occurrence_chunk, None]
