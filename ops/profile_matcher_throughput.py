@@ -74,6 +74,10 @@ def main() -> None:
     seed = int(config.run.seed)
     torch.manual_seed(seed)
     torch.set_float32_matmul_precision("high")
+    num_workers = int(config.data.num_workers)
+    if num_workers > 0:
+        # 与正式训练一致：避免长时间传递大量小张量时耗尽文件描述符。
+        torch.multiprocessing.set_sharing_strategy("file_system")
 
     dataset = AnchorPocketDataset(_data_config(config, "train", True))
     dataset.set_epoch(0)
@@ -87,7 +91,7 @@ def main() -> None:
     loader = DataLoader(
         dataset,
         batch_sampler=sampler,
-        num_workers=int(config.data.num_workers),
+        num_workers=num_workers,
         collate_fn=collate_anchor_batch,
         pin_memory=True,
         generator=torch.Generator().manual_seed(seed),

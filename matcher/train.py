@@ -431,6 +431,10 @@ def run_training(config: DictConfig) -> None:
     _seed_everything(seed)
     torch.set_float32_matmul_precision("high")
     device = torch.device(str(config.run.device))
+    num_workers = int(config.data.num_workers)
+    if num_workers > 0:
+        # AnchorBatch 包含较多独立张量；文件系统共享避免 worker 长时间耗尽文件描述符。
+        torch.multiprocessing.set_sharing_strategy("file_system")
     output_dir = Path(config.run.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(config, output_dir / "resolved_config.yaml", resolve=True)
@@ -453,7 +457,7 @@ def run_training(config: DictConfig) -> None:
         shuffle=False,
     )
     loader_options = {
-        "num_workers": int(config.data.num_workers),
+        "num_workers": num_workers,
         "collate_fn": collate_anchor_batch,
         "pin_memory": device.type == "cuda",
     }
