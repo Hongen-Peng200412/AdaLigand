@@ -478,6 +478,23 @@ class MatcherBlock(nn.Module):
             return ligand_state, A_state
         return self.ligand_gnn_layer(ligand_state), self.A_gnn_layer(A_state)
 
+    def update_entity_tensors(
+        self,
+        ligand_node: Tensor,
+        ligand_edge: Tensor,
+        ligand_edge_index: Tensor,
+        A_node: Tensor,
+        A_edge: Tensor,
+        A_edge_index: Tensor,
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        """执行实体更新并返回 activation checkpoint 可直接承载的四个浮点张量。"""
+
+        ligand_state, A_state = self.update_entities(
+            GraphState(ligand_node, ligand_edge, ligand_edge_index),
+            GraphState(A_node, A_edge, A_edge_index),
+        )
+        return ligand_state.node, ligand_state.edge, A_state.node, A_state.edge
+
     def forward(
         self,
         coarse: CoarseState,
@@ -581,7 +598,7 @@ class CoarsePredictionHead(nn.Module):
     ) -> Tensor:
         candidate_count = coarse.BOX_repr.shape[0]
         occurrence_count = coarse.CCD_repr.shape[0]
-        recall = coarse.CCD_repr.new_zeros((candidate_count, occurrence_count, coarse.CCD_repr.shape[-1]))
+        recall = A_nodes.new_zeros((candidate_count, occurrence_count, coarse.CCD_repr.shape[-1]))
         for candidate_index in range(candidate_count):
             start, end = A_ptr[candidate_index : candidate_index + 2]
             if start != end:
@@ -590,7 +607,7 @@ class CoarsePredictionHead(nn.Module):
                 )
 
         precision_codes = {
-            name: coarse.CCD_repr.new_empty((candidate_count, occurrence_count, coarse.CCD_repr.shape[-1]))
+            name: ligand_nodes.new_empty((candidate_count, occurrence_count, coarse.CCD_repr.shape[-1]))
             for name in self.precision
         }
         representation_by_name = {
@@ -931,6 +948,7 @@ class Matcher(nn.Module):
         O_initial_prior: float = 0.01,
         O_prime_initial_value: float = 0.2,
         graph_update_edge: bool = True,
+        graph_activation_checkpoint: bool = False,
         phase2_use_FiLM_plus: bool = False,
         phase2_condition_mlp_ratio: float = 2.0,
         phase2_condition_dropout: float = 0.0,
@@ -951,6 +969,7 @@ class Matcher(nn.Module):
         self.map_candidate_chunk_size = map_candidate_chunk_size
         self.fine_pair_chunk_size = fine_pair_chunk_size
         self.fine_pair_activation_checkpoint = fine_pair_activation_checkpoint
+        self.graph_activation_checkpoint = graph_activation_checkpoint
         if phase1_blocks <= 0 or phase2_blocks <= 0:
             raise ValueError("phase1_blocks 与 phase2_blocks 都必须为正整数。")
         self.MapBackbone = MapBackbone(
@@ -1338,7 +1357,22 @@ class Matcher(nn.Module):
                     ligand_state = self.ligand_FiLM_plus(ligand_state, phase1_final[0])
                     A_state = self.A_FiLM_plus(A_state, phase1_final[1])
 
-            ligand_state, A_state = block.update_entities(ligand_state, A_state)
+            if self.training and self.graph_activation_checkpoint and block.run_entities:
+                ligand_node, ligand_edge, A_node, A_edge = checkpoint(
+                    block.update_entity_tensors,
+                    ligand_state.node,
+                    ligand_state.edge,
+                    ligand_state.edge_index,
+                    A_state.node,
+                    A_state.edge,
+                    A_state.edge_index,
+                    use_reentrant=False,
+                    preserve_rng_state=True,
+                )
+                ligand_state = GraphState(ligand_node, ligand_edge, ligand_state.edge_index)
+                A_state = GraphState(A_node, A_edge, A_state.edge_index)
+            else:
+                ligand_state, A_state = block.update_entities(ligand_state, A_state)
             for pdb_index, sample in enumerate(batch.samples):
                 ligand, local_ligand_state = _slice_packed_entities(
                     packed_ligand,

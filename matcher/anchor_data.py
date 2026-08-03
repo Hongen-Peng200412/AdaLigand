@@ -149,8 +149,8 @@ def _load_ligand(
         atoms = arrays["atoms"]
         bonds = arrays["bonds"]
 
-    coordinates = torch.from_numpy(np.asarray(atoms["ref_pos"], dtype=np.float32))
-    residue_id = torch.from_numpy(np.asarray(atoms["residue_id"], dtype=np.int64))
+    coordinates = torch.from_numpy(np.array(atoms["ref_pos"], dtype=np.float32, copy=True))
+    residue_id = torch.from_numpy(np.array(atoms["residue_id"], dtype=np.int64, copy=True))
     bond_index = torch.from_numpy(
         np.stack((bonds["atom_1"], bonds["atom_2"])).astype(np.int64, copy=False)
     )
@@ -169,7 +169,7 @@ def _load_ligand(
         node_input=_ligand_node_input(atoms),
         coordinates=coordinates,
         graph=graph,
-        element=torch.from_numpy(np.asarray(atoms["element"], dtype=np.int64)),
+        element=torch.from_numpy(np.array(atoms["element"], dtype=np.int64, copy=True)),
     )
     return LigandEntity(object_key, raw_graph)
 

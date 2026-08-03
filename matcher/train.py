@@ -187,6 +187,7 @@ def _model(config: DictConfig) -> Matcher:
         O_initial_prior=float(model.O_initial_prior),
         O_prime_initial_value=float(model.O_prime_initial_value),
         graph_update_edge=bool(model.graph_update_edge),
+        graph_activation_checkpoint=bool(model.graph_activation_checkpoint),
         phase2_use_FiLM_plus=bool(model.phase2_use_FiLM_plus),
         phase2_condition_mlp_ratio=float(model.phase2_condition_mlp_ratio),
         phase2_condition_dropout=float(model.phase2_condition_dropout),
@@ -232,21 +233,13 @@ def _optimizer(model: Matcher, config: DictConfig) -> AdamW:
     if str(config.optimizer.name) != "AdamW":
         raise ValueError(f"当前训练入口不支持 optimizer：{config.optimizer.name}")
     parameters = [parameter for parameter in model.parameters() if parameter.requires_grad]
-    optimizer = AdamW(
+    return AdamW(
         parameters,
         lr=float(config.optimizer.lr),
         betas=tuple(float(value) for value in config.optimizer.betas),
         eps=float(config.optimizer.eps),
         weight_decay=float(config.optimizer.weight_decay),
     )
-    optimizer_parameters = [parameter for group in optimizer.param_groups for parameter in group["params"]]
-    if not parameters or any(not parameter.requires_grad for parameter in optimizer_parameters):
-        raise RuntimeError("optimizer contains no parameters or includes frozen parameters")
-    if len({id(parameter) for parameter in optimizer_parameters}) != len(optimizer_parameters):
-        raise RuntimeError("optimizer contains duplicate parameters")
-    if {id(parameter) for parameter in parameters} != {id(parameter) for parameter in optimizer_parameters}:
-        raise RuntimeError("optimizer parameters do not equal all trainable model parameters")
-    return optimizer
 
 
 def _scheduler(optimizer: AdamW, config: DictConfig, expected_steps: int) -> WarmupPlateau:

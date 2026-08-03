@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import torch
-import torch.distributed as dist
 from torch import Tensor
 
 
@@ -140,29 +139,3 @@ class OOPrimeEvaluation:
                     F1,
                 )
         return best_metrics
-
-    def reduce_distributed(self) -> None:
-        """可选地汇总互不重叠数据分片的 TP、P 和 G；单进程直接返回。
-
-        本方法不负责分片、同步其它指标或限制写盘进程，只供完成这些职责的调用方
-        显式使用；当前单卡训练和推理入口不调用它。
-        """
-
-        if not dist.is_available() or not dist.is_initialized():
-            return
-        device = (
-            torch.device("cuda", torch.cuda.current_device())
-            if dist.get_backend() == "nccl"
-            else torch.device("cpu")
-        )
-        counts = torch.tensor(
-            self.true_positive + self.predicted_nonempty + [self.ground_truth_occurrence],
-            dtype=torch.int64,
-            device=device,
-        )
-        dist.all_reduce(counts, op=dist.ReduceOp.SUM)
-        split = len(self.thresholds)
-        values = counts.cpu().tolist()
-        self.true_positive = values[:split]
-        self.predicted_nonempty = values[split : 2 * split]
-        self.ground_truth_occurrence = values[-1]

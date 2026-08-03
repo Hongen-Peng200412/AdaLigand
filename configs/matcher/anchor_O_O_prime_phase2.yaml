@@ -1,4 +1,5 @@
-# Phase2 完整训练步显存画像配置；phase1_checkpoint 必须由命令行指定精确 smoke/BEST 文件。
+# Anchor O/O′ Matcher Phase2 正式配置；由正式 shell 注入精确 Phase1 BEST checkpoint。
+# matcher.train 读取本文件；resume_checkpoint=null 表示建立全新 Phase2 run。
 run:
   phase: 2
   seed: 3407
@@ -6,14 +7,15 @@ run:
   bf16: true
   max_epochs: 20
   val_per_epoch: 5
-  output_dir: tmp/matcher_anchor_O_O_prime/phase2_profile
-  phase1_checkpoint: null
+  output_dir: /storage/penghongen/AdaLigand/Results/matcher/anchor_O_O_prime_v1/seed_3407/phase2
+  phase1_checkpoint: null  # 正式 shell 在启动 Phase2 时注入精确 Phase1 BEST。
   resume_checkpoint: null
 
 data:
   data_root: /storage/penghongen/AdaLigand/Ori_Data
   stage1_preparation_root: /storage/penghongen/AdaLigand/Ori_Data/stage1_preparation
   experiment_manifest: /storage/penghongen/AdaLigand/Ori_Data/matcher/anchor_O_O_prime_v1/manifest.json
+  # 按列表顺序拼接 A 原子特征；当前 Anchor 路线只实现 feat_l0。
   A_node_feature_sources: [feat_l0]
   num_workers: 4
   occurrence_budget_per_batch: 64
@@ -40,8 +42,9 @@ model:
   phase2_blocks: 4
   dropout: 0.1
   mode: coupled_plus_modal
-  # 从该起点人工加宽；脚本只报告峰值和 OOM，不自动搜索或写回。
-  map_channels: [16, 32, 48, 64]
+  # 四个整数依次是 U-Net 四级通道；当前值通过 A800 正常负载的 72 GiB 显存门槛。
+  map_channels: [24, 48, 72, 96]
+  # map_candidate_chunk_size 的单位是候选数；null 表示一次处理当前 batch 的全部候选。
   map_candidate_chunk_size: 64
   map_input_channels: 1
   map_input_shape_zyx: [48, 48, 48]
@@ -58,13 +61,15 @@ model:
   O_initial_prior: 0.01
   O_prime_initial_value: 0.2
   graph_update_edge: true
-  graph_activation_checkpoint: false
+  graph_activation_checkpoint: true  # 反向时重算每个 MatcherBlock 内配体与 A 的 GatedGCN 实体更新。
+  # false 是正式默认值：Phase2 新 stem 不读取冻结 Block 4 的 FiLM_plus 条件。
   phase2_use_FiLM_plus: false
   phase2_condition_mlp_ratio: 2.0
   phase2_condition_dropout: 0.0
+  # fine_pair_chunk_size 的单位是配体原子—A 原子配对数；null 表示当前 PDB 一次计算全部配对。
   fine_pair_chunk_size: 2048
   fine_pair_activation_checkpoint: true
-  fine_attention_use_ffn: false
+  fine_attention_use_ffn: false  # 显式关闭细注意力后的额外 FFN。
   fine_attention_ffn_hidden_dim: 512
   fine_readout_dim: 512
 
@@ -77,6 +82,7 @@ objective:
   coarse_deep_schedule: linear_depth
   lambda_O: 1.0
   lambda_O_prime: 1.0
+  # 权重为 0 时对应模块不构造，Dataset 也不读取相应标签；Phase2 两项均启用。
   entity_aux_weight: 0.1
   fine_pair_aux_weight: 0.1
 
@@ -91,7 +97,7 @@ optimizer:
 scheduler:
   name: warmup_plateau
   warmup_ratio: 0.005
-  warmup_steps: null
+  warmup_steps: null  # null 表示按 warmup_ratio 和预计总优化步数计算。
   warmup_start_factor: 0.33
   factor: 0.3
   patience: 2
@@ -102,9 +108,9 @@ scheduler:
   cooldown: 0
   min_lr: 0.0
   eps: 1.0e-8
-  stop_after_lr_reductions: 3
+  stop_after_lr_reductions: 3  # 实际发生第三次 plateau 降学习率后结束本阶段。
 
 evaluation:
   decoder_name: O_O_prime
-  fallback_O_threshold: 0.5
-  threshold_step: 0.01
+  fallback_O_threshold: 0.5  # 尚无最佳验证阈值时才使用。
+  threshold_step: 0.01  # 完整验证集 O 概率阈值扫描步长。
