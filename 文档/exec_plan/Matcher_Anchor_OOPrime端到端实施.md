@@ -108,3 +108,26 @@ D:\Anaconda\envs\Pocket_Plus_windows\python.exe -m pytest matcher/tests -q
 - 两份正式配置与 shell 的结构已经生成，但 `map_channels` 仍等待两类重负载的双步画像后最终固定。服务器环境已通过正式 shell 语法、训练模块和推理模块的静态入口检查；没有提交正式长训练。
 
 当前门槛包括两类重负载画像、正式通道回填、阶段性双审查、双线 Git 再闭合和用户人工授权。获得明确授权前不得运行 `训练与运行/submit_task.sh` 的正式 A800 命令。
+
+## 2026-08-03：FinePair 等价加速与无限时 A800 工作台
+
+- Job `334868` 在运行 2 小时 30 分 21 秒后达到 Slurm 时限，没有生成结果 JSON。它与 `334841` 一样只证明旧实现持续计算，不能作为超大 PDB 的显存或吞吐验收结果。后续画像任务不再设置 Slurm 时限。
+- `9cpk` 单个正式测量优化步约 629 秒，不能接受。代码审计确认主要问题位于 FinePair 执行方式：旧实现虽然配置了 chunk，chunk 内仍按候选框—occurrence 配对逐次执行 Python 循环和独立 attention；带 padding 的 PyTorch scaled-dot-product attention 也无法利用真实变长序列减少计算。
+- 性能修复没有改变完整 `C×S` 配对网格、候选、标签、Hungarian、损失或归一化。当前实现把 chunk 内全部候选框—occurrence 配对作为一个批量执行；配体和 A 先补齐并携带真实原子掩码，每个 chunk 再裁去不需要的尾部 padding。接触标签在 activation checkpoint 外按候选框—真实 occurrence 批量构造并复用，辅助损失仍返回 `[C,S_pred,S_gt]`。
+- CUDA BF16/FP16、单上下文且无 attention bias 时，`TypedAttention` 会先移除 padding，再调用 `flash_attn_varlen_func`；其它情况仍使用 PyTorch scaled-dot-product attention。显式 Flash 是执行后端优化，不改变 attention 数学定义。空 A、`present=False`、可选 FFN 和 attention bias fallback 均有独立回归。
+- 本地完整 Matcher 测试为 40 项通过、1 项 CUDA/Flash 专项因 Windows 无 CUDA 跳过。契约审查确认同身份多真实 occurrence 形成完整 `[S_pred,S_gt]` 笛卡尔关系，并与已有 Hungarian 槽位交换测试共同覆盖最终选择；可读性审查确认生产代码只新增一个补齐函数，没有新增后端类或通用框架，chunk 是 `_run_fine_pairs` 中唯一保留的性能循环。
+- 新增 `ops/profile_matcher_throughput.py`。该入口强制 Phase2，复用正式 Dataset、occurrence 装箱、loss、BF16、反向传播、梯度裁剪与 AdamW，在用户指定时长内记录平均 batch、PDB、occurrence 时间、数据等待、峰值显存及 OOM 阶段。它不执行周期性验证或保存 checkpoint，因此只回答训练步吞吐。
+- 无限时 A800 工作台为 Job `335261`，节点 `gnode10`，16 CPU，QOS `cpu96`，Slurm `TimeLimit=UNLIMITED`。当前仍保留 `pre_lock_335261`，尚未执行旧画像脚本。加速代码已通过项目安全同步上传；随后登录节点在 SSH 密钥交换前主动断开连接，因此没有删除 pre-lock，也没有误启旧命令。连接恢复后首先执行服务器 CUDA Flash↔SDPA 输出与梯度等价测试，再分别测量 `9cpk` 极端样本和普通 Dataset 一小时吞吐。
+
+## 2026-08-03：FinePair、数据建图与分阶段性能画像
+
+- 服务器连接恢复后继续使用无限时 A800 Job `335261`。CUDA 专项测试实际进入显式 varlen Flash 后端，并与强制 PyTorch scaled-dot-product attention 的输出和参数梯度一致。BF16 smoke 先后暴露两个承载张量 dtype 问题：FinePair attention 增量必须转回残差张量 dtype，辅助 focal loss 网格必须显式保持 FP32。两项修复均增加 BF16 autocast 回归；本地 Matcher 测试当时为 40 项通过、1 项 CUDA 专项跳过。
+- 当前 `heavy_snapshot_manifest.json` 实际只包含更重的 `9kdv`，不能再按旧临时文件名误称 `9cpk`。冻结样本含 100 个 occurrence、235 个候选框和 156743 个 A 原子。`map_channels=[24,48,72,96]`、`occurrence_budget_per_batch=64`、`map_candidate_chunk_size=64`、`fine_pair_chunk_size=2048`、图 activation checkpoint、BF16 和 `expandable_segments:True` 下，无探针完整优化步为 13.007 秒；allocated/reserved 峰值为 69.942/71.383 GiB，满足人工指定的 72 GiB 门槛。
+- 同一完整步的阶段计时为：forward 4.438 秒、正式 loss 与 Hungarian 0.293 秒、backward 8.188 秒、梯度裁剪 0.052 秒、AdamW 0.028 秒。forward 的主要组件为八层粗分支与回吸约 1.66 秒、八层 A 图网络约 0.92 秒、FinePair 0.64 秒、四个粗预测头约 0.30 秒、Map Backbone 0.27 秒。组件 CUDA Event 存在父子嵌套，只用于定位热点，不能直接求和重建阶段 wall time。
+- 数据函数画像证明 170.57 秒样本组装中的 165.48 秒位于 `build_molecular_graph`；磁盘读取和 `torch.cdist` 均不是主因。旧实现对边字段逐条创建小张量，调用 `_distance_rbf` 2097548 次。提交 `ee0af56` 把 radius/chemical 字段和 RBF 改为每张图批量构造；提交 `9f9d76a` 再把逐 target 邻居循环改为距离矩阵按 target 列稳定排序。半径、同几何组、每 target 最多 48 邻居、等距来源索引优先、化学边覆盖、跨组距离、最终有向边排序和 6 类边标签均保持不变。
+- 数据优化通过 50 组随机图逐元素等价、重复反向化学边最后覆盖、等距邻居稳定截断和完整 Matcher 回归；最新本地结果为 42 项通过、1 项 CUDA 专项跳过。服务器同一 `9kdv` 的 cProfile 样本组装从 170.57 秒降为 6.01 秒，普通无探针组装为 5.35 秒。新建图临时矩阵约占 `18*N^2` 字节；当前 18 Å 候选区域与 4 个 DataLoader worker 可接受，未来单候选扩展到数千原子或完整受体时必须重新评估。
+- backward 算子画像的自身 CUDA 时间中，3D convolution backward 约 1.57 秒，LayerNorm backward 约 1.05 秒，copy 约 0.53 秒，矩阵乘约 0.38 秒，index/index_put 合计约 0.67 秒，显式 varlen Flash backward 约 0.29 秒。该结果说明 FinePair 已不再是首要热点；下一种可能的等价优化是联合批处理候选级粗分支和回吸，但它会显著增加模型代码复杂度，必须先看普通 Dataset 平均吞吐再决定。算子表保留为临时文本，483 MB 的一次性 Chrome trace 已删除。
+- 普通训练 Dataset 的首次 60 分钟吞吐执行没有生成 JSON。四个 DataLoader worker 长时间向主进程传递含大量独立张量的 `AnchorBatch`，默认 `file_descriptor` 共享策略最终触发 `OSError: [Errno 24] Too many open files`。修复仅在当前 Anchor 的训练、吞吐画像和独立推理三个入口中，当 `num_workers>0` 时显式设置 `torch.multiprocessing` 的 `file_system` 共享策略。它不位于 Dataset、collate 或公共数据层，不改变候选、batch 字段与数值、随机数、模型或损失，也不与未来 Stage1 数据入口耦合。
+- 修复后的完整训练集 epoch-0 候选准备约用 59 分钟；该时间发生在 60 分钟正式测量窗口之前，不得被平均 DataLoader 等待时间掩盖。后续 3602.322 秒测量完成 708 个正式 Phase2 优化步、2,755 个 PDB 和 37,925 个 occurrence；平均 batch wall time 为 5.0880 秒，其中优化步 5.0606 秒、数据等待 0.02744 秒，折合 1.3076 秒/PDB 和 0.09499 秒/occurrence。结果为 `status=ok`、无 OOM，allocated/reserved 峰值为 71.150/72.910 GiB；物理显存仍有约 6.4 GiB 余量，但严格的 72 GiB 人工门槛超出 0.910 GiB，因此必须如实记为 `within_memory_limit=false`。
+- 真正的 `9cpk` 冻结样本含 64 个 occurrence、177 个候选框和 106044 个 A 原子。数据组装为 3.137 秒，完整 Phase2 优化步为 9.476 秒，allocated/reserved 峰值为 48.873/49.775 GiB，无 OOM 且通过 72 GiB 门槛。更重的 `9kdv` 既有结果仍为 13.007 秒和 69.942/71.383 GiB。
+- Job `335261` 的所有画像结果核对后，在 `try_lock` 空闲态删除精确 `after_lock_335261`；作业以 `COMPLETED 0:0` 结束，总 allocation 用时 6 小时 32 分 57 秒。该 simple 工作台不会被复用为正式训练；正式训练仍未启动，必须先展示 YAML、shell 和无 `--time` 的 A800 提交命令并获得用户明确授权。
