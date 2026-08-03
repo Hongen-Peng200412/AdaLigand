@@ -26,7 +26,8 @@ bash 训练与运行/submit_task.sh \
   --sh 训练与运行/sh/matcher/train_anchor_O_O_prime.sh \
   --resource a800 \
   --gpus 1 \
-  --cpus 24 \
+  --cpus 16 \
+  --qos cpu96 \
   --job-name matcher_anchor_OOprime_v1
 ```
 
@@ -34,4 +35,4 @@ bash 训练与运行/submit_task.sh \
 
 当前服务器 `nvlink` 分区已经只读核实为 `DefaultTime=NONE`、`MaxTime=UNLIMITED`，因此正式命令不填写 `--time`，不会继承未说明的短时限。训练仍由每阶段最多 20 epoch 和累计三次实际降学习率的模型侧停止条件收口。
 
-正式 shell 显式设置 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，与 A800 显存画像的 CUDA 分配器环境保持一致。两份正式 YAML 当前使用 `map_channels=[24,48,72,96]`；完整画像证据和仍待闭合的极端单 PDB 重测记录在 `文档/exec_plan/Matcher_Anchor_OOPrime端到端实施.md`。
+正式 shell 显式设置 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`，与 A800 显存画像的 CUDA 分配器环境保持一致。两份正式 YAML 当前使用 `map_channels=[24,48,72,96]`。真 `9cpk` 与更重 `9kdv` 的 reserved 峰值分别为 49.775 和 71.383 GiB；普通 Dataset 连续 708 个优化步无 OOM，但 reserved 峰值 72.910 GiB 超出 72 GiB 人工门槛 0.910 GiB。完整证据记录在 `文档/exec_plan/Matcher_Anchor_OOPrime端到端实施.md`。

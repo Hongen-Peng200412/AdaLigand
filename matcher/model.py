@@ -13,7 +13,13 @@ from typing import Literal
 import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
+from torch.nn.utils.rnn import pad_sequence
 from torch.utils.checkpoint import checkpoint
+
+try:
+    from flash_attn import flash_attn_varlen_func
+except ImportError:
+    flash_attn_varlen_func = None
 
 from .anchor_data import AnchorSample, RawGraph
 from .batching import MatcherBatch
@@ -168,11 +174,35 @@ def _slice_packed_entities(
     return local, local_state
 
 
+def _pad_packed_values(values: Tensor, ptr: tuple[int, ...]) -> tuple[Tensor, Tensor]:
+    """把 ``[N,...]`` 的连续实体补成 ``[E,W,...]``，并返回 ``[E,W]`` 掩码。
+
+    ``ptr`` 给出 ``E`` 个实体在首维中的起止位置；掩码中的 ``True`` 表示真实元素。
+    空实体仍保留一个全零占位位置，供后续批量算子维持合法形状。
+    """
+
+    ptr_tensor = torch.tensor(ptr, device=values.device)
+    lengths = ptr_tensor[1:] - ptr_tensor[:-1]
+    padded_width = max(int(lengths.max().item()), 1)
+    entity_index = torch.repeat_interleave(
+        torch.arange(len(lengths), device=values.device), lengths
+    )
+    local_index = torch.arange(len(values), device=values.device) - torch.repeat_interleave(
+        ptr_tensor[:-1], lengths
+    )
+    padded = values.new_zeros((len(lengths), padded_width, *values.shape[1:]))
+    padded[entity_index, local_index] = values
+    mask = torch.arange(padded_width, device=values.device)[None] < lengths[:, None]
+    return padded, mask
+
+
 class TypedAttention(nn.Module):
     """按语义类型使用独立 K/V 投影的 scaled-dot-product attention。
 
     该算子只计算 attention 增量，不隐藏 LayerNorm、残差、dropout 或 FFN。二维输入
     表示单个集合；三维输入表示每个 batch 成员各有一组独立的 query/context。
+    ``query_mask/context_mask [B,N]`` 的 True 表示真实 token；CUDA BF16/FP16 的
+    单 context、无 bias 调用会先移除 padding，再执行同一注意力的 varlen Flash 内核。
     """
 
     def __init__(
@@ -199,33 +229,96 @@ class TypedAttention(nn.Module):
         query: Tensor,
         contexts: tuple[Tensor, ...],
         attention_bias: Tensor | None = None,
+        query_mask: Tensor | None = None,
+        context_mask: Tensor | None = None,
     ) -> Tensor:
         squeeze_batch = query.ndim == 2
         if squeeze_batch:
             query = query.unsqueeze(0)
             contexts = tuple(context.unsqueeze(0) for context in contexts)
         batch, query_count, _ = query.shape
+        can_try_varlen_flash = (
+            flash_attn_varlen_func is not None
+            and query.is_cuda
+            and query_mask is not None
+            and context_mask is not None
+            and attention_bias is None
+            and len(contexts) == 1
+            and self.head_dim % 8 == 0
+            and (
+                query.dtype in (torch.float16, torch.bfloat16)
+                or torch.is_autocast_enabled()
+            )
+        )
+        if can_try_varlen_flash:
+            projected_query = self.query(query[query_mask]).reshape(
+                -1, self.num_heads, self.head_dim
+            )
+            projected_key = self.keys[0](contexts[0][context_mask]).reshape(
+                -1, self.num_heads, self.head_dim
+            )
+            projected_value = self.values[0](contexts[0][context_mask]).reshape(
+                -1, self.num_heads, self.head_dim
+            )
+            if projected_query.dtype in (torch.float16, torch.bfloat16):
+                query_lengths = query_mask.sum(dim=1, dtype=torch.int32)
+                context_lengths = context_mask.sum(dim=1, dtype=torch.int32)
+                attended = flash_attn_varlen_func(
+                    projected_query.contiguous(),
+                    projected_key.contiguous(),
+                    projected_value.contiguous(),
+                    F.pad(
+                        query_lengths.cumsum(dim=0, dtype=torch.int32), (1, 0)
+                    ).contiguous(),
+                    F.pad(
+                        context_lengths.cumsum(dim=0, dtype=torch.int32), (1, 0)
+                    ).contiguous(),
+                    query.shape[1],
+                    contexts[0].shape[1],
+                    dropout_p=0.0,
+                    causal=False,
+                )
+                attended = self.output(attended.flatten(1))
+                result = attended.new_zeros(
+                    (batch, query_count, self.num_heads * self.head_dim)
+                )
+                result[query_mask] = attended
+                return result.squeeze(0) if squeeze_batch else result
+
         projected_query = self.query(query).reshape(
             batch, query_count, self.num_heads, self.head_dim
-        ).transpose(1, 2)
+        )
         keys = []
         values = []
         for context, key, value in zip(contexts, self.keys, self.values, strict=True):
             keys.append(
-                key(context).reshape(batch, context.shape[1], self.num_heads, self.head_dim).transpose(1, 2)
+                key(context).reshape(batch, context.shape[1], self.num_heads, self.head_dim)
             )
             values.append(
-                value(context).reshape(batch, context.shape[1], self.num_heads, self.head_dim).transpose(1, 2)
+                value(context).reshape(batch, context.shape[1], self.num_heads, self.head_dim)
             )
-        key_tensor = torch.cat(keys, dim=2)
-        value_tensor = torch.cat(values, dim=2)
+        key_tensor = torch.cat(keys, dim=1)
+        value_tensor = torch.cat(values, dim=1)
         if attention_bias is not None and attention_bias.ndim == 3:
             attention_bias = attention_bias.unsqueeze(0)
+        if context_mask is not None:
+            padding_mask = context_mask[:, None, None, :]
+            if attention_bias is None:
+                attention_bias = padding_mask
+            elif attention_bias.dtype == torch.bool:
+                attention_bias = attention_bias & padding_mask
+            else:
+                attention_bias = attention_bias.masked_fill(~padding_mask, -torch.inf)
         attended = F.scaled_dot_product_attention(
-            projected_query, key_tensor, value_tensor, attn_mask=attention_bias
-        )
-        attended = attended.transpose(1, 2).reshape(batch, query_count, -1)
+            projected_query.transpose(1, 2),
+            key_tensor.transpose(1, 2),
+            value_tensor.transpose(1, 2),
+            attn_mask=attention_bias,
+        ).transpose(1, 2)
+        attended = attended.reshape(batch, query_count, -1)
         result = self.output(attended)
+        if query_mask is not None:
+            result = result * query_mask[:, :, None]
         return result.squeeze(0) if squeeze_batch else result
 
 
@@ -756,39 +849,79 @@ class EntityAuxiliaryHead(nn.Module):
 
 def build_contact_marginals(
     A_coordinates: Tensor,
+    A_mask: Tensor,
     ligand_coordinates: Tensor,
     ligand_present: Tensor,
+    pair_chunk_size: int,
     contact_radius: float = 4.0,
 ) -> tuple[Tensor, Tensor]:
-    """直接归约 4 Å 原子接触，返回配体 recall 与 A precision 二值边缘标签。"""
+    """按候选框—真实 occurrence 批量归约 4 Å 原子接触标签。
 
-    recall = torch.zeros(len(ligand_coordinates), dtype=torch.bool, device=ligand_coordinates.device)
-    precision = torch.zeros(len(A_coordinates), dtype=torch.bool, device=A_coordinates.device)
-    present_indices = torch.nonzero(ligand_present, as_tuple=False).flatten()
-    if len(A_coordinates) and len(present_indices):
-        contact = torch.cdist(A_coordinates, ligand_coordinates[present_indices]) <= contact_radius
-        recall[present_indices] = contact.any(dim=0)
-        precision = contact.any(dim=1)
-    return recall, precision
+    ``A_coordinates`` 与 ``ligand_coordinates`` 分别为 ``[C,N_A,3]`` 和
+    ``[S,N_L,3]``；返回 ``recall [C,S,N_L]`` 与 ``precision [C,S,N_A]``。
+    每个候选框—真实 occurrence 只计算一次，预测槽位随后复用这些标签。
+    """
+
+    candidate_count, A_width = A_mask.shape
+    occurrence_count, ligand_width = ligand_present.shape
+    candidate_index = torch.arange(candidate_count, device=A_coordinates.device).repeat_interleave(
+        occurrence_count
+    )
+    occurrence_index = torch.arange(
+        occurrence_count, device=A_coordinates.device
+    ).repeat(candidate_count)
+    recall_chunks = []
+    precision_chunks = []
+    with torch.no_grad():
+        for start in range(0, len(candidate_index), pair_chunk_size):
+            candidate_chunk = candidate_index[start : start + pair_chunk_size]
+            occurrence_chunk = occurrence_index[start : start + pair_chunk_size]
+            chunk_A_mask = A_mask[candidate_chunk]
+            chunk_A_width = max(int(chunk_A_mask.sum(dim=1).max().item()), 1)
+            chunk_A_mask = chunk_A_mask[:, :chunk_A_width]
+            valid = (
+                chunk_A_mask[:, :, None] & ligand_present[occurrence_chunk, None, :]
+            )
+            contact = (
+                torch.cdist(
+                    A_coordinates[candidate_chunk, :chunk_A_width],
+                    ligand_coordinates[occurrence_chunk],
+                )
+                <= contact_radius
+            ) & valid
+            recall_chunks.append(contact.any(dim=1))
+            precision = torch.zeros(
+                (len(candidate_chunk), A_width),
+                dtype=torch.bool,
+                device=A_coordinates.device,
+            )
+            precision[:, :chunk_A_width] = contact.any(dim=2)
+            precision_chunks.append(precision)
+    return (
+        torch.cat(recall_chunks).reshape(candidate_count, occurrence_count, ligand_width),
+        torch.cat(precision_chunks).reshape(candidate_count, occurrence_count, A_width),
+    )
 
 
-def _masked_sigmoid_focal_mean(logit: Tensor, target: Tensor, mask: Tensor | None = None) -> Tensor:
-    if mask is not None:
-        logit = logit[mask]
-        target = target[mask]
-    if logit.numel() == 0:
-        return logit.new_zeros(())
+def _masked_sigmoid_focal_mean(logit: Tensor, target: Tensor, mask: Tensor) -> Tensor:
+    """把同形 ``[T,N]`` 原子 logit 与标签比较，按原子轴分别求均值。"""
+
     binary_cross_entropy = F.binary_cross_entropy_with_logits(
         logit.float(), target.float(), reduction="none"
     )
     probability = torch.sigmoid(logit.float())
     target_float = target.float()
-    target_probability = probability * target_float + (1.0 - probability) * (1.0 - target_float)
-    return (((1.0 - target_probability) ** 2) * binary_cross_entropy).mean()
+    target_probability = probability * target_float + (1.0 - probability) * (
+        1.0 - target_float
+    )
+    focal = ((1.0 - target_probability) ** 2) * binary_cross_entropy
+    denominator = mask.sum(dim=-1)
+    mean = (focal * mask).sum(dim=-1) / denominator.clamp_min(1)
+    return mean.masked_fill(denominator == 0, 0.0)
 
 
 class FineReadout(nn.Module):
-    """先在 128 维池化 pair-specific 原子，再投影到 512 维摘要。"""
+    """先在 128 维批量池化 pair-specific 原子，再投影到 512 维摘要。"""
 
     def __init__(self, node_dim: int, readout_dim: int, num_heads: int) -> None:
         super().__init__()
@@ -802,13 +935,21 @@ class FineReadout(nn.Module):
             nn.LayerNorm(readout_dim),
         )
 
-    def forward(self, atoms: Tensor) -> Tensor:
-        pooled = self.query + self.attention(self.query, (self.node_norm(atoms),))
-        return self.output(pooled[0])
+    def forward(self, atoms: Tensor, atom_mask: Tensor) -> Tensor:
+        query = self.query.unsqueeze(0).expand(len(atoms), -1, -1)
+        pooled = query + self.attention(
+            query,
+            (self.node_norm(atoms),),
+            query_mask=torch.ones(
+                (len(atoms), 1), dtype=torch.bool, device=atoms.device
+            ),
+            context_mask=atom_mask,
+        )
+        return self.output(pooled[:, 0])
 
 
 class FinePairBranch(nn.Module):
-    """ligand↔A 双向只读原子 attention、readout 和可选接触辅助头。"""
+    """批量执行 ligand↔A 双向只读原子 attention、readout 和接触辅助头。"""
 
     def __init__(
         self,
@@ -863,48 +1004,72 @@ class FinePairBranch(nn.Module):
         self.recall_atom_head = nn.Linear(node_dim, 1) if auxiliary_enabled else None
         self.precision_atom_head = nn.Linear(node_dim, 1) if auxiliary_enabled else None
 
-    def forward_pair(
+    def forward(
         self,
         ligand_atoms: Tensor,
         A_atoms: Tensor,
+        ligand_mask: Tensor,
+        A_mask: Tensor,
         slot_embedding: Tensor,
     ) -> tuple[Tensor, Tensor, Tensor]:
-        ligand_query = ligand_atoms + self.slot_projection(slot_embedding)[None]
-        if len(A_atoms):
-            fine_recall_atoms = ligand_query + self.dropout(
-                self.recall_attention(
-                    self.ligand_norm(ligand_query), (self.A_norm(A_atoms),)
-                )
+        """一次处理 ``P`` 个候选框—occurrence 配对。
+
+        配体与 A 原子分别使用 ``[P,N_L,D]`` 和 ``[P,N_A,D]``；两个掩码中的
+        ``True`` 表示真实原子。返回配对表示 ``[P,D_repr]``，以及配体侧和 A 侧的
+        原子接触 logit ``[P,N_L]`` 和 ``[P,N_A]``。``P`` 是当前执行 chunk 中的
+        配对数量，不改变完整配对网格。
+        """
+
+        ligand_query = ligand_atoms + self.slot_projection(slot_embedding)[:, None]
+        normalized_ligand = self.ligand_norm(ligand_query)
+        normalized_A = self.A_norm(A_atoms)
+        nonempty_A = A_mask.any(dim=1)
+        has_nonempty_A = bool(nonempty_A.any())
+        recall_increment = torch.zeros_like(ligand_query)
+        if has_nonempty_A:
+            recall_increment[nonempty_A] = self.recall_attention(
+                normalized_ligand[nonempty_A],
+                (normalized_A[nonempty_A],),
+                query_mask=ligand_mask[nonempty_A],
+                context_mask=A_mask[nonempty_A],
+            ).to(recall_increment.dtype)
+        fine_recall_atoms = ligand_query + self.dropout(recall_increment)
+        precision_increment = torch.zeros_like(A_atoms)
+        if has_nonempty_A:
+            precision_increment[nonempty_A] = self.precision_attention(
+                normalized_A[nonempty_A],
+                (normalized_ligand[nonempty_A],),
+                query_mask=A_mask[nonempty_A],
+                context_mask=ligand_mask[nonempty_A],
+            ).to(precision_increment.dtype)
+        fine_precision_atoms = A_atoms + self.dropout(precision_increment)
+        fine_recall_atoms = fine_recall_atoms * ligand_mask[:, :, None]
+        fine_precision_atoms = fine_precision_atoms * A_mask[:, :, None]
+        if self.recall_ffn is not None and self.precision_ffn is not None:
+            recall_ffn_mask = ligand_mask & nonempty_A[:, None]
+            fine_recall_atoms = fine_recall_atoms + self.recall_ffn(
+                self.recall_ffn_norm(fine_recall_atoms)
+            ) * recall_ffn_mask[:, :, None]
+            fine_precision_atoms = fine_precision_atoms + self.precision_ffn(
+                self.precision_ffn_norm(fine_precision_atoms)
+            ) * A_mask[:, :, None]
+        recall_repr = self.recall_readout(fine_recall_atoms, ligand_mask)
+        precision_repr = torch.zeros_like(recall_repr)
+        if has_nonempty_A:
+            precision_repr[nonempty_A] = self.precision_readout(
+                fine_precision_atoms[nonempty_A], A_mask[nonempty_A]
             )
-            fine_precision_atoms = A_atoms + self.dropout(
-                self.precision_attention(
-                    self.A_norm(A_atoms), (self.ligand_norm(ligand_query),)
-                )
-            )
-            if self.recall_ffn is not None and self.precision_ffn is not None:
-                fine_recall_atoms = fine_recall_atoms + self.recall_ffn(
-                    self.recall_ffn_norm(fine_recall_atoms)
-                )
-                fine_precision_atoms = fine_precision_atoms + self.precision_ffn(
-                    self.precision_ffn_norm(fine_precision_atoms)
-                )
-            precision_repr = self.precision_readout(fine_precision_atoms)
-        else:
-            fine_recall_atoms = ligand_query
-            fine_precision_atoms = A_atoms
-            precision_repr = ligand_atoms.new_zeros(self.precision_readout.output[-1].normalized_shape)
-        recall_repr = self.recall_readout(fine_recall_atoms)
-        fine_pair_repr = self.pair_mlp(torch.cat((recall_repr, precision_repr)))
+        fine_pair_repr = self.pair_mlp(torch.cat((recall_repr, precision_repr), dim=-1))
 
         recall_logit = (
             self.recall_atom_head(fine_recall_atoms).squeeze(-1)
             if self.recall_atom_head is not None
-            else ligand_atoms.new_empty((0,))
+            else ligand_atoms.new_empty((len(ligand_atoms), 0))
         )
         precision_logit = (
             self.precision_atom_head(fine_precision_atoms).squeeze(-1)
             if self.precision_atom_head is not None
-            else ligand_atoms.new_empty((0,))
+            else ligand_atoms.new_empty((len(ligand_atoms), 0))
         )
         return fine_pair_repr, recall_logit, precision_logit
 
@@ -1171,6 +1336,11 @@ class Matcher(nn.Module):
         A: PackedEntities,
         device: torch.device,
     ) -> tuple[HeadOutput, Tensor, Tensor]:
+        """分执行 chunk 计算完整 ``C×S_pred`` 网格及 ``[C,S_pred,S_gt]`` 辅助损失。
+
+        chunk 只限制一次 FinePair forward 的配对数，不筛除任何候选框或 occurrence。
+        """
+
         if self.fine_pair_branch is None or self.fine_adapter is None:
             raise RuntimeError("FinePair 仅能在 Phase2 中运行。")
         candidate_count, occurrence_count = coarse_pair_repr.shape[:2]
@@ -1182,79 +1352,95 @@ class Matcher(nn.Module):
         slot_index, _ = self._slot_indices(
             occurrence_to_ligand, len(ligand.node_ptr) - 1
         )
-        same_identity_by_ligand = tuple(
-            torch.nonzero(occurrence_to_ligand == ligand_index, as_tuple=False)
-            .flatten()
-            .tolist()
-            for ligand_index in range(len(ligand.node_ptr) - 1)
-        )
+        ligand_atoms, ligand_mask = _pad_packed_values(ligand_state.node, ligand.node_ptr)
+        A_atoms, A_mask = _pad_packed_values(A_state.node, A.node_ptr)
+        A_coordinates, _ = _pad_packed_values(A.coordinates, A.node_ptr)
+        pair_chunk_size = self.fine_pair_chunk_size or len(candidate_index)
+        auxiliary_enabled = self.fine_pair_branch.recall_atom_head is not None
         gt_coordinates = (
-            tuple(value.to(device) for value in sample.ligand_gt_coordinates)
-            if sample.ligand_gt_coordinates is not None
+            pad_sequence(
+                tuple(value.to(device) for value in sample.ligand_gt_coordinates),
+                batch_first=True,
+            )
+            if auxiliary_enabled and sample.ligand_gt_coordinates is not None
             else None
         )
         gt_present = (
-            tuple(value.to(device) for value in sample.ligand_gt_present)
-            if sample.ligand_gt_present is not None
+            pad_sequence(
+                tuple(value.to(device) for value in sample.ligand_gt_present),
+                batch_first=True,
+            )
+            if auxiliary_enabled and sample.ligand_gt_present is not None
             else None
         )
+        contact_recall = None
+        contact_precision = None
+        if gt_coordinates is not None and gt_present is not None:
+            contact_recall, contact_precision = build_contact_marginals(
+                A_coordinates,
+                A_mask,
+                gt_coordinates,
+                gt_present,
+                pair_chunk_size,
+            )
 
         def compute_chunk(
             coarse_chunk: Tensor, candidate_chunk: Tensor, occurrence_chunk: Tensor
         ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
-            fine_representations = []
-            recall_losses = []
-            precision_losses = []
-            for candidate_value, occurrence_value in zip(
-                candidate_chunk.tolist(), occurrence_chunk.tolist(), strict=True
-            ):
-                ligand_index = int(occurrence_to_ligand[occurrence_value])
-                ligand_start, ligand_end = ligand.node_ptr[ligand_index : ligand_index + 2]
-                A_start, A_end = A.node_ptr[candidate_value : candidate_value + 2]
-                fine_repr, recall_logit, precision_logit = self.fine_pair_branch.forward_pair(
-                    ligand_state.node[ligand_start:ligand_end],
-                    A_state.node[A_start:A_end],
-                    self.slot_embedding(slot_index[occurrence_value]),
+            ligand_index = occurrence_to_ligand[occurrence_chunk]
+            chunk_ligand_mask = ligand_mask[ligand_index]
+            chunk_A_mask = A_mask[candidate_chunk]
+            ligand_width = int(chunk_ligand_mask.sum(dim=1).max().item())
+            A_width = max(int(chunk_A_mask.sum(dim=1).max().item()), 1)
+            chunk_ligand_mask = chunk_ligand_mask[:, :ligand_width]
+            chunk_A_mask = chunk_A_mask[:, :A_width]
+            fine_repr, recall_logit, precision_logit = self.fine_pair_branch(
+                ligand_atoms[ligand_index, :ligand_width],
+                A_atoms[candidate_chunk, :A_width],
+                chunk_ligand_mask,
+                chunk_A_mask,
+                self.slot_embedding(slot_index[occurrence_chunk]),
+            )
+            recall_by_gt = coarse_chunk.new_zeros(
+                (len(coarse_chunk), occurrence_count), dtype=torch.float32
+            )
+            precision_by_gt = torch.zeros_like(recall_by_gt)
+            if contact_recall is not None and contact_precision is not None:
+                same_identity = (
+                    occurrence_to_ligand[occurrence_chunk, None]
+                    == occurrence_to_ligand[None, :]
                 )
-                fine_representations.append(fine_repr)
-                recall_by_gt = coarse_chunk.new_zeros(occurrence_count)
-                precision_by_gt = coarse_chunk.new_zeros(occurrence_count)
-                if gt_coordinates is not None and gt_present is not None:
-                    for gt_index in same_identity_by_ligand[ligand_index]:
-                        recall_target, precision_target = build_contact_marginals(
-                            A.coordinates[A_start:A_end],
-                            gt_coordinates[gt_index],
-                            gt_present[gt_index],
-                        )
-                        recall_by_gt[gt_index] = _masked_sigmoid_focal_mean(
-                            recall_logit, recall_target, gt_present[gt_index]
-                        )
-                        if A_end > A_start:
-                            precision_by_gt[gt_index] = _masked_sigmoid_focal_mean(
-                                precision_logit, precision_target
-                            )
-                recall_losses.append(recall_by_gt)
-                precision_losses.append(precision_by_gt)
-            joint_pair_repr = coarse_chunk + self.fine_adapter(torch.stack(fine_representations))
+                pair_row, gt_index = torch.nonzero(same_identity, as_tuple=True)
+                target_candidate = candidate_chunk[pair_row]
+                recall_by_gt[pair_row, gt_index] = _masked_sigmoid_focal_mean(
+                    recall_logit[pair_row],
+                    contact_recall[target_candidate, gt_index, :ligand_width],
+                    gt_present[gt_index, :ligand_width],
+                )
+                precision_by_gt[pair_row, gt_index] = _masked_sigmoid_focal_mean(
+                    precision_logit[pair_row],
+                    contact_precision[target_candidate, gt_index, :A_width],
+                    A_mask[target_candidate, :A_width],
+                )
+            joint_pair_repr = coarse_chunk + self.fine_adapter(fine_repr)
             prediction = prediction_head.predict(joint_pair_repr)
             return (
                 prediction.O_logit,
                 prediction.O_prime_logit,
-                torch.stack(recall_losses),
-                torch.stack(precision_losses),
+                recall_by_gt,
+                precision_by_gt,
             )
 
-        chunk_size = self.fine_pair_chunk_size or len(candidate_index)
         O_logits = []
         O_prime_logits = []
         recall_losses = []
         precision_losses = []
         flat_coarse = coarse_pair_repr.flatten(0, 1)
-        for start in range(0, len(candidate_index), chunk_size):
+        for start in range(0, len(candidate_index), pair_chunk_size):
             arguments = (
-                flat_coarse[start : start + chunk_size],
-                candidate_index[start : start + chunk_size],
-                occurrence_index[start : start + chunk_size],
+                flat_coarse[start : start + pair_chunk_size],
+                candidate_index[start : start + pair_chunk_size],
+                occurrence_index[start : start + pair_chunk_size],
             )
             if self.training and self.fine_pair_activation_checkpoint:
                 chunk_output = checkpoint(
