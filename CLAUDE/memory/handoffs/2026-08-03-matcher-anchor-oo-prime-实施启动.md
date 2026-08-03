@@ -2,7 +2,7 @@
 
 ## Current State
 
-用户已经授权端到端实施不依赖 Stage1 推理产物的 Matcher，但正式服务器训练提交仍需在 YAML 和 `.sh` 完成后再次授权。实现分支为 `codex/matcher-anchor-oo-prime`，基点为 `Learn/CUMULATIVE@35d3e0e`。
+用户已经授权端到端实施不依赖 Stage1 推理产物的 Matcher，但正式服务器训练提交仍需在 YAML 和 `.sh` 完成后再次授权。当前实现分支为 `codex/matcher-server-smoke`；上一轮已闭合的累计基点为 `Learn/CUMULATIVE@12206cd`。
 
 当前科学与工程决定的最高优先级来源是 `grill_with_memory/07-28-17-50.md` 的 Question 1–105。三份早期讨论稿仍提供背景，但其中与最新账本冲突的 Stage1/P/V/PP/A/B、PairFormer、旧粗细拓扑和旧 batch/loss 定义均不得进入首版。
 
@@ -29,8 +29,8 @@
 2. 实现 Map、图层、粗模型和 Phase1 目标函数。
 3. 实现 Phase2 独立 stem、细分支、辅助监督和严格 checkpoint 接力。
 4. 实现训练、验证、解码、恢复、显存画像和正式脚本。
-5. 本地测试后在有余量的 A100/A800 做隔离 smoke；A800 首轮显存上限示例为 72 GiB。
-6. 正式 YAML/`.sh` 准备完成后请求用户授权提交完整训练。
+5. 对正式 YAML、正式 `.sh` 和画像结论完成双审查并再次闭合双线 Git。
+6. 向用户展示正式入口与提交命令；只有用户明确授权后才提交完整训练。
 
 ## 2026-08-03 本地实现进展
 
@@ -40,7 +40,17 @@
 
 第三轮契约/可读性审查正在进行。零候选状态已完全收口到 `prepare_epoch`；正式实验清单会校验版本、路线和六项采样参数，并记录来源 BOX manifest/config 身份。字段级契约见 `文档/规划文档/Matcher_Anchor_OOPrime数据契约.md`。
 
-服务器 Torch 环境没有 `gemmi`，当前实现没有修改共享环境，而是把既有 Gemmi 的元素属性只读导出到 `matcher/element_properties.py`。下一步在审查闭合后提交本阶段代码，再生成正式 Matcher manifest、做 18 Å 数据核对和真实 CPU/GPU smoke。正式长训练仍必须等固定 YAML 和 `.sh` 交给用户审阅后再获授权。
+服务器 Torch 环境没有 `gemmi`，当前实现没有修改共享环境，而是把既有 Gemmi 的元素属性只读导出到 `matcher/element_properties.py`。正式 Matcher manifest 已生成；A100 真实数据 smoke 已完成 Phase1→精确 BEST→Phase2→冻结阈值推理评估。真实运行额外修复了配体结构化数组非对齐字段复制和 BF16 细配对承载张量 dtype，两者均有回归测试，最新本地 Matcher 回归为 35 项通过。
+
+上一轮本地实现与学习历史端点为实现提交 `e699a00`、学习提交和 `Learn/CUMULATIVE@12206cd`；真实数据 smoke 修复、画像入口和正式配置目前还在 `codex/matcher-server-smoke` 工作区，必须在正式提交授权前再次完成双线历史闭合。正式 manifest Job `334806`、A100 smoke Job `334808` 与 A800 profile Job `334813` 均已完成。
+
+A800 Job `334813` 的初步画像使用了改变候选抽样种子的 128-PDB 临时清单，而且只覆盖 55 occurrence 的普通 batch；其中 `[40,80,120,160]` 得到 allocated/reserved 60.756/68.229 GiB，但该通道结论已经撤回。CPU Job `334816` 已选出 `9cpk`（64 occurrence、177 candidate、106044 A 原子）和 `9kdv`（100 occurrence、235 candidate、156743 A 原子）并固化临时候选快照。A100 全清单基线 Job `334810` 因 epoch 0 串行 I/O 达到 1 小时时限而 `TIMEOUT`，没有进入 GPU 测量。
+
+重负载对照已经排除盲目缩小 U-Net、FinePair chunk 和 Map checkpoint：对应正常负载均在约 78 GiB OOM。新增等价的 `graph_activation_checkpoint` 后，正常负载两步画像成功，allocated 降至 68.072 GiB，但预热缓存使 reserved 仍为 76.545 GiB；正式测量步约 640 秒。A800 Job `334836` 加入 `expandable_segments:True` 后得到 68.037/76.025 GiB，仍未通过 72 GiB reserved 门槛。Job `334837` 进一步把 U-Net 调为 `[24,48,72,96]`，`9cpk` 的 allocated/reserved 为 48.870/56.670 GiB，已通过正常负载门槛。Job `334841` 用同一设置验收 `9kdv`，持续计算且未报告 OOM，但在 90 分 06 秒 `TIMEOUT`，没有结果 JSON。Job `334868` 只把相同画像的时限放宽到 2 小时 30 分，当前正重新运行。
+
+正式配置为 `configs/matcher/anchor_O_O_prime_phase{1,2}.yaml`，正式入口为 `训练与运行/sh/matcher/train_anchor_O_O_prime.sh`，输出根为 `/storage/penghongen/AdaLigand/Results/matcher/anchor_O_O_prime_v1/seed_3407/`。该入口会完成 Phase1→精确 BEST→Phase2→精确 BEST→冻结阈值 validation 评估；当前正式候选通道为 `[24,48,72,96]`，shell 已导出与画像一致的 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`。极端负载门槛尚待 Job `334868` 闭合，正式长训练也尚未获准提交。
+
+可读性终审删除了未被单卡正式路线调用的分布式 TP/P/G 汇总边界及其 noop 测试，并删除 AdamW 从同一参数列表构造后重复执行的恒真校验。当前本地回归为 35 项通过，compileall、正式 YAML 模型构造和 `git diff --check` 均通过。Job `334868` 已按 Dataset 的 4 个 worker 把 CPU 请求从 16 降到 8，但仍被更高优先级的 5×A800/40 CPU Job 阻挡；不得提高优先级、直连占卡或操作他人锁。
 
 ## Files To Reopen
 

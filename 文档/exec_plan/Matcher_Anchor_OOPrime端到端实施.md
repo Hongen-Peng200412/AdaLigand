@@ -8,7 +8,7 @@
 
 - 状态：实施中。
 - Git 基点：`Learn/CUMULATIVE@35d3e0e`。
-- 实现分支：`codex/matcher-anchor-oo-prime`。
+- 实现分支：`codex/matcher-server-smoke`。
 - 正式服务器提交：尚未授权；只允许完成实现、测试、隔离 smoke、显存画像和正式脚本准备。
 
 ## 2026-08-03：实施启动
@@ -65,7 +65,46 @@ D:\Anaconda\envs\Pocket_Plus_windows\python.exe -m pytest matcher/tests -q
 - 零候选 PDB 现在只存在于 `prepare_epoch` 的样本收集边界。sampler 只接收 `available_indices`；`AnchorSample`、collate、训练、验证、推理和显存画像都不再接受 `None`。
 - 新增字段级自包含契约 `文档/规划文档/Matcher_Anchor_OOPrime数据契约.md`。Dataset 会立即核对实验清单的 `schema_version`、`route` 和六项候选抽样参数；清单同时记录来源 BOX manifest 与 config 的 SHA-256。
 - 服务器 Torch 环境缺少 `gemmi`。为避免修改共享环境，使用既有 `AdaLigand_stage1_py310` 环境只读导出 0–127 号元素的四项属性，并固化到 `matcher/element_properties.py`。运行时不再依赖 Gemmi；后续真实数据 smoke 仍需逐字段对照原实现。
-- O/O′ 独立评估改为使用 checkpoint 冻结阈值，不在测评时重新扫描；TP/P/G 增加一个未初始化时直接返回的可选分布式汇总边界。
+- O/O′ 独立评估使用 checkpoint 冻结阈值，不在测评时重新扫描。当前正式路线是单卡，因此没有提前保留尚无调用者的分布式汇总边界。
 - 断点恢复保存历史最佳 F1/阈值，并在恢复到已经完成第三次降学习率的 checkpoint 时立即正常结束。DataLoader 使用独立随机生成器，不消费模型的全局随机流。
 
 本地验证命令保持不变，最新结果为 33 项通过，`python -m compileall -q matcher ops` 与 `git diff --check` 同时通过。第三轮契约与可读性审查已经闭合；审查确认数据、模型、训练和可读性没有剩余提交阻断项。
+
+## 2026-08-03：本地历史闭合与服务器预检
+
+- 真实实现提交为 `e699a00`。学习历史从同一累计基点按“图与 Map 基础 → 数据与清单 → 两阶段模型与目标 → 训练、推理和运行”重建为 `d42ecb4`、`e89f061`、`eb08bea`、`12206cd`。
+- 实现端点与学习端点的 Git tree 均为 `a79f3b2cd7296d6a9574f095ac0d7bfa2afe41d6`；`Learn/CUMULATIVE` 已快进到 `12206cd`。
+- 项目安全同步的上传主体完成后，本地等待在整仓权限整理阶段超时。没有盲目重跑：远端关键 Matcher 文件与本地 SHA-256 一致，远端无本次遗留 rsync，新增 Python 文件权限为 755、配置和运维脚本为 644。
+- 服务器 `Pocket_Plus_centos7_cu121_allgpu` 环境独立执行全部 Matcher 测试，结果为 33 项通过、13 条已知 PyTorch 性能/弃用提示；未发现环境差异失败。
+- 正式 manifest 生成任务为 CPU Slurm Job `334806`，唯一正式目标为 `/storage/penghongen/AdaLigand/Ori_Data/matcher/anchor_O_O_prime_v1/manifest.json`，日志位于 `/home/penghongen/My_Project/tmp/matcher_manifest_20260803/`。当前任务仍在运行，正式文件只会在完整构造后原子出现。
+- A800 分区是 `nvlink`，节点 `gnode09/gnode10` 当前可提供隔离 smoke 资源。一次性 smoke 脚本已写入服务器项目的 `tmp/matcher_anchor_smoke_20260803/`，不属于正式入口；它会使用小型临时 manifest 完成 Phase1、精确 BEST 接力、Phase2、冻结阈值推理与 validation 评估。
+
+## 2026-08-03：正式清单与 A100 隔离 smoke
+
+- 正式清单生成 Job `334806` 以 `COMPLETED 0:0` 结束。正式文件为 `/storage/penghongen/AdaLigand/Ori_Data/matcher/anchor_O_O_prime_v1/manifest.json`，SHA-256 为 `9978178c26952ef2a6f15e373fa8cb1428368132093eb503ca11491e2909b795`。清单包含 12881 个训练 PDB、180382 个训练 occurrence；验证集原有 188 个 PDB、2914 个 occurrence，其中 6 个零候选 PDB 只在样本收集边界排除，最终保留 182 个 PDB、2907 个 occurrence。
+- A800 任务因账号当时达到 `QOSGrpSubmitJobsLimit` 而在生成 Job ID 前被调度器拒绝，没有留下 A800 锁或作业。随后在 `gnode08` 的一张 NVIDIA A100-PCIE-40GB 上以 simple 模式运行隔离 smoke，Slurm Job 为 `334808`，临时产物位于 `/home/penghongen/My_Project/tmp/matcher_anchor_smoke_20260803/`。
+- smoke 的第一次执行发现临时 shell 的 `set -u` 与 Conda 激活脚本冲突；只修改临时脚本为 `set -eo pipefail`。第二次执行在真实配体结构化数组上发现 NumPy 字段步长不满足 `torch.from_numpy` 要求；正式 Dataset 在 NumPy→PyTorch 边界显式复制三个相关字段，并增加非对齐结构化 dtype 回归测试。第三次执行进入 BF16 前向后发现细配对承载张量错误继承 FP32 dtype；承载张量改为分别继承 A 与配体节点状态的实际 dtype/device，并增加 CPU BF16 autocast 前向与反向回归测试。
+- 修复后的本地 Matcher 回归为 35 项通过；服务器环境的两个专项测试分别为 5 项和 6 项通过。第四次 smoke 完成 Phase1 三个训练步和完整验证，从 Phase1 `BEST.json` 指向的精确 checkpoint 接入 Phase2，再完成 Phase2 三个训练步、完整验证和冻结阈值推理评估。最终 `summary.json` 状态为 `passed`，短跑验证集含 3 个 PDB、8 个 occurrence，阈值 0.01，precision/recall/F1 均为 0.125。该数值只证明端到端管线闭环，不承担科学结论。
+- Phase1 checkpoint 为 928622646 字节，Phase2 checkpoint 为 681062731 字节；后续正式运行除 GPU 峰值外还需考虑 checkpoint 容量。Job `334808` 最终为 `COMPLETED 0:0`，耗时 14 分 42 秒，MaxRSS 2068512K；产物核对后释放 `after_lock_334808`，没有再次执行。
+
+下一道门槛是完整 Phase2 训练步的 A800 80GB 显存画像。画像以 72 GiB 为首轮人工上限，记录实际 batch、峰值 allocated/reserved 和 OOM；画像确定 U-Net 通道后才能生成正式 YAML 与 `.sh` 并请求正式长训练授权。
+
+## 2026-08-03：A800 初步画像、重负载补测与正式入口
+
+- A800 QOS 组释放提交位后，以 simple 模式启动 Job `334813`，节点为 `gnode10`，GPU 为 NVIDIA A800-SXM4-80GB，实际可见显存 79.325 GiB。初步画像运行一个 Phase2 forward、正式 loss、backward、梯度裁剪和 AdamW step；Phase1 权重数值不影响显存，因此画像允许省略 checkpoint，并仍按正式 Phase2 规则冻结前四个 Block。
+- 初步画像使用只保留正式训练清单开头 128 个 PDB 的临时清单，实际 batch 为 9 个 PDB、55 个 occurrence、103 个候选、52556 个 A 原子。`map_channels=[16,32,48,64]`、`[24,48,72,96]`、`[40,80,120,160]` 的 allocated/reserved 峰值分别为 44.042/46.928、49.614/52.328、60.756/68.229 GiB。Job `334813` 为 `COMPLETED 0:0`，总 allocation 用时 8 分 33 秒。
+- 阶段审查确认上述结果不能冻结正式通道：临时清单改变了 synthetic-anchor 的训练清单长度，因而改变候选抽样种子；首个 55-occurrence batch 也不能代表已约定的两类验收负载。`[40,80,120,160]` 已撤回为待测值，不作为正式结论。
+- `ops/profile_matcher_memory.py` 随后改为先预热一个完整训练步，再重置峰值并测量第二个完整训练步；CUDA OOM 会区分 `model_setup`、`warmup` 与 `measurement` 落盘。重负载验收使用临时冻结候选快照，正式工具只调用 Dataset 公共接口。
+- A100 全清单基线 Job `334810` 因逐 PDB 准备 epoch 0 的串行 I/O 达到 1 小时时限，最终 `TIMEOUT`；它未进入 GPU 测量，也没有产生可用于选通道的结果。
+- CPU Job `334816` 在 45 分 54 秒内从正式训练清单的 epoch 0 选出两类精确候选并以 `COMPLETED 0:0` 结束。正常负载为 manifest 索引 9286、PDB `9cpk`：64 个 occurrence、177 个候选、106044 个 A 原子；65–100 occurrence 的最重单 PDB 为索引 10748、PDB `9kdv`：100 个 occurrence、235 个候选、156743 个 A 原子。两者的候选起点已固化到 `tmp/matcher_memory_profile_20260803/` 的临时快照清单。
+- A800 simple Job `334818` 在 `gnode10` 依次定位峰值来源。正常负载在 `[40,80,120,160]` 时于预热步 OOM，allocated/reserved 为 78.557/78.701 GiB；下调到 `[24,48,72,96]` 仍为 77.932/78.318 GiB；把 `fine_pair_chunk_size` 从 2048 改为 1024 得到与首轮相同的 78.557/78.701 GiB；开启 Map activation checkpoint 仍为 78.216/78.805 GiB。上述对照证明主要峰值不是 U-Net 通道、FinePair chunk 或 Map 激活。
+- 代码检查定位到 106044–156743 个 A 原子及其 radius 边在四个 Phase2 GatedGCN Block 中保留的反向激活。新增单一 `graph_activation_checkpoint` 开关，通过非重入 checkpoint 重算完全相同的节点—边更新；没有改变图、特征、监督或注意力拓扑。输出与参数梯度等价回归通过。可读性终审随后删除未被单卡正式路线调用的分布式评估汇总及其 noop 测试，并删除 AdamW 从同一参数列表构造后重复执行的恒真校验；最终本地回归为 35 项通过。
+- 开启图 checkpoint 后，正常负载完成预热和正式测量，allocated 峰值降至 68.072 GiB；但 CUDA 分配器在预热后保留缓存，reserved 仍为 76.545 GiB，正式测量步耗时约 640 秒。Job `334818` 随后达到 1 小时时限，未开始有效的超大 PDB 测量。
+- A800 Job `334836` 对同一正常负载启用 `expandable_segments:True` 后完成两步画像，allocated/reserved 为 68.037/76.025 GiB，仍未达到 reserved 不超过 72 GiB 的人工门槛。该结果证明分配器设置只能缓解约 0.52 GiB 的缓存峰值，不能使 `[40,80,120,160]` 成为正式通道。
+- 不改变图半径、邻居数或其他科学契约，Job `334837` 使用 `[24,48,72,96]`、图 activation checkpoint 和同一分配器完成 `9cpk` 两步画像。64 个 occurrence、177 个候选、106044 个 A 原子对应 allocated/reserved 48.870/56.670 GiB，低于 72 GiB 门槛；正式测量步耗时约 629 秒。JSON 同时记录了 `cuda_allocator_config=expandable_segments:True`。
+- Job `334841` 以完全相同的模型与显存设置验收 `9kdv`：100 个 occurrence、235 个候选、156743 个 A 原子。作业持续有效 GPU 计算且未报告 OOM，但在 90 分 06 秒达到 Slurm 时限，没有完成第二个优化步，也没有生成结果 JSON；因此该次结果是 `TIMEOUT`，不能用于通过或否决显存门槛。
+- Job `334868` 只把同一重负载画像的隔离时限放宽到 2 小时 30 分，模型、冻结候选、BF16、通道、chunk、图 checkpoint、分配器和 72 GiB 门槛均不改变。只有它完整写出成功 JSON，才会把 24 通道组回填为正式值。
+- 新增正式配置 `configs/matcher/anchor_O_O_prime_phase1.yaml`、`configs/matcher/anchor_O_O_prime_phase2.yaml`，两者使用相同的固定通道与正式 manifest。新增正式入口 `训练与运行/sh/matcher/train_anchor_O_O_prime.sh`：它只接受全新正式输出根，依次运行 Phase1、从 Phase1 `BEST.json` 精确接力 Phase2、从 Phase2 `BEST.json` 使用冻结阈值完成 validation 推理评估。正式输出根为 `/storage/penghongen/AdaLigand/Results/matcher/anchor_O_O_prime_v1/seed_3407/`，不依赖任何 smoke 或画像临时文件。
+- 两份正式配置与 shell 的结构已经生成，但 `map_channels` 仍等待两类重负载的双步画像后最终固定。服务器环境已通过正式 shell 语法、训练模块和推理模块的静态入口检查；没有提交正式长训练。
+
+当前门槛包括两类重负载画像、正式通道回填、阶段性双审查、双线 Git 再闭合和用户人工授权。获得明确授权前不得运行 `训练与运行/submit_task.sh` 的正式 A800 命令。
