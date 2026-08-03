@@ -39,6 +39,45 @@ def test_cross_group_chemical_edge_has_no_distance_feature() -> None:
     assert torch.all(graph.edge_class == 2)
 
 
+def test_duplicate_chemical_pair_keeps_last_input_fields() -> None:
+    bond_order = torch.zeros((2, 5), dtype=torch.bool)
+    bond_order[0, 0] = True
+    bond_order[1, 1] = True
+    graph = build_molecular_graph(
+        torch.tensor([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]),
+        torch.zeros(2, dtype=torch.long),
+        torch.tensor([[0, 1], [1, 0]]),
+        bond_order,
+        torch.zeros((2, 3), dtype=torch.bool),
+        torch.zeros((2, 4), dtype=torch.bool),
+    )
+
+    assert torch.all(graph.edge_class == 2)
+
+
+def test_radius_neighbor_limit_keeps_stable_source_order_for_ties() -> None:
+    graph = build_molecular_graph(
+        torch.tensor(
+            [
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [-1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+            ]
+        ),
+        torch.zeros(4, dtype=torch.long),
+        torch.empty((2, 0), dtype=torch.long),
+        torch.empty((0, 5), dtype=torch.bool),
+        torch.empty((0, 3), dtype=torch.bool),
+        torch.empty((0, 4), dtype=torch.bool),
+        radius=1.1,
+        max_radius_neighbors=2,
+    )
+
+    incoming = graph.edge_index[0, graph.edge_index[1] == 0]
+    assert torch.equal(incoming, torch.tensor([1, 2]))
+
+
 def test_node_edge_layer_supports_empty_edges() -> None:
     layer = NodeEdgeLayer(node_dim=8, edge_dim=4)
     state = GraphState(
