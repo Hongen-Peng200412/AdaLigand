@@ -23,7 +23,7 @@
 - [x] 2026-08-05：完成共享 Matcher、严格零增量、Phase1/Phase2、六项输出、身份内 Hungarian、连续 SmoothL1、硬标签 focal gamma=2 与粗细辅助损失。
 - [x] 2026-08-05：完成模式一推理、阈值评估、正式 Phase1/Phase2 YAML 和 `训练与运行/sh/matcher_v2/mode1/`。
 - [x] 完成本地与服务器 smoke、显存/吞吐画像、两类独立审查和修正；本地与服务器回归、双模式真实前向、两类复审和 A800 完整优化步画像均已通过。
-- [ ] 完成实现线与学习线等价收口；停止旧任务 heartbeat，使用 Job 335493 的锁协议启动新版模式一训练，并为当前对话建立 heartbeat。
+- [x] 完成实现线与学习线等价收口；停止旧任务 heartbeat，使用 Job 335493 的锁协议启动新版模式一训练，并为当前对话建立 heartbeat。
 - [ ] 记录正式运行身份、W&B、checkpoint 和初始指标；整理 handoff 与 Stage3 无上下文 Agent 提示词。
 
 ## 已确认决定
@@ -63,6 +63,8 @@
 - 2026-08-05：Job `335493` attempt 3 使用临时画像 release `AdaLigand_b84a468ee301`。首个真实 CUDA 优化步在损失阶段发现 assignment 位于 CUDA、标签仍在 CPU 的设备不一致；尚未形成显存结论。代码已改为先把六个标签移动到预测设备再按 assignment 索引，本地 22 项定向回归通过，allocation 再次由 `try_lock` 保留。
 - 2026-08-05：正式模式一清单 CPU Job `336690` 成功结束。正式清单包含 train 12,881 个 PDB / 180,382 个 occurrence、validation 188 / 2,914、calibration 89 / 1,386；产物位于 `/storage/penghongen/AdaLigand/Ori_Data/matcher_v2/ground_truth_context/manifest.json`。
 - 2026-08-05：Job `335493` attempt 4 使用 release `AdaLigand_e0072b2df641` 完成修正后的 BF16 画像。46 个 occurrence、46 个候选、3 个 PDB 的普通 batch：数据组装 2.85 秒，完整前向、六头损失、反向传播与 AdamW 更新 7.78 秒，峰值已分配/保留显存 4.61/6.04 GiB。最大样本 `6v22` 含 100 个 occurrence 和候选：数据组装 2.54 秒，优化步 6.00 秒，峰值已分配/保留显存 7.49/8.83 GiB。两项均无 OOM，低于人工设定的 71.397 GiB 上限；无需修改模型通道数或正式运行参数。
+- 2026-08-05：实现端点 `codex/matcher-v2-dual-context@acdaba9` 与学习端点 `Learn/matcher-v2-dual-context@defbb26` 的 Git tree 完全一致；学习历史按“契约与边界→两种数据输入→共享粗细模型→训练推理评估→集中测试”组织。学习端点再次通过 `55 passed, 1 skipped`，`Learn/CUMULATIVE` 已快进到 `defbb26`。
+- 2026-08-05：Job `335493` attempt 5 已使用 release `AdaLigand_aa34cc600a27`、launch `train_anchor_O_O_prime_job335493_20260805T041302_a5` 启动正式模式一训练。正式输出根为 `/storage/penghongen/AdaLigand/Results/matcher_v2/ground_truth_context/seed_3407_occ48`；Phase1 W&B online run 为项目 `AdaLigand_Matcher` 下的 `matcher-v2-gt-3407-p1`。训练进程与 W&B service 存活，GPU 初始占用约 8.4 GiB；当前仍处于 epoch 0 候选准备期，尚未把它计为一次健康优化检查。监控 automation `matcher-v2` 只绑定当前对话，并按 30 分钟频率运行。
 
 ## 计划与实现差异
 
