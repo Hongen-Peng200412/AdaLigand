@@ -424,11 +424,32 @@ def _append_jsonl(path: Path, record: dict[str, Any]) -> None:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
+def _start_wandb(config: DictConfig, output_dir: Path) -> Any | None:
+    """为正式训练建立在线 W&B run；未配置的画像与测试入口保持无网络依赖。"""
+
+    wandb_config = config.get("wandb")
+    if wandb_config is None or not bool(wandb_config.enabled):
+        return None
+    import wandb
+
+    run = wandb.init(
+        project=str(wandb_config.project),
+        group=str(wandb_config.group),
+        name=str(wandb_config.name),
+        mode=str(wandb_config.mode),
+        dir=output_dir.as_posix(),
+        config=OmegaConf.to_container(config, resolve=True),
+        resume="never",
+    )
+    run.define_metric("global_step")
+    run.define_metric("*", step_metric="global_step")
+    return run
+
+
 def run_training(config: DictConfig) -> None:
     """执行一段显式 Phase1 或 Phase2 单卡训练。"""
 
     seed = int(config.run.seed)
-    _seed_everything(seed)
     torch.set_float32_matmul_precision("high")
     device = torch.device(str(config.run.device))
     num_workers = int(config.data.num_workers)
@@ -439,6 +460,10 @@ def run_training(config: DictConfig) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     OmegaConf.save(config, output_dir / "resolved_config.yaml", resolve=True)
     events_path = output_dir / "events.jsonl"
+    wandb_run = _start_wandb(config, output_dir)
+    wandb_log_every_n_steps = int(config.wandb.log_every_n_steps) if wandb_run else 0
+    # 第三方在线初始化完成后重置随机数，避免它影响 Dataset、模型和优化器的正式 seed。
+    _seed_everything(seed)
 
     train_dataset = AnchorPocketDataset(_data_config(config, "train", True))
     validation_dataset = AnchorPocketDataset(_data_config(config, "validation", False))
@@ -505,6 +530,8 @@ def run_training(config: DictConfig) -> None:
                 events_path,
                 {"event": "resume_already_stopped", "global_step": global_step},
             )
+            if wandb_run:
+                wandb_run.finish()
             return
 
     for epoch in range(start_epoch, max_epochs):
@@ -513,10 +540,23 @@ def run_training(config: DictConfig) -> None:
             prepared_train_epoch = epoch
         train_sampler.set_epoch(epoch)
         train_sampler.set_indices(train_dataset.available_indices)
-        _append_jsonl(
-            events_path,
-            {"event": "candidate_sampling", "epoch": epoch, **train_dataset.candidate_audit},
-        )
+        candidate_record = {
+            "event": "candidate_sampling",
+            "epoch": epoch,
+            **train_dataset.candidate_audit,
+        }
+        _append_jsonl(events_path, candidate_record)
+        if wandb_run:
+            wandb_run.log(
+                {
+                    "epoch": epoch,
+                    "global_step": global_step,
+                    **{
+                        f"data/{name}": value
+                        for name, value in train_dataset.candidate_audit.items()
+                    },
+                }
+            )
         validations_per_epoch = int(config.run.val_per_epoch)
         if len(train_loader) < validations_per_epoch:
             raise ValueError(
@@ -544,20 +584,31 @@ def run_training(config: DictConfig) -> None:
             optimizer.step()
             scheduler.step_optimizer()
             global_step += 1
-            _append_jsonl(
-                events_path,
-                {
-                    "event": "train",
-                    "epoch": epoch,
-                    "batch_index_in_epoch": batch_index,
-                    "global_step": global_step,
-                    "loss_total": float(loss.loss_total),
-                    "loss_O": float(loss.loss_O),
-                    "loss_O_prime": float(loss.loss_O_prime),
-                    "loss_aux": float(loss.loss_aux),
-                    "lr": optimizer.param_groups[0]["lr"],
-                },
-            )
+            train_record = {
+                "event": "train",
+                "epoch": epoch,
+                "batch_index_in_epoch": batch_index,
+                "global_step": global_step,
+                "loss_total": float(loss.loss_total),
+                "loss_O": float(loss.loss_O),
+                "loss_O_prime": float(loss.loss_O_prime),
+                "loss_aux": float(loss.loss_aux),
+                "lr": optimizer.param_groups[0]["lr"],
+            }
+            _append_jsonl(events_path, train_record)
+            if wandb_run and global_step % wandb_log_every_n_steps == 0:
+                wandb_run.log(
+                    {
+                        "epoch": epoch,
+                        "global_step": global_step,
+                        "batch_index_in_epoch": batch_index,
+                        "train/loss_total": train_record["loss_total"],
+                        "train/loss_O": train_record["loss_O"],
+                        "train/loss_O_prime": train_record["loss_O_prime"],
+                        "train/loss_aux": train_record["loss_aux"],
+                        "train/lr": train_record["lr"],
+                    }
+                )
 
             if batch_index + 1 not in validation_steps:
                 continue
@@ -596,22 +647,34 @@ def run_training(config: DictConfig) -> None:
                     },
                     output_dir / "BEST.json",
                 )
-            _append_jsonl(
-                events_path,
-                {
-                    "event": "validation",
-                    "epoch": epoch,
-                    "global_step": global_step,
-                    **metrics,
-                    "lr_reduction_count": scheduler.reduction_count,
-                    "checkpoint": checkpoint_path.as_posix(),
-                },
-            )
+            validation_record = {
+                "event": "validation",
+                "epoch": epoch,
+                "global_step": global_step,
+                **metrics,
+                "lr_reduction_count": scheduler.reduction_count,
+                "checkpoint": checkpoint_path.as_posix(),
+            }
+            _append_jsonl(events_path, validation_record)
+            if wandb_run:
+                wandb_run.log(
+                    {
+                        "epoch": epoch,
+                        "global_step": global_step,
+                        **metrics,
+                        "val/lr_reduction_count": scheduler.reduction_count,
+                        "val/best_F1_O_O_prime": best_F1,
+                    }
+                )
             print(json.dumps({"global_step": global_step, **metrics}, ensure_ascii=False))
             model.train()
             if scheduler.should_stop:
+                if wandb_run:
+                    wandb_run.finish()
                 return
         completed_batch_index = 0
+    if wandb_run:
+        wandb_run.finish()
 
 
 def main() -> None:

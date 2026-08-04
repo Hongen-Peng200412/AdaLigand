@@ -7,7 +7,7 @@ run:
   bf16: true
   max_epochs: 20
   val_per_epoch: 5
-  output_dir: /storage/penghongen/AdaLigand/Results/matcher/anchor_O_O_prime_v1/seed_3407/phase1
+  output_dir: /storage/penghongen/AdaLigand/Results/matcher/anchor_O_O_prime_v1/seed_3407_occ48/phase1
   resume_checkpoint: null
 
 data:
@@ -17,7 +17,7 @@ data:
   # 按列表顺序拼接 A 原子特征；当前 Anchor 路线只实现 feat_l0。
   A_node_feature_sources: [feat_l0]
   num_workers: 4
-  occurrence_budget_per_batch: 64
+  occurrence_budget_per_batch: 48
   p_miss: 0.30
   p_split: 0.20
   p_hit: 0.50
@@ -41,17 +41,17 @@ model:
   phase2_blocks: 4
   dropout: 0.1
   mode: coupled_plus_modal
-  # 四个整数依次是 U-Net 四级通道；当前值无 OOM，但 60 分钟画像的 reserved 峰值为 72.910 GiB。
+  # 四个整数依次是 U-Net 四级通道；重新训练只调整执行期显存参数，不改变模型宽度。
   map_channels: [24, 48, 72, 96]
   # map_candidate_chunk_size 的单位是候选数；null 表示一次处理当前 batch 的全部候选。
-  map_candidate_chunk_size: 64
+  map_candidate_chunk_size: 32
   map_input_channels: 1
   map_input_shape_zyx: [48, 48, 48]
   map_norm_groups: 8
   map_bottleneck_heads: 4
   map_bottleneck_layers: 1
   map_bottleneck_ffn_dim: 128
-  map_activation_checkpoint: false
+  map_activation_checkpoint: true  # 反向时重算 U-Net 中间激活，降低图网络反向阶段仍被占用的显存。
   map_scale_summary_dim: 64
   map_summary_hidden_dim: 512
   candidate_bias_rbf_bins: 32
@@ -66,7 +66,7 @@ model:
   phase2_condition_mlp_ratio: 2.0
   phase2_condition_dropout: 0.0
   # fine_pair_chunk_size 是一次联合 FinePair forward 中的候选框—occurrence 配对数上限；null 表示当前 PDB 一次计算完整 C×S 配对网格。
-  fine_pair_chunk_size: 2048
+  fine_pair_chunk_size: 1024
   fine_pair_activation_checkpoint: true
   fine_attention_use_ffn: false  # 显式关闭细注意力后的额外 FFN。
   fine_attention_ffn_hidden_dim: 512
@@ -113,3 +113,11 @@ evaluation:
   decoder_name: O_O_prime
   fallback_O_threshold: 0.5  # 尚无最佳验证阈值时才使用。
   threshold_step: 0.01  # 完整验证集 O 概率阈值扫描步长。
+
+wandb:
+  enabled: true
+  mode: online  # 正式任务直接同步到 W&B；初始化失败时终止，不静默切换为 offline。
+  project: AdaLigand_Matcher
+  group: anchor_O_O_prime_v1_seed_3407_occ48
+  name: anchor_O_O_prime_v1_seed_3407_occ48_phase1
+  log_every_n_steps: 10
