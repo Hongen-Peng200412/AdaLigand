@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
+
 import torch
 import pytest
+from omegaconf import OmegaConf
 
 from matcher.model import Matcher
-from matcher.train import WarmupPlateau, _load_phase1_for_phase2
+from matcher.train import WarmupPlateau, _load_phase1_for_phase2, _start_wandb
 
 
 def test_warmup_plateau_counts_only_actual_lr_reductions() -> None:
@@ -61,6 +65,42 @@ def test_warmup_plateau_restores_completed_stop_state() -> None:
     assert resumed.warmup_steps == 2
     assert resumed.stop_after_lr_reductions == 3
     assert resumed.should_stop
+
+
+def test_start_wandb_uses_explicit_online_identity(monkeypatch, tmp_path) -> None:
+    captured = {}
+    defined_metrics = []
+    expected_run = SimpleNamespace(
+        define_metric=lambda *args, **kwargs: defined_metrics.append((args, kwargs))
+    )
+
+    def fake_init(**kwargs):
+        captured.update(kwargs)
+        return expected_run
+
+    monkeypatch.setitem(sys.modules, "wandb", SimpleNamespace(init=fake_init))
+    config = OmegaConf.create(
+        {
+            "run": {"phase": 1},
+            "wandb": {
+                "enabled": True,
+                "mode": "online",
+                "project": "AdaLigand_Matcher",
+                "group": "anchor_O_O_prime_v1_seed_3407_occ48",
+                "name": "anchor_O_O_prime_v1_seed_3407_occ48_phase1",
+                "log_every_n_steps": 10,
+            },
+        }
+    )
+
+    assert _start_wandb(config, tmp_path) is expected_run
+    assert captured["mode"] == "online"
+    assert captured["project"] == "AdaLigand_Matcher"
+    assert captured["group"] == "anchor_O_O_prime_v1_seed_3407_occ48"
+    assert captured["name"].endswith("phase1")
+    assert captured["dir"] == tmp_path.as_posix()
+    assert captured["resume"] == "never"
+    assert defined_metrics == [(("global_step",), {}), (("*",), {"step_metric": "global_step"})]
 
 
 def _tiny_matcher(phase: int) -> Matcher:
