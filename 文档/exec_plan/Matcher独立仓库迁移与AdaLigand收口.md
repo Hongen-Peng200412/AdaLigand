@@ -20,19 +20,22 @@
 - 2026-08-06：用户授权完整迁移、AdaLigand Git 收口、独立服务器目录、安全同步和后续低 F1 诊断；正式重训仍需展示最终 YAML 与 shell 后获得授权。
 - 2026-08-06：临时暂停两个 Stage1 heartbeat；服务器训练任务保持不变。
 - 2026-08-06：建立 `codex/adaligand-workspace-reconciliation`。通用调度器的 `--pre_hold/--after_hold` 改造通过 Pocket_Plus 9 项契约测试；统一 SSH 薄入口通过 PowerShell 语法和本机统一入口存在性检查。
+- 2026-08-06：AdaLigand 协调实现端点 `edb0c65` 与学习端点 `28eb6c3` 的 tree 均为 `4b1be98f7b55b6cc76493653b27fd848698608db`；`Learn/CUMULATIVE` 已快进并保持工作区干净。
+- 2026-08-06：独立 Matcher 实现端点 `75ad965` 与学习端点 `1cb04f9` 的 tree 均为 `8e43f2ff82b4d9edbed20ca674138d30bd8461a5`；单包回归 26 项通过，配置、Bash 与 PowerShell 静态门禁通过。
+- 2026-08-06：契约审查修正模式二指针漂移与模式一后处理误用；可读性审查去除旧两头整模语义、重复乱码文档和结果根双重来源。另确认旧验证按固定 slot 下标判分，与训练的同身份 Hungarian 交换不一致；独立仓库已改为同身份内最大正确匹配。
+- 2026-08-06：从 AdaLigand 活动树删除两个 Matcher Python 包、配置、正式训练入口和旧画像脚本；A–G、Stage1、BOX 契约、总体模型讨论、决策账本和旧执行证据保持不变。
 
 ## 后续步骤
 
-1. 把当前工作区的契约、执行记录、mapping 和项目记忆完整纳入 AdaLigand 实现线与学习线。
-2. 建立独立 Matcher 仓库，迁移当前实现并合并为单一 `matcher` 包。
-3. 运行路径级等价、单元测试、真实小样本和服务器隔离 smoke。
-4. 从 AdaLigand 活跃文件树移除 Matcher 可执行工程，更新跨仓库索引并归档旧工作树和本地分支。
-5. 恢复两个 Stage1 heartbeat。
-6. 诊断旧 Matcher 低 F1；科学契约变化在实现前单独请求决定。
+1. 完成 AdaLigand 本轮实现线提交与学习线等价收口。
+2. 恢复两个 Stage1 heartbeat。
+3. 把独立仓库安全同步到 `/home/penghongen/My_Project/Matcher`，完成服务器隔离 smoke；不运行删除式同步。
+4. 用旧 validation 和 checkpoint 离线量化固定 slot 指标的低估幅度，再决定模型或优化修改。
+5. 展示最终 YAML、shell 和无 `--time` 提交命令，获得用户授权后再提交正式重训。
 
 ## 计划与实现差异
 
-- 有益差异：尚未形成最终结论。
-- 中性差异：尚未形成最终结论。
-- 有害差异：尚未发现。
-- 未完成范围：独立仓库、单包整合、AdaLigand 删除、服务器隔离 smoke 与低 F1 诊断仍待执行。
+- 有益差异：双模式实现从旧整模继承收敛为单一六头模型；模式二指针冻结 occurrence ID；评估与身份内 Hungarian 契约一致。
+- 中性差异：Matcher 新输出与控制证据使用独立存储根，输入仍读取 AdaLigand 正式数据。
+- 有害差异：无已知未修复迁移偏差。
+- 未完成范围：AdaLigand 双线收口、automation 恢复、服务器隔离 smoke、旧 checkpoint 离线重算和正式重训。

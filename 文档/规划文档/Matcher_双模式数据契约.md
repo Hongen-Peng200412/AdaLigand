@@ -1,5 +1,7 @@
 # Matcher 双模式数据契约
 
+> 工程迁移说明（2026-08-06）：本文在 AdaLigand 中保留为生产方数据契约。当前 Dataset 与共同内存结构的实现位于 `C:\Users\15919\Desktop\Matcher\matcher`；下文 `matcher_v2` 表示迁移前的包名，仅用于追溯历史实现。
+
 本文规定 `matcher_v2` 两个 Dataset 返回的共同内存结构和各自的数据来源。盘上 A–G 与 Stage1 字段仍分别由 `Data_Preprocessing/Ori_Data/README.md` 和 `文档/讨论/BOX-level数据契约.md` 管理；本文不复制或改写生产方契约。
 
 ## 共同样本

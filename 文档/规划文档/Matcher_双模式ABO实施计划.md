@@ -1,5 +1,7 @@
 # Matcher 双模式 A/B/O 实施计划
 
+> 工程迁移说明（2026-08-06）：本文在 AdaLigand 中保留为跨 Stage1、Stage2、Stage3 的科学规划来源。当前实现已在 `C:\Users\15919\Desktop\Matcher` 合并为单一 `matcher/` 包；下文出现的 `matcher_v2/`、旧配置和旧训练入口只记录迁移前的路径，不再是 AdaLigand 的活动代码入口。
+
 本文规定新版 Stage2 Matcher 的当前目标行为。旧 `matcher/` 及其 Anchor O/O′ 训练只作为已经完成的工程 smoke，不是本文要求兼容的生产接口。新版代码位于 `matcher_v2/`，首先完整训练、推理和评估不依赖 Stage1 产物的 `ground_truth_context`，同时实现能够读取 Stage1 产物的 `stage1_context`。
 
 ## 目标与范围
