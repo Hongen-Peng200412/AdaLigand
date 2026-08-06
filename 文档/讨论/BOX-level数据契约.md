@@ -388,7 +388,7 @@ PDB 处理汇总状态只有 `completed`、`skipped_complete`、`skipped_running
 | `max_voxels` | `int`，候选组件体素数上限，包含端点 |
 | `connectivity` | `int`，固定为 `26` |
 
-默认 `denominator=32768`、`min_voxels=32`、`max_voxels=2046`，但消费者必须读取实际值。
+默认 `denominator=32768`、`min_voxels=10`、`max_voxels=2046`，但消费者必须读取实际值。同一 producer 的 calibration、validation 和 train 必须复用同一份冻结 `thresholds.json`，不得按数据划分覆盖 `min_voxels`。
 
 ### 5.3 `calibration/threshold_scan.npz`
 
@@ -416,12 +416,15 @@ PDB 处理汇总状态只有 `completed`、`skipped_complete`、`skipped_running
 - `voxel_average_precision_macro: float`；没有有效 PDB 时为 NaN
 - `n_valid_voxel_ap_pdb: int`
 - `n_total_pdb: int`
-- `semantic_dice_micro_t_F1: float`；先汇总全部 calibration PDB 的 TP、FP、FN，再按 `2TP/(2TP+FP+FN)` 计算；总分母为 0 时为 `0.0`
-- `semantic_dice_macro_t_F1: float`；逐 PDB 计算 Dice 后等权平均；单个 PDB 的分母为 0 时，该项按 `0.0` 进入平均
-- `semantic_tp_t_F1: int`；全部 calibration PDB 的 micro 汇总 TP
-- `semantic_fp_t_F1: int`；全部 calibration PDB 的 micro 汇总 FP
-- `semantic_fn_t_F1: int`；全部 calibration PDB 的 micro 汇总 FN
-- `n_blob_exceed_pdb: int`；统计 `t_F1` 合格组件数大于固定界限 200 的 PDB
+- `n_evaluated_pdb: int`；没有触发组件数上限、实际进入全部拟合评估指标的 PDB 数
+- `semantic_dice_micro_t_F1: float`；先汇总全部未超限 PDB 的 TP、FP、FN，再按 `2TP/(2TP+FP+FN)` 计算；总分母为 0 时为 `0.0`
+- `semantic_dice_macro_t_F1: float`；逐个未超限 PDB 计算 Dice 后等权平均；单个 PDB 的分母为 0 时，该项按 `0.0` 进入平均
+- `semantic_tp_t_F1: int`；全部未超限 PDB 的 micro 汇总 TP
+- `semantic_fp_t_F1: int`；全部未超限 PDB 的 micro 汇总 FP
+- `semantic_fn_t_F1: int`；全部未超限 PDB 的 micro 汇总 FN
+- `n_blob_exceed_pdb: int`；统计 `t_F1` 合格组件数大于固定界限 200、已从全部拟合指标排除的 PDB
+
+阈值扫描仍使用 calibration 清单中的全部可读概率图。冻结 `t_F1` 后才构建单层组件；触发组件数上限的 PDB 不以零分代替，也不进入平均精确率、Dice、实例或 top-K 指标的分子与分母。
 
 实例指标包括 `n_pred_instances: int`、`n_gt_instances: int`。对 `tag` 为 `0p3`、`0p5`，保存双向覆盖匹配和一对一匹配的精确率、召回率与 F1；字段名分别使用 `coverage_*` 和 `one_to_one_*`，类型均为 `float`。对 `K` 为 3、4、5，保存 `top{K}_success_{tag}: int` 与 `top{K}_success_ratio_{tag}: float`，并保存 `n_topk_eligible_pdb: int`；这些字段统计按组件平均概率排序的前 K 个预测中是否出现达标交集。
 
@@ -452,8 +455,18 @@ PDB 处理汇总状态只有 `completed`、`skipped_complete`、`skipped_running
 | `probability_max` | `float32 (N_node,)` | 节点最大概率 |
 | `candidate_eligible` | `bool (N_node,)` | `True` 表示可作为正式候选 |
 | `ineligible_reason_code` | `uint8 (N_node,)` | 候选资格原因码 |
+| `gauss_score` | `float32 (N_node,)`，可选 | 独立 Gauss scorer 的节点分数；只对具有对应 F1-centered A 原子表的来源节点为有限值，其余节点为 `NaN` |
+| `gauss_selected` | `bool (N_node,)`，可选 | 独立 Gauss scorer 的保留决定；没有有限 `gauss_score` 的节点固定为 `False` |
 
 `children_offsets[i:i+2]` 给出节点 `i` 在 `children_node_id` 中的半开区间；首值为 0，末值为 `L_child`。`node_voxel_offsets` 同理切分节点体素表，首值为 0，末值为 `L_voxel`。每个节点的体素编号在自己的段内升序且不重复。
+
+`gauss_score` 与 `gauss_selected` 必须同时存在或同时缺席。它们是 F1-centered 完成后的独立降级打分结果，不改写 `candidate_eligible`，也不改变 `clg.npz`、CLG-centered 或 Selector 的有效节点与候选集合。Gauss scorer 的四个正参数与固定 5 Å 截断保存在 producer 级 `gauss_scorer/calibration.json`，不重复写入每个 PDB。
+
+对具有 F1-centered A 表的来源节点 `j`，令 `d_ji` 为 A 原子 `i` 到来源预测 blob 最近体素中心的世界坐标距离，`p_i` 为 `A_probability`。当 `d_ji <= 5 Å` 时，`w_ji=exp(-d_ji²/(2*tau_angstrom²))`，否则权重为 0。正负项分别是 `sum_i(w_ji*p_i)` 与 `sum_i(w_ji*(1-p_i))`，均直接求和、不归一化；`gauss_score` 等于 `probability_mean + lambda_positive*positive_sum - lambda_negative*negative_sum`，`gauss_selected` 等于该分数不小于 `gauss_score_min`。
+
+Gauss scorer 使用与 GPU 主线相同的 PDB 根目录 `_RUNNING` 租约，并对每个 PDB 独立原子替换 forest。前置 `probability`、`components` 或 `F1_centered` 尚未完成时，该 PDB 只记为待补；租约已被其他生产者持有时只记为跳过。两种情况都不改变现有文件，CPU 任务继续处理清单中的其他静止 PDB。以后按相同清单和分片重复执行即可增量补齐；已经存在的两个 Gauss 字段只有与冻结参数重算结果逐值相同时才视为幂等完成。
+
+正式参数位于 producer 级 `{output_root}/Find_0/gauss_scorer/calibration.json`。calibration、validation 与 train 必须复用同一份 `selected_parameters`；参数搜索明细、验收哈希和 Slurm 运行记录不属于 PDB 产物契约，不能写入 `forest.npz`。
 
 原因码：
 
@@ -578,7 +591,7 @@ PDB 处理汇总状态只有 `completed`、`skipped_complete`、`skipped_running
 | `A_feat_L2` | `float16 (L_A,C_L2)` | `outputs["A_feat_L2"]`；真实原子密度调制完成后送入点骨干网络的 A 输入表示 |
 | `A_feat_L3` | `float16 (L_A,C_L3)` | `outputs["real_feat_before_interaction"]`；点骨干网络处理完成、A↔P 交叉注意力发生之前的 A 最终表示 |
 
-`A_offsets` 首值为 0，末值等于八个 A 值表长度。A 表保存 80³ 核心与来源组件 10 Å 包络的交集。Selector 直接读取已持久化的 `A_feat_L0`；`A_global_index` 继续承担身份追踪，不再用于二次加载原始特征。
+`A_offsets` 首值为 0，末值等于八个 A 值表长度。这里的来源组件是当前 centered 条目对应的预测 blob：F1 使用来源 F1 节点，CLG 使用最老来源节点，Selected 使用被选中的来源节点。A 表保存完整受体原子表中同时位于 80³ 核心内并落入该预测 blob 体素集合 10 Å 包络的原子。Selector 直接读取已持久化的 `A_feat_L0`；`A_global_index` 继续承担身份追踪，不再用于二次加载原始特征。
 
 Stage1-Find 前向计算仍可产生交叉注意力后的 `A_feat_L4` 与 `P_feat_L4`，但 centered 归档不保存这两组张量。Selector 只读取本节列出的 L3 及以前特征；A/P 分类概率仍使用 Stage1-Find 原有分类头结果。
 

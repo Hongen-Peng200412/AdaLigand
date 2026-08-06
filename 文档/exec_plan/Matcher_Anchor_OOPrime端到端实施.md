@@ -131,3 +131,33 @@ D:\Anaconda\envs\Pocket_Plus_windows\python.exe -m pytest matcher/tests -q
 - 修复后的完整训练集 epoch-0 候选准备约用 59 分钟；该时间发生在 60 分钟正式测量窗口之前，不得被平均 DataLoader 等待时间掩盖。后续 3602.322 秒测量完成 708 个正式 Phase2 优化步、2,755 个 PDB 和 37,925 个 occurrence；平均 batch wall time 为 5.0880 秒，其中优化步 5.0606 秒、数据等待 0.02744 秒，折合 1.3076 秒/PDB 和 0.09499 秒/occurrence。结果为 `status=ok`、无 OOM，allocated/reserved 峰值为 71.150/72.910 GiB；物理显存仍有约 6.4 GiB 余量，但严格的 72 GiB 人工门槛超出 0.910 GiB，因此必须如实记为 `within_memory_limit=false`。
 - 真正的 `9cpk` 冻结样本含 64 个 occurrence、177 个候选框和 106044 个 A 原子。数据组装为 3.137 秒，完整 Phase2 优化步为 9.476 秒，allocated/reserved 峰值为 48.873/49.775 GiB，无 OOM 且通过 72 GiB 门槛。更重的 `9kdv` 既有结果仍为 13.007 秒和 69.942/71.383 GiB。
 - Job `335261` 的所有画像结果核对后，在 `try_lock` 空闲态删除精确 `after_lock_335261`；作业以 `COMPLETED 0:0` 结束，总 allocation 用时 6 小时 32 分 57 秒。该 simple 工作台不会被复用为正式训练；正式训练仍未启动，必须先展示 YAML、shell 和无 `--time` 的 A800 提交命令并获得用户明确授权。
+
+## 2026-08-04：正式 Phase1/Phase2 训练已授权提交
+
+- 用户在审阅正式 Phase1/Phase2 YAML、`train_anchor_O_O_prime.sh` 和无 `--time` 的 A800 命令后，明确授权启动正式训练。用户同时确认 72.910 GiB reserved 相对 72 GiB 的小偏差不构成启动阻断。
+- 提交前门禁确认正式输出根 `/storage/penghongen/AdaLigand/Results/matcher/anchor_O_O_prime_v1/seed_3407` 不存在，且没有同名 Matcher Job。实际命令使用 `a800`、1 GPU、16 CPU、QOS `cpu96`、完整 release/launch 模式，没有 `--simple`、`--hold` 或 `--time`。已核对该 Job 实际读取的服务器旧四锁 runner：任务成功、失败或 `kill_lock` 中断后都会创建 `try_lock_335493` 并保留 allocation。作业启动前不得同步那套改为“默认自动释放”的未提交调度器改动。
+- Slurm 返回正式 Job `335493`，作业名 `matcher_anchor_OOprime_v1`。提交后首次核对为 `PENDING (Priority)`，`Partition=nvlink`、`QOS=cpu96`、`TresPerNode=gres:gpu:a800:1`、`NumCPUs=16`、`TimeLimit=UNLIMITED`；正式输出根尚未创建。release 与 launch 依项目调度契约在作业实际执行前才冻结，不在排队时伪造。
+- 已创建只绑定当前对话 `codex://threads/019fc69d-c101-7d20-9ab2-4d16e4433419` 的 heartbeat `matcher`。排队阶段每 3 小时检查一次，不计入训练健康次数；检测到首次 `RUNNING` 后自动改为每 30 分钟一次。实际训练连续三次健康后再改为每 5 小时一次；监控不得修改、取消或重提任务，也不得删除 `try_lock_335493` 或对应 `after_lock`。
+
+## 2026-08-04：正式 Job 进入运行与首次启动核对
+
+- Job `335493` 于 `2026-08-04 05:09:07 +0800` 在 `gnode10` 进入 `RUNNING`。heartbeat 已按约定从排队期每 3 小时改为每 30 分钟；本次只是首次运行状态核对，尚未计为一次完成优化步后的训练健康检查。
+- release 已冻结为 `AdaLigand_edd59b6263cb`，launch 已冻结为 `train_anchor_O_O_prime_job335493_20260804T051115_a1`。`after_lock_335493` 存在，正式 Phase1 配置已写入输出根的 `phase1/resolved_config.yaml`；未发现 NaN、OOM、Traceback 或其他错误。
+- 首次核对时训练进程位于 `AnchorPocketDataset.set_epoch(0) -> prepare_epoch -> sample_candidate_starts -> _A_indices`，正在逐 PDB 读取 `exp.npz` 并准备 epoch 0 候选。10 秒内底层读取量从约 83.85 GiB 增至 84.43 GiB，说明进程持续前进而非挂死；此阶段尚未进入 GPU 优化步，因此 A800 暂时空闲。此前同一完整训练清单的候选准备实测约 59 分钟，本次行为与该已知启动成本一致。
+- `06:03` 后 epoch 0 候选准备完成：保留 12,678 个 PDB，按既定样本收集边界跳过 203 个零候选 PDB；得到 161,759 个 bias 候选和 179,602 个被接受的 context 候选。随后 Phase1 已连续写出前三个正式优化步，`loss_total` 分别为 1.9133、1.3785、1.4448，所有分项有限；A800 已由主训练进程占用约 25.8 GiB。未发现 NaN、OOM、Traceback 或异常退出，本次记为连续训练健康核对 `1/3`。
+- 连续三次训练健康核对已完成，heartbeat 按约定改为每 5 小时。第三次核对时 Phase1 已到 `global_step=753`，A800 约占用 75.5 GiB 且持续计算；未发现 NaN、OOM、Traceback 或错误。
+- `global_step=684` 完成首次验证并保存约 941 MB 的 checkpoint。当前 `BEST.json` 指向 `checkpoint_step_00000684.pt`：`F1_O_O_prime=0.08603167`、precision `0.13746224`、recall `0.06260750`、`O_threshold=0.04`。这是训练早期的首个验证坐标，不作为最终效果结论。
+- 后续四次验证的 F1 依次为：step 1368 的 `0.11188`、step 2052 的 `0.13414`、step 2736 的 `0.13656`、step 3419 的 `0.14742`，每次都产生新的 BEST。当前 BEST 为 step 3419：precision `0.21019`、recall `0.11352`、`O_threshold=0.01`；验证损失相对首次从 `49.74` 降至 `46.33`。Phase1 已进入 epoch 1 并推进至约 step 3682。
+- 本次 GPU 快照显示训练主进程约占用 80,122 MiB，接近 A800 80 GiB 容量，但作业仍持续计算且没有 OOM。该值是 `nvidia-smi` 的进程占用快照，不等同于 PyTorch 的 allocated/reserved 峰值；当前不据此改动配置，只在后续 heartbeat 继续观察。
+- Phase1 在 epoch 1 完成 `global_step=4069` 后，于下一批次的 backward 发生 CUDA OOM。异常位于 activation checkpoint 重算 A 图网络的边更新 `LayerNorm`；当时 PyTorch 已分配 78.11 GiB、保留但未分配 643.63 MiB，只剩 63.81 MiB 可用，而该算子还需 494 MiB。该证据说明本次失败主要是实际 batch 图规模超过显存容量，不是大量未使用 reserved 内存造成的碎片。
+- 训练进程已经退出，Phase2 尚未开始；最后可用 BEST 仍为 step 3419、F1 `0.14742`。旧四锁 runner 已创建 `try_lock_335493`，并保留原有 `after_lock_335493`，所以 Slurm Job 仍为 `RUNNING`、A800 allocation 未释放且 GPU 当前空闲。监控没有删除任何锁、重提任务或修改配置，等待用户决定诊断与续跑边界。
+
+## 2026-08-04：显存安全协议与在线 W&B 的第二次正式执行
+
+- 用户授权从头重新训练，不续接第一次执行的 checkpoint，并要求启用 W&B 在线同步。第二次实验保留 `map_channels=[24,48,72,96]`、图结构、模型参数、标签、O/O′/辅助损失公式和完整候选集合；显存安全训练协议把 `occurrence_budget_per_batch` 从 64 改为 48、`map_candidate_chunk_size` 从 64 改为 32、开启 Map activation checkpoint，并把 Phase2 的 `fine_pair_chunk_size` 从 2048 改为 1024。
+- `occurrence_budget_per_batch=48` 不只是纯执行分块：它同时改变 PDB 装箱、损失固定除数、每 epoch 优化步数和 warmup 步数，因此使用新实验身份与输出根 `/storage/penghongen/AdaLigand/Results/matcher/anchor_O_O_prime_v1/seed_3407_occ48/`。旧失败根 `seed_3407/` 保持不变。
+- W&B 只在正式配置 `wandb.enabled=true` 时延迟导入并以 `mode=online` 初始化；Phase1/Phase2 分别使用 run name `anchor_O_O_prime_v1_seed_3407_occ48_phase1` 和 `..._phase2`，共同归入项目 `AdaLigand_Matcher`、group `anchor_O_O_prime_v1_seed_3407_occ48`。候选统计、训练 loss 与验证指标都携带 `global_step`，W&B 内部提交顺序不替代 `events.jsonl`。W&B 初始化后重新设置 seed，避免第三方初始化影响 Dataset、模型和优化器随机状态。
+- 本地完整 Matcher 回归为 43 项通过、1 项 CUDA 专项跳过；服务器定向训练测试为 5 项通过。契约与可读性双审查最终均无阻断。实现端点为 `codex/matcher-oom-recovery@1eba879`，学习端点与累计学习分支为 `Learn/CUMULATIVE@a4dde27`，两端 tree 均为 `e57762b7819dc80fe99a99cdd946e16a0af42db9`。
+- 保留 allocation 内确认 W&B `0.17.3`、API key 已配置、`api.wandb.ai:443` 可连接。安全同步虽然因本地 120 秒命令上限退出，但服务器五个目标文件的 SHA-256 与学习端点逐一相同，随后服务器定向测试通过，因此同步证据完整。
+- 在新输出根不存在、训练进程为空、`try_lock_335493` 与 `after_lock_335493` 身份正确时，只删除精确的 `try_lock_335493`。第二次执行冻结 release `AdaLigand_1126746ccd75`，launch 为 `train_anchor_O_O_prime_job335493_20260804T194729_a2`；Phase1 的 `resolved_config.yaml` 已写出，W&B online run ID 为 `93omhb5u`。当前处于 epoch 0 候选准备期，heartbeat 已重新设为每 30 分钟，实际优化连续三次健康后再改为每 5 小时。
+- 第二次执行的 epoch 0 候选准备已经完成：保留 12,678 个 PDB，按既定边界跳过 203 个零候选 PDB；得到 161,759 个 bias 候选，180,268 个 context 请求中接受 179,602 个。Phase1 随后推进到 `global_step=177`，最近 `loss_total=1.30499`，O、O′ 与辅助损失均为有限值；未发现 NaN、OOM 或 Traceback。最近 GPU 快照约占用 35.4 GiB，本次记为第二次执行的连续训练健康核对 `1/3`。

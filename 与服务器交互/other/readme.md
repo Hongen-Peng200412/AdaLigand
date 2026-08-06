@@ -58,11 +58,27 @@ adaligand_stage1.egg-info/
 
 ## AI helper 使用纪律
 
-`other\Invoke-PasswordSsh.ps1` 用于轻量远端命令、只读探测或把本地 LF 行尾的 bash 脚本通过 stdin 送给远端 `bash -s`。
+`other\Invoke-PasswordSsh.ps1` 是项目薄入口，实际调用本机统一入口 `%USERPROFILE%\.codex\tools\Invoke-ProjectSsh.ps1`。统一入口默认读取本机私有密码文件 `%USERPROFILE%\.ssh\pocket_plus_sshpass.txt`，因此 AI agent 不需要把密码写入命令。
+
+执行轻量远端命令：
+
+```powershell
+& ".\与服务器交互\other\Invoke-PasswordSsh.ps1" -Command "hostname"
+```
+
+把 LF 行尾的本地 bash 脚本交给服务器执行：
+
+```powershell
+& ".\与服务器交互\other\Invoke-PasswordSsh.ps1" `
+  -Command "bash -s" -InputFile ".\tmp\probe.sh"
+```
 
 注意：
 
-- 不把密码写入项目文件。
+- 统一入口固定使用 `StrictHostKeyChecking=yes`；未知或变化的主机密钥必须停止并由人类核验。
+- 只对认证前断连、连接重置、拒绝和超时进行有限退避重试；认证失败不重试。
+- 若连接在 SSH 协议横幅或密钥交换前持续关闭，先关闭或调整 ATrust 等 VPN 后重试；本机已确认 ATrust 会干扰该私网地址的新连接。
+- 密码只存在于本机私有文件和 SSH 子进程的临时环境中，不写入项目、release、日志或服务器。
 - 不用 helper 跑正式数据处理、模型训练或重型推理。
 - 远端写入默认只允许在用户明确授权的位置进行。
 - `-InputFile` 传给远端 bash 时必须使用 LF 行尾。
