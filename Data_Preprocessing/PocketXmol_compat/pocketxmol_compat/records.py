@@ -14,6 +14,7 @@ class AdaptRequest:
     stage_c_root: Path
     output_root: Path
     pocketxmol_root: Path
+    ccd_audit_path: Path
     pdb_id: str
     candidate_id: int
     split: str

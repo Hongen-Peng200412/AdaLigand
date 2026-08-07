@@ -21,6 +21,9 @@ from pocketxmol_compat.receptor import build_receptor_products
 from pocketxmol_compat.records import AdaptRequest, AdaptResult
 
 
+ADAPT_RECORD_SCHEMA_VERSION = 2
+
+
 def adapt_occurrence(request: AdaptRequest) -> AdaptResult:
     """适配一个 `(pdb_id, candidate_id)`，并在最后写完成标记。"""
 
@@ -37,7 +40,12 @@ def adapt_occurrence(request: AdaptRequest) -> AdaptResult:
         )
     occurrence = matches[0]
     with np.load(parse_dir / "ligand_coords.npz", allow_pickle=False) as coords_archive:
-        ligand = load_and_audit_ligand(request.stage_c_root, occurrence, coords_archive)
+        ligand = load_and_audit_ligand(
+            request.stage_c_root,
+            occurrence,
+            coords_archive,
+            request.ccd_audit_path,
+        )
 
     common = {
         "pdb_id": pdb_id,
@@ -162,6 +170,8 @@ def _load_cached_result(request: AdaptRequest, pdb_id: str) -> AdaptResult | Non
 
     with path.open("r", encoding="utf-8") as stream:
         payload = json.load(stream)
+    if payload.pop("record_schema_version", None) != ADAPT_RECORD_SCHEMA_VERSION:
+        return None
     payload["reasons"] = tuple(payload.get("reasons", []))
     result = AdaptResult(**payload)
     for eligible, relative in (
@@ -179,7 +189,10 @@ def _load_cached_result(request: AdaptRequest, pdb_id: str) -> AdaptResult | Non
 def _finish_result(request: AdaptRequest, result: AdaptResult) -> AdaptResult:
     """把单实例结果作为缓存的最后一步原子写入。"""
 
-    atomic_write_json(_result_path(request, result.pdb_id), result.to_json())
+    atomic_write_json(
+        _result_path(request, result.pdb_id),
+        {"record_schema_version": ADAPT_RECORD_SCHEMA_VERSION, **result.to_json()},
+    )
     return result
 
 
@@ -193,6 +206,7 @@ def _source_metadata(
 
     return {
         "source_stage_c_root": str(request.stage_c_root.resolve()),
+        "source_chemistry_audit": str(request.ccd_audit_path.resolve()),
         "source_split": request.split,
         "pdb_id": request.pdb_id.lower(),
         "candidate_id": request.candidate_id,

@@ -12,12 +12,19 @@
 
 | 参数 | 当前读取内容 |
 | --- | --- |
-| `--stage-c-root` | A–G 产物根目录。读取 `parse/{pdb_id}/occurrences.jsonl`、`parse/{pdb_id}/ligand_coords.npz`、`ligand_objects/*.npz`、`parse/{pdb_id}/receptor_tokens.npz`、`raw/ccd_cache/*.pkl` 和 `raw/rcsb_mmcif/{pdb_id}.cif`。 |
+| `--stage-c-root` | A–G 产物根目录。主适配器读取 `parse/{pdb_id}/occurrences.jsonl`、`parse/{pdb_id}/ligand_coords.npz`、`ligand_objects/*.npz`、`parse/{pdb_id}/receptor_tokens.npz` 和 `raw/rcsb_mmcif/{pdb_id}.cif`；不会读取 CCD pickle。 |
 | `--pocketxmol-root` | 未修改的 PocketXMol 官方源码根目录。当前只按文件位置加载 `process/process_torsional_info.py`，预期源码提交为 `65488cf635c856101dbe703ac97e2f10f58e005c`。适配器记录这个预期提交，但不检查实际 Git 工作树。 |
 | `--output-root` | 两套实例缓存、两份资格清单和审计报告的共同输出目录。 |
+| `--ccd-audit` | 必需参数。指向先在 A–G 原始环境生成的版本中立 `source_chemistry_audit.json`；主适配器只读取该 JSON。 |
 | `--split NAME=PATH` | 可重复传入 `train`、`validation` 或 `calibration`。`PATH` 可以是 JSONL，也可以是内容为列表的 JSON；每个元素必须包含 `pdb_id` 和 `candidate_id`。 |
 
 所有 `--split` 合并后，任意 `(pdb_id, candidate_id)` 只能出现一次。重复实例即使位于不同数据划分也会终止命令。适配器只从清单继承数据划分，不重新划分实例。
+
+## 两阶段 CCD 化学审计
+
+A–G 的 `raw/ccd_cache/*.pkl` 由较新 RDKit 写出，PocketXMol 固定环境中的较旧 RDKit 不能可靠反序列化。`adaligand-pocketxmol-ccd-audit` 必须先在产生这些 pickle 的 A–G 环境运行。它只收集冻结清单实际选中 occurrence 的 `components[].ccd_id`，重复 component 只审计一次；未选实例和未涉及 CCD 不会被扫描。
+
+审计 JSON 为每个 CCD 保存实际 RDKit 键型名称集合、`supported` 布尔值和可读的 `error`。只有 `SINGLE`、`DOUBLE`、`TRIPLE`、`AROMATIC` 受支持；`DATIVE` 和其他未知名称属于已知不支持。pickle 缺失、版本不兼容或对象不可读属于来源化学不可验证。JSON 不保存 RDKit 对象、RDKit 版本绑定字节或内容哈希。
 
 ## 资格过滤
 
@@ -32,6 +39,7 @@
 | `incomplete_heavy_atom_coordinates` | 任一 A–G 模板原子的 `present` 为 False，或沉积 XYZ 坐标包含非有限值。适配器不从 CCD 或 RDKit 参考构象补坐标。 |
 | `unsupported_element` | 配体含官方 11 种元素以外的元素。允许顺序为 `C, N, O, F, P, S, Cl, B, Br, I, Se`，对应原子序数 `6,7,8,9,15,16,17,5,35,53,34`。 |
 | `unsupported_bond_type` | A–G 键不是唯一的单键、双键、三键或芳香键，或者原始 CCD RDKit 模板包含其他键型。配位键不会猜测为单键。 |
+| `source_chemistry_unverifiable` | occurrence 的 component 缺少 CCD id、审计 JSON 缺少对应 CCD 记录，或记录包含 pickle 缺失、版本不兼容等可读错误。该原因不同于已经确认存在不支持键型。 |
 | `peptide_contract_not_lossless` | `peptide_like` 不能无歧义重建官方肽字段。当前只接纳单链、20 种标准氨基酸、残基编号连续、每个残基具有唯一 `N/CA/C/O` 原子名，并且相邻残基间仅存在顺序 `C—N` 连接的线性肽。 |
 | `official_motion_preprocess_failed` | 官方 `get_torsional_info_mol` 调用抛出异常。该原因表示两套实例产物都不生成。 |
 | `nucleic_acid_in_official_training_pocket` | 按 `<10 Å` 规则选中的完整受体残基中含核酸。 |
@@ -63,6 +71,7 @@
 │   └── extended_contract_eligible.jsonl
 ├── records/<split>/<pdb_id>_<candidate_id>.json
 └── reports/
+    ├── source_chemistry_audit.json
     ├── adaptation_audit.jsonl
     └── summary.json
 ```
@@ -95,7 +104,19 @@
 
 ## 安装与运行
 
-当前包依赖 A–G 的 `adaligand_preprocessing`，并因为直接加载官方运动学模块而需要 PocketXMol 的 PyTorch、PyTorch Geometric、LMDB、Pandas、RDKit、Gemmi、NetworkX 和 tqdm 依赖。应在 PocketXMol 兼容环境中先安装 A–G 包，再安装本目录：
+完整适配器依赖 A–G 的 `adaligand_preprocessing`，并因为直接加载官方运动学模块而需要 PocketXMol 的 PyTorch、PyTorch Geometric、LMDB、Pandas、RDKit、Gemmi、NetworkX 和 tqdm 依赖。CCD 审计入口不会导入这些完整适配器模块，只要求运行环境能够反序列化 A–G 自己生成的 RDKit pickle。服务器脚本通过 `PYTHONPATH` 使用同一份源码，不升级两个既有环境。
+
+手动运行时，第一条命令必须在 A–G 原始环境执行：
+
+```powershell
+adaligand-pocketxmol-ccd-audit `
+  --stage-c-root D:\data\AdaLigand\Ori_Data `
+  --split train=D:\manifests\train.jsonl `
+  --split validation=D:\manifests\validation.jsonl `
+  --output D:\data\AdaLigand\PocketXMol_compat\reports\source_chemistry_audit.json
+```
+
+随后切换到 PocketXMol 兼容环境。若选择安装包，应先安装 A–G 包，再安装本目录：
 
 ```powershell
 python -m pip install -e ..\Ori_Data
@@ -109,6 +130,7 @@ adaligand-pocketxmol-adapt `
   --stage-c-root D:\data\AdaLigand\Ori_Data `
   --output-root D:\data\AdaLigand\PocketXMol_compat `
   --pocketxmol-root C:\Users\15919\Desktop\PocketXMol `
+  --ccd-audit D:\data\AdaLigand\PocketXMol_compat\reports\source_chemistry_audit.json `
   --split train=D:\manifests\train.jsonl `
   --split validation=D:\manifests\validation.jsonl `
   --split calibration=D:\manifests\calibration.jsonl `
@@ -129,6 +151,8 @@ python -m pytest
 
 当前测试覆盖：
 
+- 清单只涉及 CCD 的去重审计，以及支持键、配位键、未知键和缺失 pickle 的分类；
+- 主适配阶段只读取审计 JSON，不调用 CCD `pickle.load`；
 - 线性标准肽的无损准入和环化肽拒绝；
 - 无向 A–G 键转换为排序后的双向 PocketXMol 键；
 - 官方氨基酸编号与肽序列重建；

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import pickle
 from typing import Any
 
 import numpy as np
@@ -18,6 +17,7 @@ from pocketxmol_compat.constants import (
     BACKBONE_ATOM_NAMES,
     LIGAND_ATOMIC_NUMBERS,
 )
+from pocketxmol_compat.ccd_audit import source_chemistry_reasons
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,7 @@ def load_and_audit_ligand(
     stage_c_root: Path,
     occurrence: dict[str, Any],
     coords_archive: np.lib.npyio.NpzFile,
+    ccd_audit_path: Path,
 ) -> LigandAudit:
     """加载一个 occurrence，并执行 Phase 1 已冻结的配体过滤规则。"""
 
@@ -78,8 +79,7 @@ def load_and_audit_ligand(
             reasons.append("unsupported_bond_type")
             break
 
-    if not source_bond_types_are_supported(stage_c_root, occurrence):
-        reasons.append("unsupported_bond_type")
+    reasons.extend(source_chemistry_reasons(occurrence.get("components"), ccd_audit_path))
 
     if str(occurrence.get("type_tag", "")) == "peptide_like":
         peptide_reason = audit_peptide_fields(
@@ -147,27 +147,6 @@ def audit_peptide_fields(
     if normalized_edges != expected_edges or len(inter_residue_edges) != len(expected_edges):
         return "peptide_contract_not_lossless"
     return None
-
-
-def source_bond_types_are_supported(stage_c_root: Path, occurrence: dict[str, Any]) -> bool:
-    """回读 CCD RDKit 模板，避免既有对象把未知键型静默压成 single。"""
-
-    allowed = {"SINGLE", "DOUBLE", "TRIPLE", "AROMATIC"}
-    components = occurrence.get("components", [])
-    if not isinstance(components, list) or not components:
-        return False
-    for component in components:
-        ccd_id = str(component.get("ccd_id", "")).upper()
-        cache_path = stage_c_root / "raw" / "ccd_cache" / f"{ccd_id}.pkl"
-        try:
-            with cache_path.open("rb") as stream:
-                mol = pickle.load(stream)
-        except (OSError, pickle.PickleError, AttributeError, EOFError):
-            return False
-        heavy_mol = Chem.RemoveHs(mol, sanitize=False)
-        if any(bond.GetBondType().name.upper() not in allowed for bond in heavy_mol.GetBonds()):
-            return False
-    return True
 
 
 def ligand_native_arrays(audit: LigandAudit) -> dict[str, np.ndarray]:

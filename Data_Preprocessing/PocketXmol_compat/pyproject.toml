@@ -22,6 +22,7 @@ dependencies = [
 
 [project.scripts]
 adaligand-pocketxmol-adapt = "pocketxmol_compat.cli:main"
+adaligand-pocketxmol-ccd-audit = "pocketxmol_compat.ccd_audit:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

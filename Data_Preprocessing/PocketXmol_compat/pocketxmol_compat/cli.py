@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -11,8 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from pocketxmol_compat.adapter import adapt_occurrence
-from pocketxmol_compat.io import atomic_write_json, read_jsonl, write_jsonl
+from pocketxmol_compat.ccd_audit import load_ccd_audit
+from pocketxmol_compat.io import atomic_write_json, write_jsonl
 from pocketxmol_compat.records import AdaptRequest, AdaptResult
+from pocketxmol_compat.selection import load_selections
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,6 +23,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stage-c-root", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--pocketxmol-root", type=Path, required=True)
+    parser.add_argument(
+        "--ccd-audit",
+        type=Path,
+        required=True,
+        help="由 A–G 环境生成的 source_chemistry_audit.json。",
+    )
     parser.add_argument(
         "--split",
         action="append",
@@ -43,13 +50,15 @@ def main(argv: list[str] | None = None) -> int:
     """执行批量适配；未知内部错误进入审计文件并令进程返回非零。"""
 
     args = build_parser().parse_args(argv)
-    selections = _load_selections(args.split)
+    selections = load_selections(args.split)
+    load_ccd_audit(args.ccd_audit.resolve())
     workers = args.workers or (os.cpu_count() or 1)
     requests = [
         AdaptRequest(
             stage_c_root=args.stage_c_root,
             output_root=args.output_root,
             pocketxmol_root=args.pocketxmol_root,
+            ccd_audit_path=args.ccd_audit,
             pdb_id=str(row["pdb_id"]),
             candidate_id=int(row["candidate_id"]),
             split=str(row["split"]),
@@ -110,35 +119,6 @@ def main(argv: list[str] | None = None) -> int:
         },
     )
     return 2 if errors else 0
-
-
-def _load_selections(specifications: list[str]) -> list[dict[str, Any]]:
-    """读取 `NAME=PATH` 清单并只保留实例身份与既有划分。"""
-
-    output: list[dict[str, Any]] = []
-    seen: set[tuple[str, int]] = set()
-    for specification in specifications:
-        if "=" not in specification:
-            raise ValueError(f"invalid --split value: {specification!r}")
-        split, raw_path = specification.split("=", 1)
-        if split not in {"train", "validation", "calibration"}:
-            raise ValueError(f"unsupported split: {split!r}")
-        path = Path(raw_path)
-        if path.suffix.lower() == ".jsonl":
-            rows = read_jsonl(path)
-        else:
-            with path.open("r", encoding="utf-8") as stream:
-                payload = json.load(stream)
-            if not isinstance(payload, list):
-                raise ValueError(f"split JSON must contain a list: {path}")
-            rows = payload
-        for row in rows:
-            key = (str(row["pdb_id"]).lower(), int(row["candidate_id"]))
-            if key in seen:
-                raise ValueError(f"duplicate or cross-split instance: {key[0]}:{key[1]}")
-            seen.add(key)
-            output.append({"pdb_id": key[0], "candidate_id": key[1], "split": split})
-    return output
 
 
 if __name__ == "__main__":

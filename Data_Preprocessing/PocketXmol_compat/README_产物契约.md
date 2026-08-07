@@ -17,6 +17,32 @@
 
 正式代码不计算输入文件或缓存内容哈希。`source.json` 保存可读来源路径和预期 PocketXMol Git 提交，但不证明运行时源码工作树与该提交相等。
 
+## `reports/source_chemistry_audit.json`
+
+该文件必须由 A–G 原始环境中的 `adaligand-pocketxmol-ccd-audit` 生成。它是主适配器的必需输入，使 PocketXMol 固定 RDKit 环境不必反序列化由其他 RDKit 版本写出的 CCD pickle。顶层字段如下：
+
+| 字段 | JSON 类型 | 语义 |
+| --- | --- | --- |
+| `schema` | string | 固定为 `adaligand.pocketxmol.source_chemistry_audit`。 |
+| `schema_version` | integer | 当前固定为 `1`。 |
+| `allowed_bond_type_names` | list[string] | 固定允许集合按字典序保存：`AROMATIC, DOUBLE, SINGLE, TRIPLE`。 |
+| `source_stage_c_root` | string | 生成审计时 A–G 产物根目录的已解析绝对路径。 |
+| `selection_manifests` | list[object] | 每项含 `split` 和已解析的 `path`；仅说明本次选择来源，不包含内容哈希。 |
+| `selected_instance_count` | integer | 合并清单后的唯一 `(pdb_id, candidate_id)` 数量。 |
+| `ccd_count` | integer | `ccd_records` 数量。重复 component 和跨实例重复 CCD 只计一次。 |
+| `ccd_records` | list[object] | 按 `ccd_id` 排序的逐 CCD 审计记录。 |
+
+每个 `ccd_records` 元素具有以下字段：
+
+| 字段 | JSON 类型 | 语义 |
+| --- | --- | --- |
+| `ccd_id` | string | 大写 CCD id。 |
+| `bond_type_names` | list[string] | 从反序列化后的 RDKit Mol 所有键读取的实际 `BondType.name` 去重集合，按字典序保存。无键分子或读取失败时为空。 |
+| `supported` | boolean | 只有读取成功且实际名称全部属于允许集合时为 True；因此无键分子读取成功时为 True。 |
+| `error` | string 或 null | 读取和检查成功时为 null；否则保存 `<异常类型>: <异常文本>`，供人工定位缺文件、版本不兼容或对象损坏。 |
+
+主适配器按 occurrence 的 `components[].ccd_id` 查询该文件。记录存在、`error=null` 且 `supported=false` 时使用 `unsupported_bond_type`；component 身份缺失、记录缺失或 `error` 非空时使用 `source_chemistry_unverifiable`。主适配器不会回退读取 `raw/ccd_cache/*.pkl`。
+
 ## `pocketxmol_native/<split>/<instance>/arrays.npz`
 
 ### 配体与化学键
@@ -96,6 +122,7 @@
 | 字段 | JSON 类型 | 语义 |
 | --- | --- | --- |
 | `source_stage_c_root` | string | 运行时 `--stage-c-root` 的已解析绝对路径。 |
+| `source_chemistry_audit` | string | 运行时 `--ccd-audit` 的已解析绝对路径。它是可读来源位置，不是内容哈希。 |
 | `source_split` | string | `train`、`validation` 或 `calibration`。 |
 | `pdb_id` | string | 小写 PDB 标识。 |
 | `candidate_id` | integer | A–G occurrence 编号。 |
@@ -135,7 +162,7 @@
 
 ### `records/<split>/<instance>.json`
 
-单实例记录使用下述“正常适配记录”schema。它在该实例的严格/扩展目录完成标记之后原子写入；被过滤而不生成实例目录的记录也会写入。未传 `--overwrite` 时，记录是续跑判据：若它声称某套产物可用，对应相对目录必须仍有 `complete.json`，否则适配器以内部错误停止该实例，不把不完整目录静默当成缓存命中。
+单实例记录使用下述“正常适配记录”schema，并额外含整数 `record_schema_version=2`。版本 `2` 表示配体来源化学资格来自外部 CCD 审计 JSON；缺少该字段的旧记录不会成为缓存命中。记录在该实例的严格/扩展目录完成标记之后原子写入；被过滤而不生成实例目录的记录也会写入。未传 `--overwrite` 时，记录是续跑判据：若它声称某套产物可用，对应相对目录必须仍有 `complete.json`，否则适配器以内部错误停止该实例，不把不完整目录静默当成缓存命中。
 
 ### 正常适配记录
 

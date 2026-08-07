@@ -10,7 +10,16 @@ from pocketxmol_compat.records import AdaptRequest, AdaptResult
 
 
 def _request(tmp_path: Path, overwrite: bool = False) -> AdaptRequest:
-    return AdaptRequest(tmp_path / "source", tmp_path / "output", tmp_path / "official", "1ABC", 7, "train", overwrite)
+    return AdaptRequest(
+        stage_c_root=tmp_path / "source",
+        output_root=tmp_path / "output",
+        pocketxmol_root=tmp_path / "official",
+        ccd_audit_path=tmp_path / "source_chemistry_audit.json",
+        pdb_id="1ABC",
+        candidate_id=7,
+        split="train",
+        overwrite=overwrite,
+    )
 
 
 def _result(native_path: str | None = None) -> AdaptResult:
@@ -50,3 +59,11 @@ def test_overwrite_ignores_existing_record(tmp_path: Path) -> None:
     request = _request(tmp_path)
     _finish_result(request, _result())
     assert _load_cached_result(_request(tmp_path, overwrite=True), "1abc") is None
+
+
+def test_record_before_external_ccd_audit_is_not_reused(tmp_path: Path) -> None:
+    request = _request(tmp_path)
+    path = request.output_root / "records" / "train" / "1abc_7.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(_result().to_json()), encoding="utf-8")
+    assert _load_cached_result(request, "1abc") is None
