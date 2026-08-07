@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adaligand-pocketxmol-compat"
+version = "0.1.0"
+description = "AdaLigand A–G 到 PocketXMol 原生 docking 契约的离线适配层"
+requires-python = ">=3.10"
+dependencies = [
+    "adaligand-preprocessing",
+    "gemmi",
+    "lmdb",
+    "networkx",
+    "numpy",
+    "pandas",
+    "rdkit",
+    "torch",
+    "torch-geometric",
+    "tqdm",
+]
+
+[project.scripts]
+adaligand-pocketxmol-adapt = "pocketxmol_compat.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pocketxmol_compat*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -p no:cacheprovider"
