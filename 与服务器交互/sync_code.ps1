@@ -65,7 +65,7 @@ $RemoteSpec = "${RemoteUser}@${RemoteIP}:${RemoteFullDir}/"
 
 function Invoke-RemoteCommand {
     param([string]$Command)
-    & $SshPassExe -f $SshPassFilePosix $SshExe -p $RemotePort -o StrictHostKeyChecking=accept-new -o WarnWeakCrypto=no -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 "$RemoteUser@$RemoteIP" $Command
+    & $SshPassExe -f $SshPassFilePosix $SshExe -p $RemotePort -o StrictHostKeyChecking=yes -o WarnWeakCrypto=no -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 "$RemoteUser@$RemoteIP" $Command
 }
 
 Write-Host "==========================================================" -ForegroundColor Cyan
@@ -109,7 +109,7 @@ $env:Path = "$MsysBin;$env:Path"
 $env:MSYS2_ARG_CONV_EXCL = "*"
 $LocalPathPosix = (& $CygpathExe -u $LocalPath).Trim()
 $SshPassFilePosix = (& $CygpathExe -u $SshPassFile).Trim()
-$RemoteShell = "sshpass -f $SshPassFilePosix ssh -p $RemotePort -o StrictHostKeyChecking=accept-new -o WarnWeakCrypto=no -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1"
+$RemoteShell = "sshpass -f $SshPassFilePosix ssh -p $RemotePort -o StrictHostKeyChecking=yes -o WarnWeakCrypto=no -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1"
 
 Write-Host "[1/6] Checking remote rsync..." -ForegroundColor Yellow
 $CheckRsyncCmd = "command -v rsync >/dev/null 2>&1"
