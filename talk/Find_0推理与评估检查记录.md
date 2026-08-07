@@ -135,3 +135,29 @@ Job 335493 原来正在运行 Matcher v2 attempt 6。主 agent 先建立精确 `
 train 公共清单共 13,714 项，零起始分片 1/50 精确包含 275 个 PDB。启动后 Python 命令带 `--shard-index 1 --shard-count 50`，首个 PDB `10ay` 已建立 owner `gnode10:62611` 的活跃 `_RUNNING`；一次计算节点采样显示该进程已占用约 56 GiB A800 显存。03:49 时仍在首个样本初始化，尚无 `_COMPLETE` 或 `_BLOB_EXCEED`，allocation 新错误日志为空。这证明任务身份和运行入口已生效，但首次完整 PDB 仍由后续 heartbeat 确认。原 Job 335115 validation 与 Job 335116 train 0/50 不受本次切换影响；三个作业统一纳入每 3 小时 heartbeat。
 
 03:57 的继续检查完成首次端到端健康验收：`10ay` 已同时写入 probability、components 与 F1-centered `_COMPLETE`，进程把活跃租约推进到第二个 PDB `11ta`。A800 占用约 79.2/81.9 GiB，当前没有 `try_lock`、`kill_lock` 或新错误日志；高显存占用与原正式 train 0/50 的参数画像一致，尚无 OOM 证据。
+
+### 2026-08-06 21:35+08:00
+
+Job 335115 attempt a3 已于 20:25 成功完成 validation 并创建 `/home/penghongen/Feedback/Pocket_Plus/allocations/try_lock_335115`。`after_lock_335115` 继续保留；计算节点上只剩 allocation 包装进程，没有 validation Python 子进程，A800 显存回落到空闲水平。动态命令仍是先运行 calibration F1、再以 `exec` 运行 validation F1，冻结 release 为 `/home/penghongen/Feedback/Pocket_Plus/releases/Pocket_Plus_c65e77b0b031/Pocket_Plus`。allocation 标准输出明确记录第 3 次执行成功，标准错误只包含 release 创建或复用记录，OOM、traceback、运行时异常和模型身份错误扫描均为空。
+
+validation 公共清单恰好包含 200 个 PDB。正式目录中 200 项均有 probability `_COMPLETE`；其中 183 项同时具有 components 与 F1-centered `_COMPLETE`，其余 17 项只具有 probability 完成标记和 PDB 根目录 `_BLOB_EXCEED`。两个集合互斥并精确覆盖 200 项；不存在 `_RUNNING`。17 个超限 PDB 是 `6c3p`、`6nc3`、`6w2s`、`6wmr`、`7a5i`、`7v3u`、`8jdk`、`8oe0`、`8oo0`、`8t2y`、`9dbe`、`9eh2`、`9h54`、`9pj8`、`9qlq`、`9srd`、`9ypw`。Job 335115 保持 `try_lock` 与 `after_lock`，没有删除锁、重复运行或释放 A800。
+
+同一时刻，Job 335116 的 train 0/50 已完成 215 份 probability，其中 192 份完成 components/F1-centered、23 份写入根级 `_BLOB_EXCEED`，并持有一个活跃 PDB 租约；Job 335493 的 train 1/50 已完成 49 份 probability，其中 42 份完成 components/F1-centered、7 份写入根级 `_BLOB_EXCEED`，并持有一个活跃租约。两个训练进程、A800 显存、正式命令和错误日志正常；两个分片各自只覆盖 275 个 PDB，仍不能视为 train 全量完成。
+
+## 2026-08-06：下一版 Fα、Li 与超限开关实现检查
+
+本次只修改隔离的 Pocket_Plus 实现工作树与 AdaLigand 记忆文档，没有同步服务器，也没有改动 Job 335115、335116、335493 的冻结 release、动态命令、锁或正式产物。
+
+- Fα：直接读取 calibration 已冻结的七个 `t_alpha` 层，添油式生成同构 centered 文件；alpha 等于 1 时继续使用历史 `F1_centered.npz`，其余六个角色使用有理数文件名。不重建 forest 或 CLG。
+- Li：读取主线已完成的 `probability_map.npz`，逐图计算 Li 阈值并向上量化到 32768 分母网格，以 `min_voxels=10` 在内存中构造 blob，结果只写入 `/storage/penghongen/AdaLigand_stage1_LI_inference` 下的 `Li_centered.npz`。不落盘 forest、CLG 或 Selector 输入。
+- `_BLOB_EXCEED`：生产开关 `continue_on_blob_exceed` 与评估开关 `evaluate_on_blob_exceed` 相互独立。正式新 calibration 脚本才开启继续生产，validation/train 保持关闭；正式评估脚本始终开启评估纳入。
+- 验证：Fα 与 Li 的真实 CLI 小型端到端路径、归档校验、超限续跑和评估纳入均进入回归；推理、产物与评估相关的 64 项测试通过，Python 编译和正式 shell 语法检查通过。完整测试在收集阶段因当前 Windows 环境缺少 `rootutils`、`lightning`、`torch_cluster` 与 `addict` 而停止，没有出现本轮相关测试失败。
+- Git 收口：Pocket_Plus 真实实现端点为 `5b014d6`，推理/Gauss 学习端点为 `d54ec20`，第二版 BOX 池与 `Learn/CUMULATIVE` 端点为 `0976f64`。两端 tree 精确相同；额外 54 项 BOX、数据集、配置与任务调度测试通过。主工作树保留 staged 的 `talk/global.md` 与未跟踪的 `Find_0_train_F1_shard_01.sh`，没有 push。
+
+该记录只证明下一版源码的本地实现状态，不表示 Fα 或 Li 正式服务器推理已经开始。
+
+### 2026-08-07 11:19+08:00
+
+用户要求已经完成并通过验收的单卡任务释放相应资源。主 agent 在释放前重新核对 Job 335115：Slurm 身份为父数组 `335115` 的分片 1，`try_lock_335115` 存在，`after_lock_335115` 存在，`kill_lock` 不存在；计算节点没有 validation 推理进程，A800 显存仅有 2 MiB 基础占用且利用率为 0%。此前 200 项 validation 的 183 份完整 F1-centered 产物与 17 份合法 `_BLOB_EXCEED` 已完成独立验收，因此满足安全释放条件。
+
+主 agent 只删除 `/home/penghongen/Feedback/Pocket_Plus/allocations/335115/after_lock_335115`，没有使用 `scancel`，也没有修改 `try_lock`、动态命令、release、launch、日志或正式推理产物。四锁执行器随后正常退出并清理活动锁；`sacct` 记录数字 Job 335115，即数组元素 `335115_1`，最终为 `COMPLETED 0:0`，`squeue` 中只剩仍在运行的 `335115_0`（数字 Job 335116，train 0/50）与 Job 335493（train 1/50）。本次释放没有触碰两个 train 作业。

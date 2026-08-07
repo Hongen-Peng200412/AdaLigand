@@ -11,7 +11,7 @@
 3. 以后在同一产物根目录执行现有 `*-f1-clg` 命令时，已经完成的前三类产物保持不变，只补充 `CLG_centered`。
 4. 人类可以从 `Pocket_Plus/训练与运行/sh/infer/` 直接阅读每个正式阶段的输入、参数、GPU 批量、分片和输出位置。
 
-calibration 概率图、阈值冻结与 calibration F1 已经完成。Codex 在本阶段担任第二负责人：持续记录运行身份与产物位置，联合监视 Job 335115 的 validation、Job 335116 的 train 0/50 与 Job 335493 的 train 1/50，并验收每个里程碑。`min_voxels` 已直接冻结为 10，不再执行候选值比较。独立 Gauss scorer 的设计与实施见 `文档/exec_plan/Find_0高斯联合打分实施.md`；该支线不阻塞本计划的 GPU 主线。
+calibration 概率图、阈值冻结、calibration F1 与 validation F1 已经完成。Codex 在本阶段担任第二负责人：持续记录运行身份与产物位置，联合监视 Job 335116 的 train 0/50 与 Job 335493 的 train 1/50，并验收每个里程碑；已经完成的 Job 335115 validation allocation 保持 `try_lock` 与 `after_lock`，不重复执行。`min_voxels` 已直接冻结为 10，不再执行候选值比较。独立 Gauss scorer 的设计与实施见 `文档/exec_plan/Find_0高斯联合打分实施.md`；该支线不阻塞本计划的 GPU 主线。
 
 ## Progress
 
@@ -21,6 +21,7 @@ calibration 概率图、阈值冻结与 calibration F1 已经完成。Codex 在�
 - [x] (2026-08-03 04:20+08:00) 完成 Pocket_Plus 推理入口、运行器、产物契约 README 与任务提交器的逐文件审查。
 - [x] (2026-08-03 04:31+08:00) 在实现分支保存最小实现：延迟唯一的 Dataset 导入、提高缓存上限，并增加三个 F1-only 命令。
 - [x] (2026-08-03 04:36+08:00) Windows 推理与产物测试 41 项通过，组件、阈值与评估测试 32 项通过；完整测试 390 项通过、3 项基线配置测试失败。
+- [x] (2026-08-06) 完成下一版 Fα-centered 与独立 Li-centered，实现 `_BLOB_EXCEED` 生产/评估双开关；推理、产物与评估相关 64 项回归通过。真实实现端点为 Pocket_Plus `5b014d6`，推理学习端点为 `d54ec20`，最终 `Learn/CUMULATIVE@0976f64` 与实现端 tree 同为 `a8157b3a084770fcc615b0a8035c82be15167fed`。本轮代码未部署到当前冻结作业。
 - [x] (2026-08-03) 使用真实 Find_0 检查点完成隔离 smoke，验证概率图、阈值冻结、F1 居中、CLG 补跑、完成标记与续跑。
 - [x] (2026-08-03) 在 `Pocket_Plus/训练与运行/sh/infer/` 建立分阶段正式入口；实现端点与学习端点完成等价核验并推进到 `Learn/CUMULATIVE@e76e3fb`。
 - [x] (2026-08-03) Job 334909 生成三份公共 PDB 清单：calibration 100 项、validation 200 项、train 13714 项；用户随后取消已经完成且因 `after_hold` 保留的作业。
@@ -47,7 +48,10 @@ calibration 概率图、阈值冻结与 calibration F1 已经完成。Codex 在�
 - [x] (2026-08-04 09:33+08:00) calibration F1 最终验收通过并按顺序进入 validation。100 项清单精确分成 86 份 components/F1-centered 完成产物和 14 份 `_BLOB_EXCEED`，两组互斥且无 `_RUNNING`。独立只读复核完整读取 86 份 forest 与 F1 NPZ，确认冻结阈值身份、来源节点、offset、概率范围和两份合法零候选产物均符合契约；Job 335115 已由同一 attempt a3 启动 validation，Job 335116 的 train 0/50 继续运行，正式日志无 OOM 或未处理异常。
 - [x] (2026-08-04 12:35+08:00) 独立 Gauss calibration 回填 Job 335572 已 `COMPLETED 0:0` 并验收 86/14 集合；validation 与 train GPU 主线继续健康推进到 F1-centered 各 9 份和 4 份，train 另有 2 份 `_BLOB_EXCEED`。CPU 回填入口已最小调整为可在 GPU 运行期间跳过未完成或被占用的 PDB，并在以后重复执行相同分片时增量补齐。
 - [x] (2026-08-06 03:45+08:00) 按用户授权复用 Job 335493 保留的单张 A800 启动 train 全局分片 1/50。主 agent 通过精确 `kill_lock_335493` 结束原 Matcher v2 attempt 6，等待 runner 创建 `try_lock_335493` 后原子替换动态命令，并只删除该 `try_lock` 激活 attempt a7；`after_lock_335493` 始终保留，没有 `scancel`。新命令显式绑定已验收 release `Pocket_Plus_c65e77b0b031`，继续使用同一 Find_0 checkpoint、阈值、批量和 50 分片契约。03:57 已完成首个 PDB `10ay` 的 probability、components 与 F1-centered，进程推进到 `11ta`；A800 占用约 79.2/81.9 GiB，错误日志为空。
-- [ ] 完成并验收 calibration、validation 和 train 的 F1 居中产物；train 当前并行覆盖 0/50 与 1/50 两个互斥分片，其余 48 个分片等待后续可用显卡安排。
+- [x] (2026-08-06) 在隔离实现工作树完成下一版推理灵活化：新增 `continue_on_blob_exceed` 与 `evaluate_on_blob_exceed` 两个独立开关；添油式生成七个既有冻结 Fα 阈值对应的 centered 文件；新增从主线 probability 读取、向独立根目录发布 `Li_centered.npz` 的 Li 变体。calibration 正式新脚本才开启继续生产，validation/train 保持历史停止行为；正式评估脚本始终纳入已有超限产物。该实现尚未同步到正在运行的冻结 release。
+- [x] (2026-08-06 20:25+08:00) Job 335115 attempt a3 成功完成 validation F1 并进入 `try_lock_335115`。200 项清单精确分成 183 份 probability/components/F1-centered 完成产物与 17 份仅有 probability 完成标记的根级 `_BLOB_EXCEED`，两组互斥合计 200；目录无 `_RUNNING`，allocation 输出明确记录第 3 次执行成功，错误扫描为空。release 继续为 `Pocket_Plus_c65e77b0b031`，`after_lock_335115` 保留且未重复执行。
+- [x] (2026-08-07 11:19+08:00) 用户要求单卡任务完成并通过验收后释放相应资源。主 agent 重新确认 Job 335115 的 `try_lock` 存在、validation 进程不存在且 A800 空闲后，只删除 `/home/penghongen/Feedback/Pocket_Plus/allocations/335115/after_lock_335115`。四锁执行器随后正常退出，Slurm 最终状态为 `COMPLETED 0:0`，`try_lock` 由执行器清理；validation 正式产物、release、launch 和日志均未改动。Job 335116 与 Job 335493 继续运行各自 train 分片，未被本次释放影响。
+- [ ] 完成并验收 train 的 F1 居中产物；当前并行覆盖 0/50 与 1/50 两个互斥分片，其余 48 个分片等待后续可用显卡安排。
 - [ ] 回填本文、映射、检查记录和 CLAUDE memory，记录所有正式产物地址与尚未实施的 CLG/Selector 支线。
 
 ## Surprises & Discoveries
@@ -124,9 +128,17 @@ calibration 概率图、阈值冻结与 calibration F1 已经完成。Codex 在�
   Rationale: 50 分片本来就允许不同资源分批执行。显式绑定既有冻结 release，可以保证分片 0 与分片 1 使用相同代码、模型、checkpoint、阈值和产物契约，同时把本轮改动限制在一个易读脚本与运行记忆内。
   Date/Author: 2026-08-06 / 用户与 Codex
 
+- Decision: Fα 只为现有 forest 阈值层增加同构 centered 文件；Li 使用独立根目录，只落盘 `Li_centered.npz`，不落盘 forest、CLG 或 Selector 输入。
+  Rationale: 两种扩展都不能改动历史 F1/CLG/Selector 契约。Fα 可直接复用 calibration 已冻结的七层，Li 则保留同构的 centered 数值表而与主线 Stage2/3 消费路径隔离。
+  Date/Author: 2026-08-06 / 用户与 Codex
+
+- Decision: `_BLOB_EXCEED` 的生产继续开关与评估纳入开关相互独立。正式新 calibration 生产开启前者，validation/train 关闭；正式评估总是开启后者。
+  Rationale: 超限标记继续记录工程风险，但不再替代“是否有产物”和“是否进入指标”两个独立事实。
+  Date/Author: 2026-08-06 / 用户与 Codex
+
 ## Outcomes & Retrospective
 
-最小实现、本地回归、服务器 smoke、正式入口和既有推理实现的 Git 双线已经完成。公共 PDB 清单已经生成；旧 A100 Job 334936 已取消。A800 数组 Job 335115 在一次精准租约恢复后完成全部 100 项 calibration 概率图，2026-08-04 06:28 已通过独立只读复核与临时 CPU Job 335494 的全量深验收。正式阈值冻结 Job 335495 随后从包含 `_BLOB_EXCEED` 排除修复与 `min_voxels=10` 的 release `Pocket_Plus_c65e77b0b031` 成功生成并验收阈值、扫描、指标和完成标记。Job 335115/335116 的两张保留 A800 已在独立边界复核后原位切换到 F1 主线，当前分别执行 validation 和 train 0/50；2026-08-06 又按用户授权复用 Job 335493 的保留 A800，以同一 release 和 checkpoint 启动 train 1/50。三个作业仍只覆盖 validation 与 train 的两个分片，不能视为 train 全量完成。
+最小实现、本地回归、服务器 smoke、正式入口和既有推理实现的 Git 双线已经完成。公共 PDB 清单已经生成；旧 A100 Job 334936 已取消。A800 数组 Job 335115 在一次精准租约恢复后完成全部 100 项 calibration 概率图，2026-08-04 06:28 已通过独立只读复核与临时 CPU Job 335494 的全量深验收。正式阈值冻结 Job 335495 随后从包含 `_BLOB_EXCEED` 排除修复与 `min_voxels=10` 的 release `Pocket_Plus_c65e77b0b031` 成功生成并验收阈值、扫描、指标和完成标记。Job 335115/335116 的两张保留 A800 已在独立边界复核后原位切换到 F1 主线；其中 Job 335115 于 2026-08-06 20:25 完成 validation 的 200 项集合，183 份完整 F1 产物与 17 份 `_BLOB_EXCEED` 构成无遗漏终态，并在 2026-08-07 11:19 按用户要求通过删除自身 `after_lock` 正常释放 A800。Job 335116 继续执行 train 0/50；2026-08-06 又按用户授权复用 Job 335493 的保留 A800，以同一 release 和 checkpoint 启动 train 1/50。当前仍只覆盖 train 的两个分片，不能视为 train 全量完成。
 
 ## Context and Orientation
 
@@ -159,7 +171,7 @@ PDB 清单由 `Pocket_Plus/src/datasets/ops` 的既有过滤结果生成。服�
 
 第一至第四里程碑已经完成：审查并最小修复现有推理管线；完成 Windows 测试与真实检查点 smoke；建立通用的正式分阶段脚本；完成 Pocket_Plus 实现历史与学习历史的等价收口。
 
-第五里程碑是 calibration 概率图生产，已经完成最终验收。当前 heartbeat 每 3 小时由主 agent 对 validation、train 0/50 与 train 1/50 进行普通只读核对，只在正式提交、恢复操作或最终验收前节制地派一次独立只读 subagent。以每个作业的 release、launch、最终脚本、日志与产物为准，不能把执行前服务器工作区内容当作冻结证据。
+第五里程碑是 calibration 概率图生产，已经完成最终验收。当前 heartbeat 每 3 小时由主 agent 对 train 0/50 与 train 1/50 进行普通只读核对；Job 335115 的 validation allocation 已在验收后释放，不再纳入轮询。只在恢复操作、正式追加分片或最终验收前节制地派一次独立只读 subagent。以每个作业的 release、launch、最终脚本、日志与产物为准，不能把执行前服务器工作区内容当作冻结证据。
 
 第六里程碑是在 100 项概率图完整验收后，直接以 `min_voxels=10` 冻结 calibration 阈值，生成正式语义与实例评估，并依次推进 calibration F1、validation F1 和 train F1。CLG 可以以后在同一目录续跑；Selector 不在本轮主线。Gauss scorer 在 calibration F1 完整后使用 CPU 独立调参，与仍在运行的 validation/train GPU 主线并行。
 
@@ -231,3 +243,9 @@ Revision note (2026-08-04): calibration F1 的 86 份完成产物与 14 份 `_BL
 Revision note (2026-08-04): 10:01 的第 5 次 F1 健康检查通过；validation 已完成 probability、components 与 F1-centered 各 4 份，train 0/50 保持 probability 5、components/F1-centered 各 4 份与 1 份 `_BLOB_EXCEED`，两项活跃租约和错误扫描正常。普通监控间隔因此恢复为每 2 小时。独立 Gauss 参数搜索已经作为 CPU 数组 Job 335529 启动，不阻塞两项 GPU 主线。
 
 Revision note (2026-08-06): 用户授权把 Job 335493 的保留 A800 从已经停止的 Matcher v2 attempt 6 精确切换到 Find_0 train 分片 1/50。本地仅增加 `Find_0_train_F1_shard_01.sh`，服务器 attempt a7 显式绑定 `Pocket_Plus_c65e77b0b031`；原 train 0/50 和 validation 作业不变，heartbeat 继续每 3 小时联合监控三个 GPU 作业。
+
+Revision note (2026-08-06): 下一版实现把 F1-centered 泛化为不重建 forest 的七个 Fα-centered 添油式角色，并建立独立 Li-centered 根目录；同时把 `_BLOB_EXCEED` 的继续生产与评估纳入拆成两个显式开关。实现只位于隔离工作树，现有服务器运行及其冻结 release 不受影响。
+
+Revision note (2026-08-06): Job 335115 attempt a3 已完成 validation。200 项清单由 183 份完整 probability/components/F1-centered 产物与 17 份根级 `_BLOB_EXCEED` 构成，目录无活跃租约或错误；后续 heartbeat 不再把 validation 记为运行中，只监控 train 0/50 与 1/50，并保留 Job 335115 的 `try_lock` 与 `after_lock`。
+
+Revision note (2026-08-07): 用户明确要求已经完成并通过验收的单卡任务释放相应资源。主 agent 通过删除 Job 335115 自身的 `after_lock` 正常结束 allocation，Slurm 最终为 `COMPLETED 0:0`；heartbeat 继续只监控 Job 335116 与 Job 335493 的两个 train 分片，并在任一分片最终验收通过后按同一原则释放对应单卡资源。

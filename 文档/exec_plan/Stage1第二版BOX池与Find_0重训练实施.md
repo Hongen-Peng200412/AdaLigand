@@ -47,7 +47,11 @@
 - [x] (2026-08-06 10:55+08:00) 三小时只读检查确认 Find_0 attempt a4 推进到 `global_step=3731`，五项训练损失有限；第二次验证、新 TOP/last checkpoint 完整，`BEST.ckpt` 仍对应上一轮 `0.4720` TOP，继续等待下一次验证刷新。双 H100 使用 80.30/80.62 GiB，release、第二版数据根、进程、唯一 `after_lock` 和错误扫描正常，没有真实 OOM。09:40–09:43 出现数次可重试的 W&B API 500 警告，随后事件、摘要与内部日志已恢复持续更新，不构成训练阻断。unet_c1 最近摘要为 `global_step=2921` 且六项损失有限；W&B 持续活动，首次验证与 checkpoint 完整。
 - [x] (2026-08-06 13:57+08:00) 三小时只读检查确认 Find_0 attempt a4 推进到 `global_step=4331`，五项训练损失有限；第二次验证、新 TOP/last checkpoint 继续完整，`BEST.ckpt` 仍对应上一轮 `0.4720` TOP，尚未到下一次验证刷新点。两张 H100 使用 79.57/80.79 GiB，作业、release、正式进程、唯一 `after_lock` 与当前日志正常，没有 OOM；本次 GPU 采样恰处于数据等待，W&B 摘要、事件文件和内部日志仍持续更新。unet_c1 摘要仍为 `global_step=2921`，但二进制事件、内部日志、A800 满载计算与正式进程持续活动；首次验证和 checkpoint 完整，没有停滞或异常证据。
 - [x] (2026-08-06 16:57+08:00) 两项训练均完成新的验证并继续改善。Find_0 attempt a4 推进到 `global_step=4472`，第三次验证总损失降至 `0.345794`，配体体素、受体、原子和伪原子 PRAUC 提升到 `0.552684`、`0.617985`、`0.625505` 和 `0.581426`；新 TOP/last checkpoint 完整，`BEST.ckpt` 已正确刷新到上一轮 `0.5116` TOP。unet_c1 推进到 `global_step=3539`，第二次验证总损失降至 `0.274757`，配体体素与受体 PRAUC 提升到 `0.343178` 和 `0.345571`，新 TOP/last checkpoint 完整，`BEST.ckpt` 暂时对应上一轮 `0.2537` TOP。两项作业、GPU、W&B、唯一 `after_lock` 与当前错误扫描正常，无 OOM 或未处理异常。
-- [ ] 持续验收 Find_0 与 unet_c1 的后续验证指标和 checkpoint；两项均只运行当前 CPC1/正式阶段，不启动 CPC2。
+- [x] (2026-08-06 21:34+08:00) 用户因吞吐过慢于 17:27 主动 `scancel 336558`，并明确要求不再监控该 unet_c1。Slurm 最终状态为 `CANCELLED`；最终摘要为 `global_step=3668`，第二次验证配体体素 PRAUC `0.343178`，`TOP_epoch_00_score_0.3432.ckpt` 与 `last.ckpt` 完整，`BEST.ckpt` 仍对应上一轮 `0.2537` TOP。该作业不恢复、不接管、不再纳入 heartbeat。
+- [x] (2026-08-06 21:34+08:00) Find_0 attempt a4 继续健康推进到 `global_step=5426`，五项训练损失有限；第三次验证、TOP/last 与刷新到上一轮 `0.5116` TOP 的 BEST 保持完整。双 H100 使用 80.85/80.83 GiB，W&B、正式进程、唯一 `after_lock` 正常，无 OOM 或异常。
+- [x] (2026-08-07 13:37+08:00) Find_0 attempt a4 推进到 `global_step=7853`，期间完成第四、第五次验证。最新验证总损失降至 `0.327828`，配体体素、受体、原子和伪原子 PRAUC 为 `0.560720`、`0.636979`、`0.640433` 和 `0.588258`；`TOP_epoch_00_score_0.5284.ckpt`、新 `TOP_epoch_00_score_0.5607.ckpt` 与 `last.ckpt` 完整，`BEST.ckpt` 已正确刷新到上一轮最佳 `0.5527` TOP。双 H100 使用 80.89/80.84 GiB，W&B、正式进程、唯一 `after_lock` 正常，当前日志无 OOM、警告或未处理异常。
+- [x] (2026-08-07 16:40+08:00) 三小时只读检查确认 Find_0 attempt a4 推进到 `global_step=8468`，五项训练损失均有限；第五次验证指标、TOP/last 与对应上一轮最佳 `0.5527` TOP 的 `BEST.ckpt` 保持完整，尚无第六次验证。两张 H100 使用 80.78/80.87 GiB，W&B 事件与内部日志持续更新；作业为 `RUNNING`，只有 `after_lock_336298`，当前错误扫描无 OOM、警告或未处理异常。
+- [ ] 只持续验收 Find_0 的后续验证指标和 checkpoint；本轮只运行 CPC1，不启动 CPC2。
 - [ ] 回填 mapping、运行检查记录和 CLAUDE handoff/memory；后续完整图推理与评估沿用既有主线。
 
 ## Surprises & Discoveries

@@ -73,3 +73,14 @@ CPU 参数搜索已经完成网格、临时目录和数组切分冻结，并在�
 - 82 组 calibration 指标和唯一最佳参数；
 - 正式 `calibration.json` 地址与身份；
 - validation 与 train 的 forest 增量回填数量、待补清单和最终字段验收。
+
+## 2026-08-06：第二阶段精修、通用 centered 与强制回填实现检查
+
+下一版 Gauss scorer 已在隔离 Pocket_Plus 实现工作树完成以下扩展，当前冻结服务器任务未使用这些改动：
+
+- 第二阶段网格固定第一阶段最优的 `tau_angstrom` 与 5 Å 截断；`lambda_positive`、`lambda_negative` 分别取中心值的 0.8、0.9、1.0、1.1、1.2 倍，`gauss_score_min` 取中心值的 0.3 至 1.7 倍、步长 0.1，共 375 组严格正参数，不重复无过滤基线。
+- 同一评分和评估实现可消费七个 Fα-centered 角色或独立 `Li_centered`。Fα 结果仍只占用 forest 的 `gauss_score`、`gauss_selected`；Li 结果写入自身 centered 文件，不创建 forest。
+- 正式回填 CLI 默认强制刷新已有完整 Gauss 字段对，只替换这两个字段；关闭强制刷新时要求重算结果逐值相同。只存在一个字段时，无论是否强制刷新都视为损坏并停止。
+- 生产与评估继续使用同一 PDB 租约；正式评估入口显式开启 `evaluate_on_blob_exceed`。Gauss 选择结果仍不改写 `candidate_eligible`，不限制 CLG 或 Selector 候选。
+- 推理、产物与评估相关的 64 项回归测试、Python 编译和相关 shell 语法检查通过。完整测试在收集阶段因当前 Windows 环境缺少 `rootutils`、`lightning`、`torch_cluster` 与 `addict` 而停止；尚未运行新的第二阶段服务器参数搜索，也没有覆盖 2026-08-04 已冻结和回填的第一阶段结果。
+- 双线收口：Gauss 正式代码在学习线集中为 `ac2c02a`，推理学习端点 `d54ec20`；真实实现端点 `5b014d6` 与最终学习端点 `0976f64` 的 tree 同为 `a8157b3a084770fcc615b0a8035c82be15167fed`。旧 Gauss Learn 引用移入 `archive/`，第一阶段服务器参数与 forest 回填未改动，未 push。

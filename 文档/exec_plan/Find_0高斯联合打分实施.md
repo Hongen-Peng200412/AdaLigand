@@ -18,6 +18,8 @@
 - [x] (2026-08-04) 在 `src/inference/Gauss_Scorer` 实现冻结参数读取、纯计算、原子 forest 回填和验收；相关回归共 32 项通过。
 - [x] (2026-08-04) calibration 参数搜索与冻结完成：82 组配置全部验收，唯一最优参数为 `lambda_positive=0.1`、`lambda_negative=0.001`、`tau_angstrom=1.0`、`gauss_score_min=1.0`，截断 5 Å。
 - [ ] (2026-08-04 12:35+08:00) calibration 的 86 份 forest 已完成正式回填和逐字段验收；validation 与 train 等待各自 F1 产物继续增量回填。
+- [x] (2026-08-06) 完成下一版两阶段参数搜索与通用 centered 输入：第二阶段固定 tau 与 5 Å 截断，扫描 5×5×15 共 375 组正参数；同一实现可消费七个 Fα-centered 或独立 Li-centered。正式回填 CLI 默认强制刷新，但只能替换 `gauss_score` 与 `gauss_selected`；字段对残缺时始终报错。推理、产物与评估相关的 64 项回归测试、Python 编译和 shell 语法检查通过；完整测试在收集阶段因当前 Windows 环境缺少四项训练侧依赖而停止，尚未向当前冻结运行发布。
+- [x] (2026-08-06) 按双线规则将 Gauss 正式实现压缩为学习提交 `ac2c02a`，其所在推理学习端点为 `d54ec20`；第二版 BOX 池续接后 `Learn/CUMULATIVE` 为 `0976f64`。真实实现端点 `5b014d6` 与学习端 tree 精确相同，均为 `a8157b3a084770fcc615b0a8035c82be15167fed`；旧 Gauss Learn 引用已移入 `archive/`，未修改远端。
 - [ ] 更新 Pocket_Plus 与 AdaLigand 契约、执行记录、映射和 CLAUDE memory，并完成实现线与学习线等价收口。
 
 ## Surprises & Discoveries
@@ -56,6 +58,18 @@
 - Decision: 正式 CPU 回填可以在 GPU 主线运行期间随时扫描；前置角色未完成或 PDB 租约被占用时只记录并跳过，不终止整个分片。
   Rationale: CPU 与 GPU 仍通过同一个 PDB 根租约保持互斥，同时已经静止的 forest 可以立即获得结果；GPU 完成后重复运行相同分片即可补齐，不需要第二套目录或额外状态机。
   Date/Author: 2026-08-04 / 用户与 Codex
+
+- Decision: 参数搜索增加第二阶段局部精修。第一阶段最优的两个 lambda 各取 0.8 至 1.2 倍共 5 点，`gauss_score_min` 取 0.3 至 1.7 倍共 15 点，tau 与 5 Å 截断固定；第二阶段不重复加入无过滤基线。
+  Rationale: 375 组配置在 CPU 数组上仍是可控规模，同时把搜索预算集中到用户指定的三个参数。
+  Date/Author: 2026-08-06 / 用户与 Codex
+
+- Decision: 回填默认允许使用当前冻结参数覆盖旧 Gauss 结果，但只改写两个 Gauss 字段；只存在其中一个字段时无条件视为损坏。
+  Rationale: 用户需要随时采用新的调参结论刷新结果，又不能让覆盖能力掩盖不完整写入或改变 forest、CLG、Selector 的任何历史字段。
+  Date/Author: 2026-08-06 / 用户与 Codex
+
+- Decision: Fα scorer 继续把结果写入主线 forest；Li scorer 只把同名字段写入独立 `Li_centered.npz`。
+  Rationale: Li 不建立持久化 forest，Fα 与 Li 都不改变 `candidate_eligible` 或 Selector 候选；两者只共享计算和评估算法，不引入新的主线候选契约。
+  Date/Author: 2026-08-06 / 用户与 Codex
 
 ## Outcomes & Retrospective
 
@@ -180,3 +194,5 @@ forest 回填采用同目录临时文件和原子替换。进程在替换前失�
 长期 Python 入口保持在 `src.inference.Gauss_Scorer`；CPU 调参与任务切分只位于 `ops/Gauss_Scorer`。不得把参数网格、Slurm 数组编号或临时路径导入长期生产模块。
 
 Revision note (2026-08-04): 初次建立。根据用户重新提供的原始提示和审批意见，固定 Gauss scorer 与主线隔离、A 原子概率语义、四参数空间、5 Å 截断、两个 forest 字段、CLG/Selector 不受过滤以及受限 subagent 规则。
+
+Revision note (2026-08-06): 增加 375 组第二阶段局部网格、Fα/Li 通用评分、默认强制刷新和独立超限评估开关。历史 calibration 第一阶段结果与当前服务器冻结运行不被本次本地实现覆盖；待 Git 双线重整完成后再按新入口安排后续实验。

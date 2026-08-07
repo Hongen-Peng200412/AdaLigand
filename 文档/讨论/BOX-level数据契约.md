@@ -281,7 +281,13 @@ validation 使用冻结请求，不保存增强后的数组。train 的随机 90
         ├── status/
         │   ├── probability/_COMPLETE
         │   ├── components/_COMPLETE
+        │   ├── F_1_2_centered/_COMPLETE
+        │   ├── F_2_3_centered/_COMPLETE
+        │   ├── F_4_5_centered/_COMPLETE
         │   ├── F1_centered/_COMPLETE
+        │   ├── F_5_4_centered/_COMPLETE
+        │   ├── F_3_2_centered/_COMPLETE
+        │   ├── F_2_centered/_COMPLETE
         │   ├── CLG_centered/_COMPLETE
         │   └── Selected_Refined_Centered/_COMPLETE
         ├── probability/
@@ -293,13 +299,21 @@ validation 使用冻结请求，不保存增强后的数组。train 的随机 90
         │   ├── overlap.npz
         │   └── summary.json
         ├── centered/
+        │   ├── F_1_2_centered.npz
+        │   ├── F_2_3_centered.npz
+        │   ├── F_4_5_centered.npz
         │   ├── F1_centered.npz
+        │   ├── F_5_4_centered.npz
+        │   ├── F_3_2_centered.npz
+        │   ├── F_2_centered.npz
         │   ├── CLG_centered.npz
         │   └── Selected_Refined_Centered.npz
         └── selector/selection.npz
 ```
 
 `selector/selection.npz` 是 Selected 生产命令的默认输入位置，不由 `probability`、`components`、`F1_centered` 或 `CLG_centered` 生产命令创建。
+
+Li 变体使用独立根目录 `/storage/penghongen/AdaLigand_stage1_LI_inference`。其 PDB 目录保持相同的 `{producer}/{split}/{pdb_id}` 身份与 `_RUNNING`、`status` 结构，但只发布 `centered/Li_centered.npz` 及 `status/Li_centered/_COMPLETE`；它读取主线已有的完整图概率，不落盘 `components/forest.npz`、`components/clg.npz`、`candidate_eligible` 或 Selector 输入。
 
 ### 4.2 PDB 租约
 
@@ -316,7 +330,7 @@ validation 使用冻结请求，不保存增强后的数组。train 的随机 90
 
 ### 4.3 角色完成标记
 
-PDB 级角色只有 `probability`、`components`、`F1_centered`、`CLG_centered`、`Selected_Refined_Centered`。
+PDB 级角色包括 `probability`、`components`、七个 Fα-centered 角色、`CLG_centered` 与 `Selected_Refined_Centered`。七个 Fα 角色按冻结顺序对应 `F_1_2_centered`、`F_2_3_centered`、`F_4_5_centered`、`F1_centered`、`F_5_4_centered`、`F_3_2_centered`、`F_2_centered`；其中 alpha 等于 1 时继续使用历史 `F1_centered` 名称。
 
 每个 `status/{role}/_COMPLETE` 是 JSON，对象精确包含：
 
@@ -332,7 +346,9 @@ PDB 级角色只有 `probability`、`components`、`F1_centered`、`CLG_centered
 - `N_F1_eligible: int`
 - `limit: int`
 
-默认上限是 200，但消费者必须读取 `limit` 的实际值。此时已经完成的 `probability` 角色可以保留；`components`、`F1_centered` 和 `CLG_centered` 不发布。消费者必须拒绝存在 `_BLOB_EXCEED` 的 PDB。
+默认上限是 200，但消费者必须读取 `limit` 的实际值。生产开关 `continue_on_blob_exceed` 默认关闭，此时保持历史行为：已有 `probability` 可以保留，后续角色不发布。开关开启时仍保留 `_BLOB_EXCEED`，但照常发布本次请求的 components 与 centered 产物；正式新脚本只在 calibration 数据划分开启该开关，validation 与 train 保持默认行为。
+
+评估开关 `evaluate_on_blob_exceed` 与生产开关相互独立。开启后，只要本次评估所需产物存在，带 `_BLOB_EXCEED` 的 PDB 仍进入指标；正式评估脚本始终开启。普通 Stage2/3 消费条件不因该评估开关改变。
 
 PDB 处理汇总状态只有 `completed`、`skipped_complete`、`skipped_running`、`blob_exceed`。
 
@@ -416,15 +432,16 @@ PDB 处理汇总状态只有 `completed`、`skipped_complete`、`skipped_running
 - `voxel_average_precision_macro: float`；没有有效 PDB 时为 NaN
 - `n_valid_voxel_ap_pdb: int`
 - `n_total_pdb: int`
-- `n_evaluated_pdb: int`；没有触发组件数上限、实际进入全部拟合评估指标的 PDB 数
+- `n_evaluated_pdb: int`；按 `evaluate_on_blob_exceed` 决定后实际进入全部拟合评估指标的 PDB 数
 - `semantic_dice_micro_t_F1: float`；先汇总全部未超限 PDB 的 TP、FP、FN，再按 `2TP/(2TP+FP+FN)` 计算；总分母为 0 时为 `0.0`
 - `semantic_dice_macro_t_F1: float`；逐个未超限 PDB 计算 Dice 后等权平均；单个 PDB 的分母为 0 时，该项按 `0.0` 进入平均
 - `semantic_tp_t_F1: int`；全部未超限 PDB 的 micro 汇总 TP
 - `semantic_fp_t_F1: int`；全部未超限 PDB 的 micro 汇总 FP
 - `semantic_fn_t_F1: int`；全部未超限 PDB 的 micro 汇总 FN
-- `n_blob_exceed_pdb: int`；统计 `t_F1` 合格组件数大于固定界限 200、已从全部拟合指标排除的 PDB
+- `n_blob_exceed_pdb: int`；统计 `t_F1` 合格组件数大于固定界限 200 的 PDB；是否纳入指标由独立开关决定
+- `evaluate_on_blob_exceed: bool`；本次评估是否纳入具有所需产物的超限 PDB
 
-阈值扫描仍使用 calibration 清单中的全部可读概率图。冻结 `t_F1` 后才构建单层组件；触发组件数上限的 PDB 不以零分代替，也不进入平均精确率、Dice、实例或 top-K 指标的分子与分母。
+阈值扫描仍使用 calibration 清单中的全部可读概率图。冻结 `t_F1` 后才构建单层组件；`evaluate_on_blob_exceed=false` 时，超限 PDB 不以零分代替，也不进入平均精确率、Dice、实例或 top-K 指标的分子与分母；`true` 时，只要所需产物存在便照常纳入。
 
 实例指标包括 `n_pred_instances: int`、`n_gt_instances: int`。对 `tag` 为 `0p3`、`0p5`，保存双向覆盖匹配和一对一匹配的精确率、召回率与 F1；字段名分别使用 `coverage_*` 和 `one_to_one_*`，类型均为 `float`。对 `K` 为 3、4、5，保存 `top{K}_success_{tag}: int` 与 `top{K}_success_ratio_{tag}: float`，并保存 `n_topk_eligible_pdb: int`；这些字段统计按组件平均概率排序的前 K 个预测中是否出现达标交集。
 
@@ -455,18 +472,18 @@ PDB 处理汇总状态只有 `completed`、`skipped_complete`、`skipped_running
 | `probability_max` | `float32 (N_node,)` | 节点最大概率 |
 | `candidate_eligible` | `bool (N_node,)` | `True` 表示可作为正式候选 |
 | `ineligible_reason_code` | `uint8 (N_node,)` | 候选资格原因码 |
-| `gauss_score` | `float32 (N_node,)`，可选 | 独立 Gauss scorer 的节点分数；只对具有对应 F1-centered A 原子表的来源节点为有限值，其余节点为 `NaN` |
+| `gauss_score` | `float32 (N_node,)`，可选 | 独立 Gauss scorer 的节点分数；只对具有本次指定 Fα-centered A 原子表的来源节点为有限值，其余节点为 `NaN` |
 | `gauss_selected` | `bool (N_node,)`，可选 | 独立 Gauss scorer 的保留决定；没有有限 `gauss_score` 的节点固定为 `False` |
 
 `children_offsets[i:i+2]` 给出节点 `i` 在 `children_node_id` 中的半开区间；首值为 0，末值为 `L_child`。`node_voxel_offsets` 同理切分节点体素表，首值为 0，末值为 `L_voxel`。每个节点的体素编号在自己的段内升序且不重复。
 
-`gauss_score` 与 `gauss_selected` 必须同时存在或同时缺席。它们是 F1-centered 完成后的独立降级打分结果，不改写 `candidate_eligible`，也不改变 `clg.npz`、CLG-centered 或 Selector 的有效节点与候选集合。Gauss scorer 的四个正参数与固定 5 Å 截断保存在 producer 级 `gauss_scorer/calibration.json`，不重复写入每个 PDB。
+`gauss_score` 与 `gauss_selected` 必须同时存在或同时缺席。它们是指定 Fα-centered 完成后的独立降级打分结果，不改写 `candidate_eligible`，也不改变 `clg.npz`、CLG-centered 或 Selector 的有效节点与候选集合。Gauss scorer 的四个正参数与固定 5 Å 截断保存在 producer 级 `gauss_scorer` 目录，不重复写入每个 PDB。
 
-对具有 F1-centered A 表的来源节点 `j`，令 `d_ji` 为 A 原子 `i` 到来源预测 blob 最近体素中心的世界坐标距离，`p_i` 为 `A_probability`。当 `d_ji <= 5 Å` 时，`w_ji=exp(-d_ji²/(2*tau_angstrom²))`，否则权重为 0。正负项分别是 `sum_i(w_ji*p_i)` 与 `sum_i(w_ji*(1-p_i))`，均直接求和、不归一化；`gauss_score` 等于 `probability_mean + lambda_positive*positive_sum - lambda_negative*negative_sum`，`gauss_selected` 等于该分数不小于 `gauss_score_min`。
+对具有指定 centered A 表的来源节点 `j`，令 `d_ji` 为 A 原子 `i` 到来源预测 blob 最近体素中心的世界坐标距离，`p_i` 为 `A_probability`。当 `d_ji <= 5 Å` 时，`w_ji=exp(-d_ji²/(2*tau_angstrom²))`，否则权重为 0。正负项分别是 `sum_i(w_ji*p_i)` 与 `sum_i(w_ji*(1-p_i))`，均直接求和、不归一化；`gauss_score` 等于 `probability_mean + lambda_positive*positive_sum - lambda_negative*negative_sum`，`gauss_selected` 等于该分数不小于 `gauss_score_min`。
 
-Gauss scorer 使用与 GPU 主线相同的 PDB 根目录 `_RUNNING` 租约，并对每个 PDB 独立原子替换 forest。前置 `probability`、`components` 或 `F1_centered` 尚未完成时，该 PDB 只记为待补；租约已被其他生产者持有时只记为跳过。两种情况都不改变现有文件，CPU 任务继续处理清单中的其他静止 PDB。以后按相同清单和分片重复执行即可增量补齐；已经存在的两个 Gauss 字段只有与冻结参数重算结果逐值相同时才视为幂等完成。
+Gauss scorer 使用与 GPU 主线相同的 PDB 根目录 `_RUNNING` 租约，并对每个 PDB 独立原子替换目标 NPZ。前置角色尚未完成时，该 PDB 只记为待补；租约已被其他生产者持有时只记为跳过。两种情况都不改变现有文件，CPU 任务继续处理清单中的其他静止 PDB。以后按相同清单和分片重复执行即可增量补齐。正式入口默认强制刷新：已有完整 Gauss 字段对时只替换 `gauss_score` 与 `gauss_selected`，其他字段不变；关闭强制刷新时，只有逐值相同的结果才视为幂等。只存在一个 Gauss 字段始终视为损坏并拒绝覆盖。
 
-正式参数位于 producer 级 `{output_root}/Find_0/gauss_scorer/calibration.json`。calibration、validation 与 train 必须复用同一份 `selected_parameters`；参数搜索明细、验收哈希和 Slurm 运行记录不属于 PDB 产物契约，不能写入 `forest.npz`。
+第一阶段保留粗网格；第二阶段固定第一阶段选出的 `tau_angstrom` 与 5 Å 截断，围绕最优 `lambda_positive`、`lambda_negative` 各取中心值的 0.8、0.9、1.0、1.1、1.2 倍，围绕 `gauss_score_min` 取中心值的 0.3 至 1.7 倍、步长 0.1，共形成 375 组严格正参数。历史 F1 参数路径继续是 `{output_root}/Find_0/gauss_scorer/calibration.json`；其他 Fα 或 Li 策略使用 `{output_root}/Find_0/gauss_scorer/{centered_role}/calibration.json`。同一 centered 策略的 calibration、validation 与 train 必须复用第二阶段冻结的 `selected_parameters`。参数搜索明细、验收哈希和 Slurm 运行记录不属于 PDB 产物契约，不能写入 PDB NPZ。
 
 原因码：
 
@@ -531,9 +548,9 @@ Gauss scorer 使用与 GPU 主线相同的 PDB 根目录 `_RUNNING` 租约，并
 
 `CLG_cap_reached` 只有在完成数等于 `n_CLG_cap` 且仍有未消费的活跃种子时为 `true`。
 
-## 7. 三类 centered NPZ 的共同契约
+## 7. centered NPZ 的共同契约
 
-本节定义三类 centered NPZ 共用的字段、数据类型和 offsets；第 8 节在共同结构上补充每类角色如何决定权威体素成员。消费任一 centered NPZ 时必须同时应用这两节。一个 PDB 的同一 centered 角色只发布一个 NPZ。来源组件必须能被合法 80³ BOX 完整包含。
+本节定义七个 Fα-centered、独立 `Li_centered`、`CLG_centered` 和 `Selected_Refined_Centered` 共用的字段、数据类型和 offsets；第 8 节在共同结构上补充各角色如何决定权威体素成员。消费任一 centered NPZ 时必须同时应用这两节。一个 PDB 的同一 centered 角色只发布一个 NPZ。来源组件必须能被合法 80³ BOX 完整包含。
 
 ### 7.1 共同归档项字段
 
@@ -591,15 +608,15 @@ Gauss scorer 使用与 GPU 主线相同的 PDB 根目录 `_RUNNING` 租约，并
 | `A_feat_L2` | `float16 (L_A,C_L2)` | `outputs["A_feat_L2"]`；真实原子密度调制完成后送入点骨干网络的 A 输入表示 |
 | `A_feat_L3` | `float16 (L_A,C_L3)` | `outputs["real_feat_before_interaction"]`；点骨干网络处理完成、A↔P 交叉注意力发生之前的 A 最终表示 |
 
-`A_offsets` 首值为 0，末值等于八个 A 值表长度。这里的来源组件是当前 centered 条目对应的预测 blob：F1 使用来源 F1 节点，CLG 使用最老来源节点，Selected 使用被选中的来源节点。A 表保存完整受体原子表中同时位于 80³ 核心内并落入该预测 blob 体素集合 10 Å 包络的原子。Selector 直接读取已持久化的 `A_feat_L0`；`A_global_index` 继续承担身份追踪，不再用于二次加载原始特征。
+`A_offsets` 首值为 0，末值等于八个 A 值表长度。这里的来源组件是当前 centered 条目对应的预测 blob：Fα 使用对应冻结阈值层节点，Li 使用自身逐图阈值形成的局部 blob，CLG 使用最老来源节点，Selected 使用被选中的来源节点。A 表保存完整受体原子表中同时位于 80³ 核心内并落入该预测 blob 体素集合 10 Å 包络的原子。Selector 直接读取已持久化的 `A_feat_L0`；`A_global_index` 继续承担身份追踪，不再用于二次加载原始特征。
 
 Stage1-Find 前向计算仍可产生交叉注意力后的 `A_feat_L4` 与 `P_feat_L4`，但 centered 归档不保存这两组张量。Selector 只读取本节列出的 L3 及以前特征；A/P 分类概率仍使用 Stage1-Find 原有分类头结果。
 
 `unet_c1` 不得出现 P/A 字段。Find 中 P/A 必须整组出现；完全为空的 F1 或 CLG 归档无法确定特征宽度时，两组可以同时整体缺席。Selected 至少有一个成功项产生相应模态时才保存整组字段；未成功项的 P/A 段为空。
 
-## 8. 三类 centered 角色的权威成员语义
+## 8. centered 角色的权威成员语义
 
-三种角色都重新执行当前 80³ BOX 的完整模型前向，所以 `centered_probability`、`voxel_final` 和适用的 P/A 表都来自本次 centered 前向。角色差异只在 `voxel_index_local_zyx` 所代表的权威体素集合如何确定。
+所有角色都重新执行当前 80³ BOX 的完整模型前向，所以 `centered_probability`、`voxel_final` 和适用的 P/A 表都来自本次 centered 前向。角色差异只在 `voxel_index_local_zyx` 所代表的权威体素集合如何确定。
 
 ### 8.1 `centered/F1_centered.npz`
 
@@ -610,7 +627,29 @@ Stage1-Find 前向计算仍可产生交叉注意力后的 `A_feat_L4` 与 `P_fea
 - 没有合格组件时可以发布 `N_entry == 0` 的空归档。
 - 除第 7 节共同字段和适用模态字段外，没有角色专属字段。
 
-### 8.2 `centered/CLG_centered.npz`
+### 8.2 其余 Fα-centered 文件
+
+`F_1_2_centered.npz`、`F_2_3_centered.npz`、`F_4_5_centered.npz`、`F_5_4_centered.npz`、`F_3_2_centered.npz` 与 `F_2_centered.npz` 和 `F1_centered.npz` 完全同构。每个文件直接读取 `thresholds.json` 中对应 alpha 的既有冻结阈值层，只选择该层 `candidate_eligible == True` 的 forest 节点，并按与 F1 相同的排序、BOX 解析、完整前向和字段规则添油式发布；不重建 forest 或 CLG，也不覆盖其他 centered 文件。
+
+### 8.3 `centered/Li_centered.npz`
+
+Li 角色从主线已完成的 `probability_map.npz` 逐图计算 Li 最小交叉熵阈值，再向上量化到相同的 32768 分母整数网格。它使用 `min_voxels=10`、`max_voxels=2046` 和 26 邻域连通组件，仅在内存中构造自身 blob 后执行同构的 80³ centered 前向；不持久化 forest 或 CLG。
+
+除第 7 节共同字段和适用模态字段外，Li 归档增加：
+
+| 字段 | dtype 与形状 | 含义 |
+| --- | --- | --- |
+| `source_probability_mean` | `float32 (N_entry,)` | 每个 Li blob 在来源完整图上的平均概率 |
+| `li_threshold_raw` | `float32 (1,)` | 逐图 Li 算法得到的原始阈值 |
+| `li_threshold_grid_index` | `int32 (1,)` | 向上量化后的整数网格编号 |
+| `li_threshold_applied` | `float32 (1,)` | 实际应用阈值，等于网格编号除以分母 |
+| `threshold_denominator` | `int32 (1,)` | 阈值网格分母，正式值为 32768 |
+| `gauss_score` | `float32 (N_entry,)`，可选 | Li blob 的独立 Gauss 得分 |
+| `gauss_selected` | `bool (N_entry,)`，可选 | Li blob 是否达到冻结的 Gauss 选择阈值 |
+
+Li 的两个 Gauss 字段必须同时存在或同时缺席。它们不产生 Selector 输入，也不改变 Stage2/3 的主线消费契约。
+
+### 8.4 `centered/CLG_centered.npz`
 
 每个组件谱系组使用 `CLG_oldest_node_id` 解析 80³ BOX。权威体素集合是该最老 forest 节点的完整图组件成员换算到当前 BOX 后的坐标；概率和特征仍来自当前 centered 重算。归档额外保存：
 
@@ -631,7 +670,7 @@ Stage1-Find 前向计算仍可产生交叉注意力后的 `A_feat_L4` 与 `P_fea
 
 若候选属于条目 `i`，`voxel_offsets[i] + candidate_voxel_index[k]` 才是它在归档级 `voxel_index_local_zyx` 中的实际行号，随后从该行读取 BOX 内离散 ZYX 坐标。`candidate_A_index` 同理引用所属条目 `A_offsets` 段内的局部 A 行。两者都不是坐标或完整图全局索引。
 
-### 8.3 `centered/Selected_Refined_Centered.npz`
+### 8.5 `centered/Selected_Refined_Centered.npz`
 
 Selector 选择先恢复到 forest 来源节点，再重新执行当前 80³ BOX 的模型前向，使用该节点自己的 `source_threshold_value` 对当前 centered 概率二值化并重建 26 邻域连通组件。存在多个局部组件时，只在与原始来源组件相交的组件中保留交并比最大的一个；多个 CLG 选择同一来源节点时只发布一次。因此成功条目的权威体素集合是新精修结果，可能与原始滑窗来源组件不同。
 
@@ -755,6 +794,8 @@ Stage1 推理入口是 `python -m src.inference.cli`：
 | `val-produce-prob-f1-clg` | validation | 模型来源级校准、checkpoint、完整图输入 | probability、components、F1 centered、CLG centered |
 | `train-produce-prob-f1` | train | 模型来源级校准、checkpoint、完整图输入 | probability、components、F1 centered |
 | `train-produce-prob-f1-clg` | train | 模型来源级校准、checkpoint、完整图输入 | probability、components、F1 centered、CLG centered |
+| `produce-falpha` | 显式指定 | 已完成 probability/components、模型来源级校准、checkpoint | 指定的一个 Fα-centered 角色 |
+| `produce-li-centered` | 显式指定 | 主线已完成 probability、checkpoint、完整图输入 | 独立根目录的 `Li_centered` |
 | `selected-refined` | 显式指定 | 可读 `components` 角色、`selection.npz`、`geometry.json`、模型检查点、完整图输入 | `Selected_Refined_Centered` |
 
 `selected-refined` 读取 `forest.npz`、`clg.npz` 和 `probability/geometry.json`，不读取 `probability_map.npz`。未指定外置选择根目录时，它读取 `{PDB正式目录}/selector/selection.npz`；指定后读取 `{selection_root}/{producer}/{split}/{pdb_id}/selection.npz`。
@@ -770,7 +811,7 @@ Selector 入口：
 
 F1-only 命令完成后，可以在同一输出根目录运行对应的 `*-f1-clg` 命令。后者按已有 `_COMPLETE` 保持 probability、components 和 F1 centered 不变，只补充缺少的 CLG centered。
 
-除 `freeze-thresholds` 外，Stage1 的八个 PDB 级推理子命令都按清单位置分片：
+除 `freeze-thresholds` 外，Stage1 的十个 PDB 级推理子命令都按清单位置分片：
 
 `record_index % shard_count == shard_index`
 
@@ -789,6 +830,8 @@ F1-only 命令完成后，可以在同一输出根目录运行对应的 `*-f1-cl
 ### 11.2 组件到 centered
 
 - F1 centered 来源节点是 `t_F1` 层合格节点。
+- 其余 Fα centered 来源节点是 `thresholds.json` 中同一 alpha 冻结阈值层的合格节点；不新建 forest。
+- Li centered 的来源节点只在内存中存在，`source_threshold_value` 等于逐图 Li 阈值向上量化后的 `j/denominator`，并与四个 Li 元数据字段一致。
 - CLG centered 的身份、种子、最老节点和候选顺序与 `components/clg.npz` 对齐。
 - `candidate_voxel_index` 落在所属归档项的体素段局部范围内。
 - Find A 组存在时，`candidate_A_index` 落在所属归档项的 A 原子段局部范围内。
@@ -814,7 +857,7 @@ F1-only 命令完成后，可以在同一输出根目录运行对应的 `*-f1-cl
 
 1. 路径中的模型来源、数据划分和小写 `pdb_id` 与请求一致。
 2. 所需 `status/{role}/_COMPLETE` 存在，且 `output_role` 与角色名一致。
-3. PDB 目录中不存在 `_RUNNING` 和 `_BLOB_EXCEED`。
+3. PDB 目录中不存在 `_RUNNING`。`_BLOB_EXCEED` 是否阻断由当前消费者的明确契约决定；正式评估在所需产物存在时允许纳入，普通 Stage2/3 消费仍按其既有条件处理。
 4. NPZ 可在 `allow_pickle=False` 下读取，字段集合、dtype、维度、固定形状和有限值符合本文。
 5. 每个 offsets 长度正确、首值为 0、单调不减、末值等于本文点名的全部值表长度。
 6. 每个索引字段落在本文点名的目标数组或所属变长段范围内。
