@@ -28,7 +28,7 @@
 | `allowed_bond_type_names` | list[string] | 固定允许集合按字典序保存：`AROMATIC, DOUBLE, SINGLE, TRIPLE`。 |
 | `source_stage_c_root` | string | 生成审计时 A–G 产物根目录的已解析绝对路径。 |
 | `selection_manifests` | list[object] | 每项含 `split` 和已解析的 `path`；仅说明本次选择来源，不包含内容哈希。 |
-| `selected_instance_count` | integer | 合并清单后的唯一 `(pdb_id, candidate_id)` 数量。 |
+| `selected_instance_count` | integer | PDB 级清单按各自 `occurrences.jsonl` 展开后，合并得到的唯一 `(pdb_id, candidate_id)` 数量。显式实例级清单不再展开。 |
 | `ccd_count` | integer | `ccd_records` 数量。重复 component 和跨实例重复 CCD 只计一次。 |
 | `ccd_records` | list[object] | 按 `ccd_id` 排序的逐 CCD 审计记录。 |
 

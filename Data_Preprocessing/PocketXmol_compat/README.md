@@ -16,9 +16,9 @@
 | `--pocketxmol-root` | 未修改的 PocketXMol 官方源码根目录。当前只按文件位置加载 `process/process_torsional_info.py`，预期源码提交为 `65488cf635c856101dbe703ac97e2f10f58e005c`。适配器记录这个预期提交，但不检查实际 Git 工作树。 |
 | `--output-root` | 两套实例缓存、两份资格清单和审计报告的共同输出目录。 |
 | `--ccd-audit` | 必需参数。指向先在 A–G 原始环境生成的版本中立 `source_chemistry_audit.json`；主适配器只读取该 JSON。 |
-| `--split NAME=PATH` | 可重复传入 `train`、`validation` 或 `calibration`。`PATH` 可以是 JSONL，也可以是内容为列表的 JSON；每个元素必须包含 `pdb_id` 和 `candidate_id`。 |
+| `--split NAME=PATH` | 可重复传入 `train`、`validation` 或 `calibration`。`PATH` 可以是 JSONL，也可以是内容为列表的 JSON。正式 PDB 级划分条目只需包含 `pdb_id`，兼容层会从对应 `parse/{pdb_id}/occurrences.jsonl` 展开全部 `candidate_id`；显式实例级清单可以同时包含 `pdb_id` 和 `candidate_id`。 |
 
-所有 `--split` 合并后，任意 `(pdb_id, candidate_id)` 只能出现一次。重复实例即使位于不同数据划分也会终止命令。适配器只从清单继承数据划分，不重新划分实例。
+所有 `--split` 合并并完成 PDB 到 occurrence 的展开后，任意 `(pdb_id, candidate_id)` 只能出现一次。重复实例即使位于不同数据划分也会终止命令。适配器只从清单继承数据划分，不重新划分实例。
 
 ## 两阶段 CCD 化学审计
 

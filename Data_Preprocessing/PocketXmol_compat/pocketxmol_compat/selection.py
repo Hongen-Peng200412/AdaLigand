@@ -7,8 +7,16 @@ from pathlib import Path
 from typing import Any
 
 
-def load_selections(specifications: list[str]) -> list[dict[str, Any]]:
-    """读取 ``NAME=PATH`` 清单，并保留实例身份与既有数据划分。"""
+def load_selections(
+    specifications: list[str],
+    stage_c_root: Path | None = None,
+) -> list[dict[str, Any]]:
+    """读取 ``NAME=PATH`` 清单，并保留实例身份与既有数据划分。
+
+    正式 Stage1 数据划分是 PDB 级清单，因此条目可以只含 ``pdb_id``。此时
+    本函数从该 PDB 的 ``occurrences.jsonl`` 展开全部 ``candidate_id``。显式
+    含 ``candidate_id`` 的实例级清单保留给校准与 smoke 使用。
+    """
 
     output: list[dict[str, Any]] = []
     seen: set[tuple[str, int]] = set()
@@ -16,12 +24,41 @@ def load_selections(specifications: list[str]) -> list[dict[str, Any]]:
         split, path = parse_split_specification(specification)
         rows = _read_manifest(path)
         for row in rows:
-            key = (str(row["pdb_id"]).lower(), int(row["candidate_id"]))
-            if key in seen:
-                raise ValueError(f"duplicate or cross-split instance: {key[0]}:{key[1]}")
-            seen.add(key)
-            output.append({"pdb_id": key[0], "candidate_id": key[1], "split": split})
+            pdb_id = str(row["pdb_id"]).lower()
+            candidate_ids = _candidate_ids_for_row(row, pdb_id, stage_c_root)
+            for candidate_id in candidate_ids:
+                key = (pdb_id, candidate_id)
+                if key in seen:
+                    raise ValueError(
+                        f"duplicate or cross-split instance: {key[0]}:{key[1]}"
+                    )
+                seen.add(key)
+                output.append(
+                    {"pdb_id": key[0], "candidate_id": key[1], "split": split}
+                )
     return output
+
+
+def _candidate_ids_for_row(
+    row: dict[str, Any],
+    pdb_id: str,
+    stage_c_root: Path | None,
+) -> list[int]:
+    """返回一个显式实例，或把一个正式 PDB 条目展开为全部 occurrence。"""
+
+    if "candidate_id" in row:
+        return [int(row["candidate_id"])]
+    if stage_c_root is None:
+        raise ValueError(
+            f"PDB-level split row requires stage_c_root for occurrence expansion: {pdb_id}"
+        )
+    path = stage_c_root / "parse" / pdb_id / "occurrences.jsonl"
+    with path.open("r", encoding="utf-8") as stream:
+        occurrences = [json.loads(line) for line in stream if line.strip()]
+    candidate_ids = [int(occurrence["candidate_id"]) for occurrence in occurrences]
+    if len(candidate_ids) != len(set(candidate_ids)):
+        raise ValueError(f"duplicate candidate_id in occurrences: {pdb_id}")
+    return candidate_ids
 
 
 def parse_split_specification(specification: str) -> tuple[str, Path]:

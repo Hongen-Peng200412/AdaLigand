@@ -58,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
 def build_ccd_audit(stage_c_root: Path, split_specifications: list[str]) -> dict[str, Any]:
     """返回清单实际涉及 CCD 的键型审计；重复 component 只审计一次。"""
 
-    selections = load_selections(split_specifications)
+    selections = load_selections(split_specifications, stage_c_root)
     ccd_ids = _collect_selected_ccd_ids(stage_c_root, selections)
     records = [_audit_ccd_pickle(stage_c_root, ccd_id) for ccd_id in ccd_ids]
     return {

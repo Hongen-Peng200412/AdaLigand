@@ -50,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     """执行批量适配；未知内部错误进入审计文件并令进程返回非零。"""
 
     args = build_parser().parse_args(argv)
-    selections = load_selections(args.split)
+    selections = load_selections(args.split, args.stage_c_root)
     load_ccd_audit(args.ccd_audit.resolve())
     workers = args.workers or (os.cpu_count() or 1)
     requests = [
