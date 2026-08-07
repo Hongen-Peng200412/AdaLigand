@@ -25,6 +25,9 @@ def adapt_occurrence(request: AdaptRequest) -> AdaptResult:
     """适配一个 `(pdb_id, candidate_id)`，并在最后写完成标记。"""
 
     pdb_id = request.pdb_id.lower()
+    cached = _load_cached_result(request, pdb_id)
+    if cached is not None:
+        return cached
     parse_dir = request.stage_c_root / "parse" / pdb_id
     occurrences = read_jsonl(parse_dir / "occurrences.jsonl")
     matches = [row for row in occurrences if int(row["candidate_id"]) == request.candidate_id]
@@ -44,13 +47,13 @@ def adapt_occurrence(request: AdaptRequest) -> AdaptResult:
         "type_tag": str(occurrence["type_tag"]),
     }
     if ligand.reasons:
-        return AdaptResult(
+        return _finish_result(request, AdaptResult(
             **common,
             pocketxmol_eligible=False,
             extended_contract_eligible=False,
             active_for_stage3=False,
             reasons=ligand.reasons,
-        )
+        ))
 
     native_arrays = ligand_native_arrays(ligand)
     mol = ligand_to_rdkit(ligand)
@@ -62,13 +65,13 @@ def adapt_occurrence(request: AdaptRequest) -> AdaptResult:
             f"{pdb_id}_{request.candidate_id}",
         )
     except Exception:
-        return AdaptResult(
+        return _finish_result(request, AdaptResult(
             **common,
             pocketxmol_eligible=False,
             extended_contract_eligible=False,
             active_for_stage3=False,
             reasons=("official_motion_preprocess_failed",),
-        )
+        ))
     torsion_arrays, torsion_metadata = split_torsional_info(torsion)
     native_arrays.update(torsion_arrays)
 
@@ -125,7 +128,7 @@ def adapt_occurrence(request: AdaptRequest) -> AdaptResult:
         native_relative = str(native_dir.relative_to(request.output_root)).replace("\\", "/")
 
     reasons = tuple(receptor.strict_reasons)
-    return AdaptResult(
+    return _finish_result(request, AdaptResult(
         **common,
         pocketxmol_eligible=strict_eligible,
         extended_contract_eligible=extended_eligible,
@@ -133,7 +136,51 @@ def adapt_occurrence(request: AdaptRequest) -> AdaptResult:
         reasons=reasons,
         native_path=native_relative,
         extended_path=extended_relative,
+    ))
+
+
+def _result_path(request: AdaptRequest, pdb_id: str) -> Path:
+    """返回单实例缓存记录路径。"""
+
+    return (
+        request.output_root
+        / "records"
+        / request.split
+        / f"{pdb_id}_{request.candidate_id}.json"
     )
+
+
+def _load_cached_result(request: AdaptRequest, pdb_id: str) -> AdaptResult | None:
+    """在未要求覆盖时复用已完成记录，并核对记录声称的目录完成标记。"""
+
+    if request.overwrite:
+        return None
+    path = _result_path(request, pdb_id)
+    if not path.is_file():
+        return None
+    import json
+
+    with path.open("r", encoding="utf-8") as stream:
+        payload = json.load(stream)
+    payload["reasons"] = tuple(payload.get("reasons", []))
+    result = AdaptResult(**payload)
+    for eligible, relative in (
+        (result.pocketxmol_eligible, result.native_path),
+        (result.extended_contract_eligible, result.extended_path),
+    ):
+        if eligible and (
+            relative is None
+            or not (request.output_root / relative / "complete.json").is_file()
+        ):
+            raise ValueError(f"cached result points to an incomplete directory: {path}")
+    return result
+
+
+def _finish_result(request: AdaptRequest, result: AdaptResult) -> AdaptResult:
+    """把单实例结果作为缓存的最后一步原子写入。"""
+
+    atomic_write_json(_result_path(request, result.pdb_id), result.to_json())
+    return result
 
 
 def _source_metadata(

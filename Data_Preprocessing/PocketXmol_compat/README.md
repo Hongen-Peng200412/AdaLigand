@@ -61,6 +61,7 @@
 ├── manifests/
 │   ├── pocketxmol_eligible.jsonl
 │   └── extended_contract_eligible.jsonl
+├── records/<split>/<pdb_id>_<candidate_id>.json
 └── reports/
     ├── adaptation_audit.jsonl
     └── summary.json
@@ -69,6 +70,7 @@
 - `pocketxmol_native` 同时保存配体、严格25维受体字段、官方静态运动学字段和可选肽字段；`active_for_stage3=true`。
 - `adaligand_extended` 只保存同一 `<10 Å` 几何范围内从 `receptor_tokens.npz` 原样切出的 A–G 受体字段；`active_for_stage3=false`。配体资格未通过、官方运动学预处理失败或几何范围为空时，这一目录也不会生成。
 - `complete.json` 是单个实例目录的最后一个 JSON 写入。当前没有 `output-root` 级完成标记；批量调用是否有内部错误还必须结合进程退出码和 `reports/summary.json` 判断。
+- `records` 中的单实例 JSON 在相应实例目录完成后写入；被过滤实例也有记录。未传 `--overwrite` 时，适配器复用该记录并核对它声称存在的目录具有 `complete.json`。
 
 ## 官方运动学的离线与运行时边界
 
@@ -115,7 +117,7 @@ adaligand-pocketxmol-adapt `
 
 `--workers 0` 使用 `os.cpu_count()` 返回的全部逻辑 CPU。批量命令使用 `ProcessPoolExecutor`，结果在写入清单前按 `(split, pdb_id, candidate_id)` 排序。任一 worker 出现未转换为过滤原因的异常时，命令仍写审计和汇总文件，但退出码为 `2`；没有这类异常时退出码为 `0`。
 
-当前 `--overwrite` 参数已经出现在命令行和 `AdaptRequest`，但 `adapt_occurrence` 尚未读取它。现有写入函数会以临时文件加 `os.replace` 的方式替换同名 NPZ/JSON/JSONL，`ligand_reference.sdf` 也会重新写入。正式运行应使用新的 `--output-root`，不能把 `--overwrite` 当作防误覆盖或续跑开关。
+默认行为按 `records/<split>/<instance>.json` 续跑：记录存在且它声明的实例目录都有 `complete.json` 时直接返回既有结果。`--overwrite` 忽略单实例记录并重新计算、原子替换同名 NPZ/JSON，`ligand_reference.sdf` 也会重新写入。正式代码不比较内容哈希；输入或官方源码发生改变时，调用者必须选择新输出根或显式传入 `--overwrite`。
 
 ## 测试
 

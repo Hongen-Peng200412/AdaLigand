@@ -133,6 +133,10 @@
 
 ## 资格清单与审计报告
 
+### `records/<split>/<instance>.json`
+
+单实例记录使用下述“正常适配记录”schema。它在该实例的严格/扩展目录完成标记之后原子写入；被过滤而不生成实例目录的记录也会写入。未传 `--overwrite` 时，记录是续跑判据：若它声称某套产物可用，对应相对目录必须仍有 `complete.json`，否则适配器以内部错误停止该实例，不把不完整目录静默当成缓存命中。
+
 ### 正常适配记录
 
 `reports/adaptation_audit.jsonl`、`manifests/pocketxmol_eligible.jsonl` 和 `manifests/extended_contract_eligible.jsonl` 中的正常记录使用相同 schema：
@@ -199,4 +203,4 @@ worker 抛出未转化为资格原因的异常时，`adaptation_audit.jsonl` 追
 
 NPZ、JSON 和 JSONL 使用同目录临时文件与 `os.replace` 原子替换。`ligand_reference.sdf` 由 RDKit 直接写入，不使用同一原子替换封装。每个实例目录最后写 `complete.json`；批量清单和汇总在所有 worker 结束后写入。
 
-当前 `--overwrite` 没有控制写入行为，`adapt_occurrence` 也不会依据既有 `complete.json` 跳过实例。调用者必须为正式运行选择新的输出目录，或明确接受同名文件被替换。批量命令在存在内部错误时仍写清单和报告并返回退出码 `2`；只有返回码 `0` 且 `summary.json::internal_errors=0` 才表示本次输入没有内部错误。
+默认续跑读取 `records/<split>/<instance>.json`，并核对其中所有 `eligible=true` 的相对目录仍有 `complete.json`。`--overwrite` 会忽略该记录并重新处理实例；NPZ、JSON 和 SDF 同名文件会被替换，但不会先递归删除整个输出根。批量命令在存在内部错误时仍写清单和报告并返回退出码 `2`；只有返回码 `0` 且 `summary.json::internal_errors=0` 才表示本次输入没有内部错误。
