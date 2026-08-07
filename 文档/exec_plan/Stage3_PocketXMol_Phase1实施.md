@@ -6,11 +6,11 @@
 
 - 状态：实施中。
 - Builder 共同基点：`Learn/CUMULATIVE@215def8de77c681d5116d0d4ce67cd4b00054242`。
-- Builder 实现分支：`codex/stage3-pocketxmol-phase1`；当前实现端点为 `de0c4851b45662e7e8dc686ff9a029a91c046105`。
+- Builder 实现分支：`codex/stage3-pocketxmol-phase1`；当前实现端点为 `6f2f0f69da2ae6ec47b4030a23e6b4e33276309a`。
 - AdaLigand 共同基点：`Learn/CUMULATIVE@0e5ae21bce9080ba5c404485b32f5603c1d58947`。
 - AdaLigand 实现分支：`codex/stage3-pocketxmol-compat`；当前实现端点为 `ccc7aaffff7e76af0da79dba1cd620f66b8cf4c5`。
 - PocketXMol 官方真值：`master@65488cf635c856101dbe703ac97e2f10f58e005c`；源码工作树未修改，存在用户已下载的未跟踪 `model_weights.tar.gz`。
-- 四种 docking 组合中，小分子 free 与小分子 flexible 已在确定性 CPU 主验收中通过输入、100 步轨迹和重建后产物的逐位比较。肽 free 只通过官方示例路径比较，尚未用 PepBDB base 完成正式验收；肽 flexible 尚未正式验收。
+- 四种 docking 组合中，小分子 free 已通过正式 YAML 完整批次验收；小分子 flexible 正按顺序运行，PepBDB free 与 PepBDB flexible 等待前一组合完成。既有 Job `338309/338310/338311` 仍只作为 `batch_size=1` 的 CPU 单实例确定性锚点。
 
 ## 已完成事实
 
@@ -40,6 +40,9 @@
 - 授权下载的严格锚点文件为 `data/trained_models/pxm/checkpoints/pocketxmol.ckpt`，当前本地大小为 `243,496,215` 字节；相邻的 `data/trained_models/pxm/train_config/train.yml` 已进入 Builder。Job `338293` 已用完整模型实例严格加载 checkpoint 的 `1128/1128` 个 `model.*` 张量，缺失键和额外键均为零。
 - Builder 已增加独立轨迹捕获与比较闭包。它从指定源码根导入官方模型、`sample_loop3`、noiser、`outputs2batch`、拆批、解码和重建函数，保存变换后批次、首次模型输入、100 个采样步、最终采样构象、置信度与 `postprocessed.pt`。比较器对张量执行 `torch.equal`，并逐元素比较重建后的分子或肽结构记录。
 - 提交 `e0fb644a44f0df2a0429a4eaa7f12cc641c6fd48` 补齐官方重建产物比较；提交 `de0c4851b45662e7e8dc686ff9a029a91c046105` 明确把同一软件环境中的确定性 CPU 逐位比较作为主复现证据，GPU 官方自比较只用于识别 CUDA 非确定性。
+- 后续复核发现上述轨迹 worker 把 `batch_size` 固定为 1、`num_workers` 固定为 0，并把 example 数据集复制数固定为 1，没有忠实执行 YAML 与 checkpoint 相邻训练配置。它生成的逐位相等结果仍是有效的单实例代码路径锚点，但不满足“推理步骤与参数和官方正式配置一致”的验收边界。
+- 提交 `6f2f0f69da2ae6ec47b4030a23e6b4e33276309a` 修正验收工具：随机种子和批大小分别读取任务 YAML 的 `sample.seed`、`sample.batch_size`，DataLoader worker 数读取 checkpoint 相邻训练配置的 `train.num_workers`，example 数据集复制数读取 `sample.num_mols`；证据保存首个 repeat 的首个完整批次，并对批内全部图执行官方拆批、解码和重建。PepBDB 后处理不再根据 metadata 构造额外模板路径，而是以官方默认的空 `gt_path` 行为复用 `sample_pdb.py` 调用语义。
+- 这次修改只纠正验收参数来源、批次覆盖和证据采集范围，没有修改官方模型、checkpoint、`sample_loop3`、noiser、`outputs2batch` 或任何采样算法。
 - `C:\Users\15919\Desktop\PocketXMol` 的只读复核仍为官方 `master@65488cf635c856101dbe703ac97e2f10f58e005c`；没有 tracked 修改，只有用户下载的未跟踪 `model_weights.tar.gz`。Builder 的复制和后续运维修改没有写回官方仓库。
 
 ### 2026-08-07：服务器环境从失败到闭合
@@ -52,6 +55,7 @@
 - Job `338284` 于 `2026-08-07 19:23:47 +08:00` 启动，运行 19 分 15 秒后 `COMPLETED 0:0`，完成基础环境、PyTorch、PyTorch Geometric 和三个编译扩展安装。Job `338290` 补装测试入口并在 `2026-08-07 20:00:49 +08:00` `COMPLETED 0:0`。最终环境的关键版本为 Python `3.10.20`、PyTorch `2.6.0+cu124`、CUDA build `12.4`、PyTorch Lightning `2.6.0`、PyTorch Geometric `2.6.1`、`torch_cluster 1.6.3+pt26cu124`、`torch_scatter 2.1.2+pt26cu124`、`torch_sparse 0.6.18+pt26cu124`、RDKit `2023.09.3`、NumPy `1.24.4`、SciPy `1.10.1` 和 LMDB `1.7.5`。
 - Job `338293` 在 CPU 上运行 Builder 全套测试和严格 checkpoint 验证：`25 passed in 6.45s`，checkpoint 与实例化模型均为 `1128` 个张量，`strict_load=true`；模型名、附加节点特征和输入维数分别核对为 `pm_asym_denoiser`、`[is_peptide]`、`num_node_types=12`、`num_edge_types=6` 和 `pocket_in_dim=25`。该作业于 `2026-08-07 20:07:34 +08:00` `COMPLETED 0:0`。
 - 加入重建产物比较测试后，Job `338308` 再次运行 CPU 回归与严格加载，于 `2026-08-07 20:49:58 +08:00` `COMPLETED 0:0`。结果为 `27 passed in 32.52s`，checkpoint 与实例化模型仍为 `1128/1128` 个张量，`strict_load=true`，模型名称、附加特征和输入维数均未变化。
+- 完整批次验收修正落地后，Job `338347` 再次运行 CPU 回归与严格 checkpoint 加载，于 `2026-08-08 01:35:48 +08:00` `COMPLETED 0:0`。结果为 `28 passed in 32.90s`，checkpoint 与实例化模型仍为 `1128/1128` 个张量，`strict_load=true`。
 
 ### 2026-08-07：二阶段 CCD 修复后的 A–G smoke
 
@@ -64,31 +68,41 @@
 - Job `338305` 使用 96 个 worker 展开 calibration 冻结 PDB 清单，于 `2026-08-07 20:42:49 +08:00` `COMPLETED 0:0`。它请求并完成 `3532/3532` 个 occurrence，`internal_errors=0`；PocketXMol 严格契约可用 326 个，A–G 扩展契约可用 340 个。
 - calibration 的过滤原因计数为：`covalent_ligand_without_attachment_condition=586`、`empty_official_protein_pocket=1`、`excluded_type_tag_ion=2296`、`incomplete_heavy_atom_coordinates=818`、`modified_residue_in_official_training_pocket=3`、`nucleic_acid_in_official_training_pocket=12`、`unsupported_element=2359`、`unsupported_type_tag=618`。同一 occurrence 可以同时具有多个原因，所以原因总数不等于 3532。
 - calibration 证据位于 `/storage/penghongen/AdaLigand/PocketXMol_compat_phase1_calibration_v1/`；`pocketxmol_eligible.jsonl` 与 `extended_contract_eligible.jsonl` 分别为 326 和 340 条。
-- Job `338306` 同时展开 train、validation、calibration 三份冻结 PDB 清单，来源化学审计确认总数为 `444661` 个 occurrence。运行约 1 小时 32 分时已有约 97125 份实例记录；截至 `2026-08-07 22:18:19 +08:00` 的只读复核为 98635 份 `records/**/*.json`，作业仍在 `cnode04` 运行。最终 `summary.json` 尚未生成，不能宣告全量完成、资格数量或内部错误数量。
+- Job `338306` 同时展开 train、validation、calibration 三份冻结 PDB 清单，来源化学审计确认总数为 `444661` 个 occurrence。最近任务检查点为 `257757/444661`；截至 `2026-08-08 04:46:18 +08:00` 的只读复核为 258446 份 `records/**/*.json`，作业已运行约 8 小时并仍在 `cnode04` 运行。最终 `summary.json` 尚未生成，不能宣告全量完成、资格数量或内部错误数量。
 
 ### 2026-08-07：小分子 free 采样轨迹比较
 
 - 三次比较均使用 `configs/sample/examples/dock_smallmol.yml`、seed `2024`、batch size `1`、`num_workers=0` 和同一 `pxm` checkpoint。GPU Job `338296` 的 Builder 对官方比较从采样步 0 开始不相等；步 0 的 `pos_in` 逐位相等，但 `pred_pos` 最大绝对差为 `0.009524345 Å`。比较器因严格不等返回 1，Slurm 因此记录为 `FAILED 1:0`，不是运行崩溃。
 - 为排除 Builder 移植差异，GPU Job `338298` 连续运行两次官方源码。官方对官方也从采样步 0 开始不相等：步 0 的 `pos_in` 逐位相等，`pred_pos` 最大绝对差为 `0.009795189 Å`。该对照说明 Job `338296` 的 GPU 逐位差异不能单独归因于 Builder；GPU 数值差异仍需单独报告，不能替代正式主验收。
 - CPU Job `338302` 在同一软件环境中比较官方源码与 Builder，`transformed_batch.pt`、首次模型输入、100 个采样步中的原始预测与 `outputs2batch` 更新值、最终采样构象及置信度全部逐位相等，`comparison.json` 为 `equal=true`。作业于 `2026-08-07 20:32:29 +08:00` `COMPLETED 0:0`，证据位于 `/storage/penghongen/PocketXMol_phase1_evidence/smallmol_free_cpu_seed2024_v1/`。
-- Job `338309` 使用补齐重建比较后的 Builder 端点重新运行小分子 free。官方与 Builder 的 `transformed_batch.pt`、首次模型输入、100 步完整轨迹、最终采样构象、置信度和小分子 `postprocessed.pt` 全部逐位相等，`comparison.json` 为 `equal=true`；作业于 `2026-08-07 20:52:34 +08:00` `COMPLETED 0:0`。证据位于 `/storage/penghongen/PocketXMol_phase1_evidence/smallmol_free_cpu_seed2024_v2/`，小分子 free 五层正式验收通过。
-- Job `338310` 使用 `configs/sample/examples/dock_smallmol_flex.yml` 完成小分子 flexible 的同等比较，轨迹与重建后 `postprocessed.pt` 均逐位相等，`comparison.json` 为 `equal=true`；作业于 `2026-08-07 20:55:09 +08:00` `COMPLETED 0:0`。证据位于 `/storage/penghongen/PocketXMol_phase1_evidence/smallmol_flexible_cpu_seed2024_v1/`，小分子 flexible 五层正式验收通过。
+- Job `338309` 使用补齐重建比较后的 Builder 端点运行小分子 free。官方与 Builder 的 `transformed_batch.pt`、首次模型输入、100 步完整轨迹、最终采样构象、置信度和小分子 `postprocessed.pt` 全部逐位相等，`comparison.json` 为 `equal=true`；作业于 `2026-08-07 20:52:34 +08:00` `COMPLETED 0:0`，证据位于 `/storage/penghongen/PocketXMol_phase1_evidence/smallmol_free_cpu_seed2024_v2/`。由于该 worker 固定 `batch_size=1`，该结果现降级为 CPU 单实例确定性锚点，不再作为小分子 free 正式配置通过证据。
+- Job `338310` 使用 `configs/sample/examples/dock_smallmol_flex.yml` 完成同等单实例比较，轨迹与重建后 `postprocessed.pt` 均逐位相等，`comparison.json` 为 `equal=true`；作业于 `2026-08-07 20:55:09 +08:00` `COMPLETED 0:0`，证据位于 `/storage/penghongen/PocketXMol_phase1_evidence/smallmol_flexible_cpu_seed2024_v1/`。该结果同样降级为 CPU 单实例确定性锚点，不再作为小分子 flexible 正式配置通过证据。
 
 ### 2026-08-07：肽 free 官方示例路径比较
 
 - Job `338311` 使用 `configs/sample/examples/dock_pep.yml` 比较官方源码与 Builder。两侧的变换后批次、100 步轨迹和肽 `postprocessed.pt` 全部逐位相等，`comparison.json` 为 `equal=true`；作业于 `2026-08-07 20:57:58 +08:00` `COMPLETED 0:0`，证据位于 `/storage/penghongen/PocketXMol_phase1_evidence/peptide_free_example_cpu_seed2024_v1/`。
 - 该作业使用官方仓库自带的肽示例，不是 PepBDB base 正式样本。日志还记录 `data/use/files/peptides/dockpep_3bik_pep.pdb` 不存在，官方重建函数随后使用自身的回退路径。因此它只证明肽示例代码路径的 Builder 复现，不满足 Phase 3 的 PepBDB base 正式验收。
 - 官方源码生成的 `transformed_batch.pt["is_peptide"]` 为形状 `(87,)` 的张量，87 个值全部为 0；Builder 对应张量也逐位相等。Phase 1 先如实记录并复现该官方行为，不在兼容层或 Builder 中把它改为 1；是否属于官方缺陷留待 Phase 1 之后另行判断。
+- Job `338311` 也使用旧的固定单实例 worker，因此其结果只保留为肽示例 CPU 单实例确定性锚点；除本来就不是 PepBDB base 外，它也不能代表 `dock_pep.yml` 的正式 YAML 批次验收。
+
+### 2026-08-08：配置忠实验收重新开始
+
+- Job `338351` 从第一个组合 `configs/sample/examples/dock_smallmol.yml` 重新开始配置忠实验收。任务 YAML 提供 seed `2024`、batch size `50` 和 `num_mols=100`，checkpoint 相邻训练配置提供 `num_workers=8`；worker 将保存第 0 个 repeat 的第 0 个完整批次，并重建批内全部 50 个图。
+- 该作业使用 Builder 提交 `6f2f0f69da2ae6ec47b4030a23e6b4e33276309a`，于 `2026-08-08 01:40:16 +08:00` 在 `cnode05` 启动，申请 16 CPU 和 1000 GB 内存；运行 17 分 55 秒后于 `01:58:11 +08:00` `COMPLETED 0:0`。
+- 官方与 Builder 的 manifest 均记录 `seed=2024`、`seed_source=task_config`、`configured_batch_size=50`、`configured_num_workers=8`、`configured_num_mols=100`、`configured_num_repeats=1`、`captured_repeat_index=0`、`captured_batch_index=0`、`captured_graph_count=50`、`device=cpu` 和 `torch_version=2.6.0+cu124`。
+- 两侧的 `transformed_batch.pt`、首次模型输入、100 个采样步、最终构象与置信度，以及包含全部 50 个图的 `postprocessed.pt` 均逐位相等；`comparison.json` 为 `equal=true`。证据位于 `/storage/penghongen/PocketXMol_phase1_evidence/smallmol_free_cpu_config_batch_v1/`。至此小分子 free 才正式通过配置忠实五层验收。
+- Job `338367` 已按顺序启动小分子 flexible 配置忠实比较，使用 `configs/sample/examples/dock_smallmol_flex.yml`。作业于 `2026-08-08 04:44:47 +08:00` 在 `cnode05` 申请 32 CPU 和 1000 GB 内存；截至 `04:46:18 +08:00` 仍在运行，尚无比较结论。PepBDB free 与 PepBDB flexible 继续等待该作业完成。
 
 ### 2026-08-07：官方测试数据下载
 
 - Job `338288` 和 `338294` 均因 Zenodo 连接在传输过程中关闭而以 curl 退出码 18 失败；两次下载分别保留了可续传的部分文件。Builder 提交 `b1aded876149edabe31be82d414dd07f1b595752` 把下载器切换为 `wget --continue` 并允许连接中断后持续重试。
-- 截至 `2026-08-07 22:18:19 +08:00`，Job `338303` 仍在 `cnode01` 运行。任务检查点记录已下载约 `233368096/725657460` 字节；随后的只读复核显示临时文件增长到 `235477496` 字节。官方 `data_test.tar.gz` 尚未下载完成，不能开始 PepBDB base 等依赖该归档的正式验收。
+- Job `338303` 于 `2026-08-08 00:55:06 +08:00` `COMPLETED 0:0`。`data_test.tar.gz` 大小为 `725657460` 字节，`/storage/penghongen/PocketXMol_official_test/complete.txt` 已存在；解压后的官方数据根为 `/storage/penghongen/PocketXMol_official_test/extracted/data`。
+- 解压目录包含 PepBDB 文件与 LMDB，其中 `/storage/penghongen/PocketXMol_official_test/extracted/data/pepbdb/lmdb/peptide.lmdb` 和 `pocmol10.lmdb` 均存在。官方数据下载不再是肽正式验收的阻断项。
 
 ## 待完成范围
 
 - 等待 Job `338306` 完成 A–G 三划分全量兼容性审计，再以最终 `summary.json` 冻结严格与扩展实例清单；运行中记录数不能替代最终验收。
-- 等待官方测试归档下载完成，使用 PepBDB base 完成肽 free 正式五层验收，再完成 PepBDB base_flex 的肽 flexible 验收。
+- 按配置忠实顺序完成剩余的小分子 flexible、PepBDB base 肽 free、PepBDB base_flex 肽 flexible 完整批次五层验收；当前第二个组合正在运行。
 - A–G 肽样本若用于代码路径验证，只标为 `ag_contract_path_validation`，不替代官方 PepBDB 证据。
 - 重建两个仓库的学习分支，核验端点等价并推进 `Learn/CUMULATIVE`。
 
@@ -100,7 +114,7 @@
 - 当前实现为配体数组错位、官方运动学异常和官方口袋不支持元素增加专门原因，避免把工程不一致静默归入其他科学过滤类别。
 - A–G 兼容入口增加来源环境 CCD 审计与 PocketXMol 环境主适配两个阶段，消除了 RDKit pickle 跨版本读取对资格判定的污染；审计产物只保存版本中立的键型名称、支持状态和可读错误。
 - Builder 增加轨迹证据捕获、严格比较和官方对官方控制实验，使“Builder 移植差异”与“同一 GPU 上官方代码自身的非确定性”可以分别判断。
-- 重建产物进入同一严格比较闭包后，小分子 free 与 flexible 可以在一份证据中同时覆盖输入、采样、`outputs2batch` 和最终化学结构，补齐了原先只比较采样轨迹的验收缺口。
+- 重建产物进入同一严格比较闭包后，一份证据可以同时覆盖输入、采样、`outputs2batch` 和最终化学结构；提交 `6f2f0f6` 又把范围扩展到 YAML 指定的完整批次及批内全部重建结果，补齐了原先只验证一个实例的验收缺口。
 
 ### 中性差异
 
@@ -112,8 +126,9 @@
 
 ### 有害差异
 
-- 截至当前未发现仍然存在的有害实现差异。先前缺失沉积坐标的原因命名不一致已经统一为 `incomplete_heavy_atom_coordinates`，不再是开放差异。
+- 已纠正的验收工具有害差异：旧 worker 固定 `batch_size=1`、`num_workers=0` 和一个 example 副本，违反正式配置忠实边界，并导致执行记录过早把两个小分子组合标为正式通过。提交 `6f2f0f6` 已修正工具，本文同步撤回过度结论；这项修正不涉及官方代码或采样算法。
+- 除上述已纠正问题外，截至当前未发现仍然存在的有害模型实现差异。先前缺失沉积坐标的原因命名不一致已经统一为 `incomplete_heavy_atom_coordinates`，不再是开放差异。
 
 ### 未完成范围
 
-- 小分子 free 与小分子 flexible 已完成正式五层验收。肽 free 只有官方示例路径证据，PepBDB base 正式验收与肽 flexible 仍未完成；官方测试数据仍在下载，A–G 三划分全量适配仍在运行，双线学习历史也未完成。
+- 小分子 free 已完成正式配置五层验收；小分子 flexible 正在运行，PepBDB free 与 PepBDB flexible 等待顺序执行。官方测试数据已经就绪；A–G 三划分全量适配仍在运行，双线学习历史也未完成。
