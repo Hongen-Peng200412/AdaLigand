@@ -6,11 +6,11 @@
 
 - 状态：实施中。
 - Builder 共同基点：`Learn/CUMULATIVE@215def8de77c681d5116d0d4ce67cd4b00054242`。
-- Builder 实现分支：`codex/stage3-pocketxmol-phase1`；当前实现端点为 `6f2f0f69da2ae6ec47b4030a23e6b4e33276309a`。
+- Builder 实现分支：`codex/stage3-pocketxmol-phase1`；当前实现端点为 `79252ffeff483d6bb3510ef245889f0bc710eb65`。
 - AdaLigand 共同基点：`Learn/CUMULATIVE@0e5ae21bce9080ba5c404485b32f5603c1d58947`。
 - AdaLigand 实现分支：`codex/stage3-pocketxmol-compat`；当前实现端点为 `ccc7aaffff7e76af0da79dba1cd620f66b8cf4c5`。
 - PocketXMol 官方真值：`master@65488cf635c856101dbe703ac97e2f10f58e005c`；源码工作树未修改，存在用户已下载的未跟踪 `model_weights.tar.gz`。
-- 四种 docking 组合中，小分子 free 已通过正式 YAML 完整批次验收；小分子 flexible 正按顺序运行，PepBDB free 与 PepBDB flexible 等待前一组合完成。既有 Job `338309/338310/338311` 仍只作为 `batch_size=1` 的 CPU 单实例确定性锚点。
+- 四种 docking 组合中，小分子 free 与小分子 flexible 已通过正式 YAML 完整批次验收；PepBDB free 正按顺序运行，PepBDB flexible 等待前一组合完成。既有 Job `338309/338310/338311` 仍只作为 `batch_size=1` 的 CPU 单实例确定性锚点。
 
 ## 已完成事实
 
@@ -68,7 +68,8 @@
 - Job `338305` 使用 96 个 worker 展开 calibration 冻结 PDB 清单，于 `2026-08-07 20:42:49 +08:00` `COMPLETED 0:0`。它请求并完成 `3532/3532` 个 occurrence，`internal_errors=0`；PocketXMol 严格契约可用 326 个，A–G 扩展契约可用 340 个。
 - calibration 的过滤原因计数为：`covalent_ligand_without_attachment_condition=586`、`empty_official_protein_pocket=1`、`excluded_type_tag_ion=2296`、`incomplete_heavy_atom_coordinates=818`、`modified_residue_in_official_training_pocket=3`、`nucleic_acid_in_official_training_pocket=12`、`unsupported_element=2359`、`unsupported_type_tag=618`。同一 occurrence 可以同时具有多个原因，所以原因总数不等于 3532。
 - calibration 证据位于 `/storage/penghongen/AdaLigand/PocketXMol_compat_phase1_calibration_v1/`；`pocketxmol_eligible.jsonl` 与 `extended_contract_eligible.jsonl` 分别为 326 和 340 条。
-- Job `338306` 同时展开 train、validation、calibration 三份冻结 PDB 清单，来源化学审计确认总数为 `444661` 个 occurrence。最近任务检查点为 `257757/444661`；截至 `2026-08-08 04:46:18 +08:00` 的只读复核为 258446 份 `records/**/*.json`，作业已运行约 8 小时并仍在 `cnode04` 运行。最终 `summary.json` 尚未生成，不能宣告全量完成、资格数量或内部错误数量。
+- Job `338306` 同时展开 train、validation、calibration 三份冻结 PDB 清单，来源化学审计确认总数为 `444661` 个 occurrence。该作业于 `2026-08-08 12:00:17 +08:00` 因达到时限而以 `TIMEOUT` 结束，结束前进度约为 `340487/444661`；它没有形成全量最终 `summary.json`，不能据此宣告全量完成、资格数量或内部错误数量。
+- 恢复 Job `338368` 通过 Slurm 依赖 `afternotok:338306` 在原作业超时后自动启动，申请 96 CPU 和 1500 GB 内存，并继续写入同一份按 occurrence 分隔的单实例缓存。原 Job `338306` 已停止，因此两项作业不会并行写入。
 
 ### 2026-08-07：小分子 free 采样轨迹比较
 
@@ -91,7 +92,13 @@
 - 该作业使用 Builder 提交 `6f2f0f69da2ae6ec47b4030a23e6b4e33276309a`，于 `2026-08-08 01:40:16 +08:00` 在 `cnode05` 启动，申请 16 CPU 和 1000 GB 内存；运行 17 分 55 秒后于 `01:58:11 +08:00` `COMPLETED 0:0`。
 - 官方与 Builder 的 manifest 均记录 `seed=2024`、`seed_source=task_config`、`configured_batch_size=50`、`configured_num_workers=8`、`configured_num_mols=100`、`configured_num_repeats=1`、`captured_repeat_index=0`、`captured_batch_index=0`、`captured_graph_count=50`、`device=cpu` 和 `torch_version=2.6.0+cu124`。
 - 两侧的 `transformed_batch.pt`、首次模型输入、100 个采样步、最终构象与置信度，以及包含全部 50 个图的 `postprocessed.pt` 均逐位相等；`comparison.json` 为 `equal=true`。证据位于 `/storage/penghongen/PocketXMol_phase1_evidence/smallmol_free_cpu_config_batch_v1/`。至此小分子 free 才正式通过配置忠实五层验收。
-- Job `338367` 已按顺序启动小分子 flexible 配置忠实比较，使用 `configs/sample/examples/dock_smallmol_flex.yml`。作业于 `2026-08-08 04:44:47 +08:00` 在 `cnode05` 申请 32 CPU 和 1000 GB 内存；截至 `04:46:18 +08:00` 仍在运行，尚无比较结论。PepBDB free 与 PepBDB flexible 继续等待该作业完成。
+- Job `338367` 按顺序运行小分子 flexible 配置忠实比较，使用 `configs/sample/examples/dock_smallmol_flex.yml`。作业于 `2026-08-08 04:44:47 +08:00` 在 `cnode05` 申请 32 CPU 和 1000 GB 内存，运行 36 分 51 秒后于 `05:21:38 +08:00` `COMPLETED 0:0`。
+- 官方与 Builder 的 manifest 均记录 `seed=2024`、`seed_source=task_config`、`configured_batch_size=50`、`configured_num_workers=8`、`configured_num_mols=100`、`configured_num_repeats=1`、`captured_repeat_index=0`、`captured_batch_index=0`、`captured_graph_count=50`、`device=cpu` 和 `torch_version=2.6.0+cu124`。两侧的 `transformed_batch.pt`、`first_model_input`、100 个采样步、最终状态及包含全部 50 个图的 `postprocessed.pt` 均逐位相等，`comparison.json` 为 `equal=true`。证据位于 `/storage/penghongen/PocketXMol_phase1_evidence/smallmol_flexible_cpu_config_batch_v1/`，小分子 flexible 第二阶段正式通过。
+- Job `338381` 使用 `configs/sample/test/dock_pepbdb/base.yml` 和外置官方数据根 `/storage/penghongen/PocketXMol_official_test/extracted/data` 启动第三阶段 PepBDB free 验收。运行约 2 小时 59 分后，通过 `SIMPLE_RUN/kill_lock` 主动停止，最终状态为 `FAILED 9:0`。
+- Job `338381` 失败不是模型输入或采样轨迹出现差异，而是外置 `data_root` 只传给 Dataset；官方 `reconstruct.py` 仍按源码当前工作目录读取硬编码相对路径 `data/pepbdb/...`，导致 100 个样本的重建模板路径全部缺失。外置官方归档中的对应模板已经核实存在。该次无效证据保留并重命名为 `/storage/penghongen/PocketXMol_phase1_evidence/pepbdb_free_cpu_config_batch_v1_invalid_missing_data_layout/`，不计入正式验收。
+- 初次官方采样留下的 `transformed_batch.pt` 仍可用于字段审计：`is_peptide` 的形状为 `(9759,)`、数据类型为 `int64`、唯一值为 `[0]`，非零元素数为 0。由此确认官方 PepBDB 正式批次也会生成全 0 的 `is_peptide`；Phase 1 继续如实复现，不在 Builder 中修复。
+- Builder 提交 `79252ffeff483d6bb3510ef245889f0bc710eb65` 只在 Dataset 完成后的重建处理期间，把当前工作目录切换到外置 `data` 目录的父目录，使官方 `reconstruct.py` 看到与官方仓库根目录下 `./data` 相同的路径布局，处理结束后恢复原工作目录。该修正没有修改官方函数或 PocketXMol 真值仓库；本地回归结果为 `15 passed, 1 skipped`。
+- v2 Job `338418` 已使用同一 `configs/sample/test/dock_pepbdb/base.yml` 正式重跑，申请 32 CPU 和 1000 GB 内存，当前仍在运行。第三阶段尚未通过，PepBDB flexible 继续等待。
 
 ### 2026-08-07：官方测试数据下载
 
@@ -101,8 +108,8 @@
 
 ## 待完成范围
 
-- 等待 Job `338306` 完成 A–G 三划分全量兼容性审计，再以最终 `summary.json` 冻结严格与扩展实例清单；运行中记录数不能替代最终验收。
-- 按配置忠实顺序完成剩余的小分子 flexible、PepBDB base 肽 free、PepBDB base_flex 肽 flexible 完整批次五层验收；当前第二个组合正在运行。
+- 等待恢复 Job `338368` 完成 A–G 三划分全量兼容性审计，再以最终 `summary.json` 冻结严格与扩展实例清单；运行中记录数不能替代最终验收。
+- 按配置忠实顺序完成剩余的 PepBDB base 肽 free 与 PepBDB base_flex 肽 flexible 完整批次五层验收；当前第三个组合正在运行。
 - A–G 肽样本若用于代码路径验证，只标为 `ag_contract_path_validation`，不替代官方 PepBDB 证据。
 - 重建两个仓库的学习分支，核验端点等价并推进 `Learn/CUMULATIVE`。
 
@@ -122,7 +129,7 @@
 - 官方 YAML 的 `python-lmdb=1.2.1` 无法与 Python 3.10 求解，环境脚本改用官方 `docs/setup.md` 同样允许的 pip `lmdb=1.7.5`。这是依赖安装方式差异，不改变模型执行行为。
 - 服务器 glibc `2.17` 不能安装官方 CUDA 12.8/12.6 示例 wheel，因此使用官方手动安装说明允许的 PyTorch `2.6.0+cu124` 与对应 PyG 扩展。CPU 官方对 Builder 的 100 步逐位结果已经闭合代码行为，但该环境差异仍须随 GPU 数值结果保留记录。
 - GPU 上相同 seed 和输入的官方对官方运行也不能逐位相等；当前以同环境 CPU 逐位比较保存主代码复现证据，GPU 结果只作为非确定性诊断，不据此放宽正式验收标准。
-- 官方肽示例的 `is_peptide` 实测全为 0。当前实现不修正这一行为，只把它作为官方契约事实记录；这不等于确认该值在科学语义上正确。
+- 官方肽示例与 PepBDB 正式批次的 `is_peptide` 实测均全为 0。当前实现不修正这一行为，只把它作为官方契约事实记录；这不等于确认该值在科学语义上正确。
 
 ### 有害差异
 
@@ -131,4 +138,4 @@
 
 ### 未完成范围
 
-- 小分子 free 已完成正式配置五层验收；小分子 flexible 正在运行，PepBDB free 与 PepBDB flexible 等待顺序执行。官方测试数据已经就绪；A–G 三划分全量适配仍在运行，双线学习历史也未完成。
+- 小分子 free 与小分子 flexible 已完成正式配置五层验收；PepBDB free 的首次运行因外置数据路径布局无效，v2 正在重跑，PepBDB flexible 等待顺序执行。官方测试数据已经就绪；A–G 三划分全量适配由恢复 Job `338368` 继续运行，双线学习历史也未完成。
