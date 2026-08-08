@@ -10,7 +10,7 @@
 - AdaLigand 共同基点：`Learn/CUMULATIVE@0e5ae21bce9080ba5c404485b32f5603c1d58947`。
 - AdaLigand 实现分支：`codex/stage3-pocketxmol-compat`；当前实现端点为 `ccc7aaffff7e76af0da79dba1cd620f66b8cf4c5`。
 - PocketXMol 官方真值：`master@65488cf635c856101dbe703ac97e2f10f58e005c`；源码工作树未修改，存在用户已下载的未跟踪 `model_weights.tar.gz`。
-- 四种 docking 组合中，小分子 free 与小分子 flexible 已通过正式 YAML 完整批次验收；PepBDB free 正按顺序运行，PepBDB flexible 等待前一组合完成。既有 Job `338309/338310/338311` 仍只作为 `batch_size=1` 的 CPU 单实例确定性锚点。
+- 四种 docking 组合中，小分子 free、小分子 flexible 与 PepBDB free 已通过正式 YAML 完整批次验收；PepBDB flexible 正按顺序运行。既有 Job `338309/338310/338311` 仍只作为 `batch_size=1` 的 CPU 单实例确定性锚点。
 
 ## 已完成事实
 
@@ -69,7 +69,8 @@
 - calibration 的过滤原因计数为：`covalent_ligand_without_attachment_condition=586`、`empty_official_protein_pocket=1`、`excluded_type_tag_ion=2296`、`incomplete_heavy_atom_coordinates=818`、`modified_residue_in_official_training_pocket=3`、`nucleic_acid_in_official_training_pocket=12`、`unsupported_element=2359`、`unsupported_type_tag=618`。同一 occurrence 可以同时具有多个原因，所以原因总数不等于 3532。
 - calibration 证据位于 `/storage/penghongen/AdaLigand/PocketXMol_compat_phase1_calibration_v1/`；`pocketxmol_eligible.jsonl` 与 `extended_contract_eligible.jsonl` 分别为 326 和 340 条。
 - Job `338306` 同时展开 train、validation、calibration 三份冻结 PDB 清单，来源化学审计确认总数为 `444661` 个 occurrence。该作业于 `2026-08-08 12:00:17 +08:00` 因达到时限而以 `TIMEOUT` 结束，结束前进度约为 `340487/444661`；它没有形成全量最终 `summary.json`，不能据此宣告全量完成、资格数量或内部错误数量。
-- 恢复 Job `338368` 通过 Slurm 依赖 `afternotok:338306` 在原作业超时后自动启动，申请 96 CPU 和 1500 GB 内存，并继续写入同一份按 occurrence 分隔的单实例缓存。原 Job `338306` 已停止，因此两项作业不会并行写入。
+- 恢复 Job `338368` 通过 Slurm 依赖 `afternotok:338306` 在原作业超时后自动启动，申请 96 CPU 和 1500 GB 内存，并继续写入同一份按 occurrence 分隔的单实例缓存。最近进度约为 `398096/444661`，作业已运行约 8 小时。原 Job `338306` 已停止，因此两项作业不会并行写入。
+- 后续恢复 Job `338465` 保持 `afternotok:338368` 依赖等待，只会在 Job `338368` 非正常结束时接续，不会与它并行写入。
 
 ### 2026-08-07：小分子 free 采样轨迹比较
 
@@ -98,7 +99,11 @@
 - Job `338381` 失败不是模型输入或采样轨迹出现差异，而是外置 `data_root` 只传给 Dataset；官方 `reconstruct.py` 仍按源码当前工作目录读取硬编码相对路径 `data/pepbdb/...`，导致 100 个样本的重建模板路径全部缺失。外置官方归档中的对应模板已经核实存在。该次无效证据保留并重命名为 `/storage/penghongen/PocketXMol_phase1_evidence/pepbdb_free_cpu_config_batch_v1_invalid_missing_data_layout/`，不计入正式验收。
 - 初次官方采样留下的 `transformed_batch.pt` 仍可用于字段审计：`is_peptide` 的形状为 `(9759,)`、数据类型为 `int64`、唯一值为 `[0]`，非零元素数为 0。由此确认官方 PepBDB 正式批次也会生成全 0 的 `is_peptide`；Phase 1 继续如实复现，不在 Builder 中修复。
 - Builder 提交 `79252ffeff483d6bb3510ef245889f0bc710eb65` 只在 Dataset 完成后的重建处理期间，把当前工作目录切换到外置 `data` 目录的父目录，使官方 `reconstruct.py` 看到与官方仓库根目录下 `./data` 相同的路径布局，处理结束后恢复原工作目录。该修正没有修改官方函数或 PocketXMol 真值仓库；本地回归结果为 `15 passed, 1 skipped`。
-- v2 Job `338418` 已使用同一 `configs/sample/test/dock_pepbdb/base.yml` 正式重跑，申请 32 CPU 和 1000 GB 内存，当前仍在运行。第三阶段尚未通过，PepBDB flexible 继续等待。
+- v2 Job `338418` 使用同一 `configs/sample/test/dock_pepbdb/base.yml` 与官方数据根 `/storage/penghongen/PocketXMol_official_test/extracted/data` 正式重跑，申请 32 CPU 和 1000 GB 内存，运行 3 小时 15 分 45 秒后以 `COMPLETED 0:0` 结束。
+- 官方与 Builder 的 manifest 均记录 `seed=10599`、`seed_source=task_config`、`configured_batch_size=100`、`configured_num_workers=8`、`configured_num_repeats=50`、`captured_repeat_index=0`、`captured_batch_index=0`、`captured_graph_count=79`、`device=cpu` 和 `torch_version=2.6.0+cu124`。正式配置请求批大小为 100，首个批次实际包含数据集中全部 79 个图。
+- 两侧的 `transformed_batch.pt`、`first_model_input`、100 个采样步、最终状态及全部 79 个图的模板重建结果均逐位相等，重建警告数为 0。至此 PepBDB free 第三阶段正式通过。
+- 官方 `postprocessed.pt` 的 `graph_count` 为 79，79 个结果的 `kind` 均为 `peptide`；重建标签计数为成功且空标签 66、`nonstd` 13、`bad` 0、`incomp` 0。对应 `is_peptide` 张量形状为 `(9759,)`，唯一值仍为 `[0]`。
+- Job `338569` 已按顺序使用 32 CPU 和 1000 GB 内存运行 PepBDB flexible 第四阶段验收，当前尚无最终比较结论，不能宣告第四阶段通过。
 
 ### 2026-08-07：官方测试数据下载
 
@@ -109,7 +114,7 @@
 ## 待完成范围
 
 - 等待恢复 Job `338368` 完成 A–G 三划分全量兼容性审计，再以最终 `summary.json` 冻结严格与扩展实例清单；运行中记录数不能替代最终验收。
-- 按配置忠实顺序完成剩余的 PepBDB base 肽 free 与 PepBDB base_flex 肽 flexible 完整批次五层验收；当前第三个组合正在运行。
+- 完成剩余的 PepBDB base_flex 肽 flexible 完整批次五层验收；当前第四个组合正在运行。
 - A–G 肽样本若用于代码路径验证，只标为 `ag_contract_path_validation`，不替代官方 PepBDB 证据。
 - 重建两个仓库的学习分支，核验端点等价并推进 `Learn/CUMULATIVE`。
 
@@ -138,4 +143,4 @@
 
 ### 未完成范围
 
-- 小分子 free 与小分子 flexible 已完成正式配置五层验收；PepBDB free 的首次运行因外置数据路径布局无效，v2 正在重跑，PepBDB flexible 等待顺序执行。官方测试数据已经就绪；A–G 三划分全量适配由恢复 Job `338368` 继续运行，双线学习历史也未完成。
+- 小分子 free、小分子 flexible 与 PepBDB free 已完成正式配置五层验收；PepBDB flexible 正在运行。官方测试数据已经就绪；A–G 三划分全量适配由恢复 Job `338368` 继续运行，后续恢复 Job `338465` 保持失败依赖等待，双线学习历史也未完成。
