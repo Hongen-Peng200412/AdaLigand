@@ -142,6 +142,14 @@ adaligand-pocketxmol-adapt `
 
 默认行为按 `records/<split>/<instance>.json` 续跑：记录存在且它声明的实例目录都有 `complete.json` 时直接返回既有结果。`--overwrite` 忽略单实例记录并重新计算、原子替换同名 NPZ/JSON，`ligand_reference.sdf` 也会重新写入。正式代码不比较内容哈希；输入或官方源码发生改变时，调用者必须选择新输出根或显式传入 `--overwrite`。
 
+## 正式全量复核
+
+三份冻结清单的正式全量复核由 Job `338670` 使用 96 个 worker 完成。最终汇总为 `requested=444661`、`completed=444661`、`internal_errors=0`、`pocketxmol_eligible=58935`、`extended_contract_eligible=63616`、`workers=96`，其中 `invalid_ligand_valence` 过滤 21 个 occurrence。`records/` 与 `reports/adaptation_audit.jsonl` 均有 `444661` 条记录；严格与扩展资格清单分别有 `58935` 和 `63616` 条，全部与汇总一致。
+
+严格资格清单按 calibration、train、validation 的数量依次为 `326`、`57946`、`663`。Builder 从三个划分各抽取一条 `pocketxmol_native` 缓存，均能通过正式原生缓存入口直接加载；该检查没有读取 A–G 文件结构，也没有使用 `adaligand_extended` 回退。
+
+独立 Builder 验收已经使用配置忠实的 CPU 批次完成小分子 free、小分子 flexible、PepBDB free 和 PepBDB flexible 四项比较，官方与 Builder 的输入、100 步轨迹、最终状态和整批重建产物均逐位相等。逐项证据路径和运行条件见 [Stage3 Phase 1 实施记录](../../文档/exec_plan/Stage3_PocketXMol_Phase1实施.md)。
+
 ## 测试
 
 在依赖完整的环境中，从本目录运行：

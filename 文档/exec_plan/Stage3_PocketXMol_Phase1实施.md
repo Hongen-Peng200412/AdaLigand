@@ -69,8 +69,15 @@
 - calibration 的过滤原因计数为：`covalent_ligand_without_attachment_condition=586`、`empty_official_protein_pocket=1`、`excluded_type_tag_ion=2296`、`incomplete_heavy_atom_coordinates=818`、`modified_residue_in_official_training_pocket=3`、`nucleic_acid_in_official_training_pocket=12`、`unsupported_element=2359`、`unsupported_type_tag=618`。同一 occurrence 可以同时具有多个原因，所以原因总数不等于 3532。
 - calibration 证据位于 `/storage/penghongen/AdaLigand/PocketXMol_compat_phase1_calibration_v1/`；`pocketxmol_eligible.jsonl` 与 `extended_contract_eligible.jsonl` 分别为 326 和 340 条。
 - Job `338306` 同时展开 train、validation、calibration 三份冻结 PDB 清单，来源化学审计确认总数为 `444661` 个 occurrence。该作业于 `2026-08-08 12:00:17 +08:00` 因达到时限而以 `TIMEOUT` 结束，结束前进度约为 `340487/444661`；它没有形成全量最终 `summary.json`，不能据此宣告全量完成、资格数量或内部错误数量。
-- 恢复 Job `338368` 通过 Slurm 依赖 `afternotok:338306` 在原作业超时后自动启动，申请 96 CPU 和 1500 GB 内存，并继续写入同一份按 occurrence 分隔的单实例缓存。最近进度约为 `398096/444661`，作业已运行约 8 小时。原 Job `338306` 已停止，因此两项作业不会并行写入。
-- 后续恢复 Job `338465` 保持 `afternotok:338368` 依赖等待，只会在 Job `338368` 非正常结束时接续，不会与它并行写入。
+- 恢复 Job `338368` 通过 Slurm 依赖 `afternotok:338306` 在原作业超时后自动启动，申请 96 CPU 和 1500 GB 内存，并继续写入同一份按 occurrence 分隔的单实例缓存。当时记录的进度约为 `398096/444661`、已运行约 8 小时；原 Job `338306` 已停止，因此两项作业没有并行写入。
+- 后续恢复 Job `338465` 当时保持 `afternotok:338368` 依赖等待，只会在 Job `338368` 非正常结束时接续，不会与它并行写入。这两项过程状态后来由 Job `338670` 的正式全量复核结果取代。
+
+### 2026-08-09：三划分全量复核完成
+
+- 正式全量复核 Job `338670` 使用 96 个 worker 完成 train、validation、calibration 三份冻结清单展开后的全部 `444661` 个 occurrence。最终 `summary.json` 为 `requested=444661`、`completed=444661`、`internal_errors=0`、`pocketxmol_eligible=58935`、`extended_contract_eligible=63616`、`workers=96`；稳定过滤原因 `invalid_ligand_valence` 出现 21 次。
+- 单实例 `records/` JSON 总数与 `reports/adaptation_audit.jsonl` 记录数均为 `444661`，与请求数和完成数一致。`manifests/pocketxmol_eligible.jsonl` 与 `manifests/extended_contract_eligible.jsonl` 分别为 `58935` 和 `63616` 条，与汇总字段一致。
+- 严格 PocketXMol 清单按原数据划分计数为 calibration `326`、train `57946`、validation `663`，合计 `58935`。Builder 分别从三个划分各抽取一条 `pocketxmol_native` 缓存，均能由正式原生缓存加载入口直接读取成功；该检查不经过 A–G 文件结构或扩展契约回退。
+- 至此，先前超时与恢复作业只保留为大规模续跑过程证据；Job `338670` 的最终文件集合和汇总是三划分全量资格数量的正式依据。
 
 ### 2026-08-07：小分子 free 采样轨迹比较
 
@@ -103,7 +110,8 @@
 - 官方与 Builder 的 manifest 均记录 `seed=10599`、`seed_source=task_config`、`configured_batch_size=100`、`configured_num_workers=8`、`configured_num_repeats=50`、`captured_repeat_index=0`、`captured_batch_index=0`、`captured_graph_count=79`、`device=cpu` 和 `torch_version=2.6.0+cu124`。正式配置请求批大小为 100，首个批次实际包含数据集中全部 79 个图。
 - 两侧的 `transformed_batch.pt`、`first_model_input`、100 个采样步、最终状态及全部 79 个图的模板重建结果均逐位相等，重建警告数为 0。至此 PepBDB free 第三阶段正式通过。
 - 官方 `postprocessed.pt` 的 `graph_count` 为 79，79 个结果的 `kind` 均为 `peptide`；重建标签计数为成功且空标签 66、`nonstd` 13、`bad` 0、`incomp` 0。对应 `is_peptide` 张量形状为 `(9759,)`，唯一值仍为 `[0]`。
-- Job `338569` 已按顺序使用 32 CPU 和 1000 GB 内存运行 PepBDB flexible 第四阶段验收，当前尚无最终比较结论，不能宣告第四阶段通过。
+- Job `338569` 按顺序使用 `configs/sample/test/dock_pepbdb/base_flex.yml` 完成 PepBDB flexible 第四阶段 CPU 验收。官方与 Builder 的输入批次、首次模型输入、100 步轨迹、最终状态和 79 个图的模板重建结果逐位相等，`comparison.json` 为 `equal=true`；证据位于 `/storage/penghongen/PocketXMol_phase1_evidence/pepbdb_flexible_cpu_config_batch_v1`。
+- flexible 两侧的 `is_peptide` 均为形状 `(9759,)`、数据类型 `int64`、唯一值 `[0]` 且非零元素数为 0；两侧 `postprocessed.pt` 均含 79 个 `peptide`，重建标签为空 66 个、`nonstd` 13 个。该结果与 free 的官方批次行为一致。至此四项配置忠实 CPU 闸全部通过。
 
 ### 2026-08-07：官方测试数据下载
 
@@ -113,9 +121,8 @@
 
 ## 待完成范围
 
-- 等待恢复 Job `338368` 完成 A–G 三划分全量兼容性审计，再以最终 `summary.json` 冻结严格与扩展实例清单；运行中记录数不能替代最终验收。
-- 完成剩余的 PepBDB base_flex 肽 flexible 完整批次五层验收；当前第四个组合正在运行。
-- A–G 肽样本若用于代码路径验证，只标为 `ag_contract_path_validation`，不替代官方 PepBDB 证据。
+- Phase 1 的三划分全量适配和四项配置忠实 CPU docking 闸均已完成；密度模块、零残差注入和微调仍属于后续阶段，不在本执行记录中启动。
+- A–G 肽样本若用于额外代码路径验证，只能标为 `ag_contract_path_validation`，不能取代已经完成的官方 PepBDB 证据。
 - 重建两个仓库的学习分支，核验端点等价并推进 `Learn/CUMULATIVE`。
 
 ## 计划与实现差异
@@ -143,4 +150,4 @@
 
 ### 未完成范围
 
-- 小分子 free、小分子 flexible 与 PepBDB free 已完成正式配置五层验收；PepBDB flexible 正在运行。官方测试数据已经就绪；A–G 三划分全量适配由恢复 Job `338368` 继续运行，后续恢复 Job `338465` 保持失败依赖等待，双线学习历史也未完成。
+- Phase 1 技术验收没有未完成项：A–G 三划分全量适配与四项配置忠实 CPU 闸均已闭合。剩余工作仅为 AdaLigand 与 Builder 的双线学习历史重建和端点等价核验；密度模块与微调属于后续阶段。
