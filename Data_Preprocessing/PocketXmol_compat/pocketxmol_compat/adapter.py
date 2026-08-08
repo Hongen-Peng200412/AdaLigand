@@ -64,7 +64,16 @@ def adapt_occurrence(request: AdaptRequest) -> AdaptResult:
         ))
 
     native_arrays = ligand_native_arrays(ligand)
-    mol = ligand_to_rdkit(ligand)
+    mol, ligand_graph_reason = _ligand_to_rdkit_with_filter(ligand)
+    if ligand_graph_reason is not None:
+        return _finish_result(request, AdaptResult(
+            **common,
+            pocketxmol_eligible=False,
+            extended_contract_eligible=False,
+            active_for_stage3=False,
+            reasons=(ligand_graph_reason,),
+        ))
+    assert mol is not None
     try:
         torsion = get_official_torsional_info(
             request.pocketxmol_root,
@@ -145,6 +154,20 @@ def adapt_occurrence(request: AdaptRequest) -> AdaptResult:
         native_path=native_relative,
         extended_path=extended_relative,
     ))
+
+
+def _ligand_to_rdkit_with_filter(ligand: Any) -> tuple[Chem.Mol | None, str | None]:
+    """构建官方运动学预处理所需的 RDKit 分子，并区分已知价态错误。
+
+    A–G 化学图若令 RDKit 抛出 ``AtomValenceException``，便不能无损进入
+    PocketXMol 官方运动学预处理。这属于可解释的数据契约不兼容，而不是适配器
+    自身故障；其他异常仍向上传播，由批处理入口记录为 ``internal_error``。
+    """
+
+    try:
+        return ligand_to_rdkit(ligand), None
+    except Chem.rdchem.AtomValenceException:
+        return None, "invalid_ligand_valence"
 
 
 def _result_path(request: AdaptRequest, pdb_id: str) -> Path:

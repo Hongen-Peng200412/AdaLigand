@@ -38,6 +38,7 @@ A–G 的 `raw/ccd_cache/*.pkl` 由较新 RDKit 写出，PocketXMol 固定环境
 | `ligand_atom_alignment_mismatch` | `LigandObject.atoms`、`coords_{candidate_id}` 与 `present_{candidate_id}` 的原子数或形状不一致。 |
 | `incomplete_heavy_atom_coordinates` | 任一 A–G 模板原子的 `present` 为 False，或沉积 XYZ 坐标包含非有限值。适配器不从 CCD 或 RDKit 参考构象补坐标。 |
 | `unsupported_element` | 配体含官方 11 种元素以外的元素。允许顺序为 `C, N, O, F, P, S, Cl, B, Br, I, Se`，对应原子序数 `6,7,8,9,15,16,17,5,35,53,34`。 |
+| `invalid_ligand_valence` | A–G 配体化学图令 RDKit 明确抛出 `AtomValenceException`，因而无法无损构建 PocketXMol 官方运动学预处理所需的分子对象。其他未知转换异常仍记录为 `internal_error`。 |
 | `unsupported_bond_type` | A–G 键不是唯一的单键、双键、三键或芳香键，或者原始 CCD RDKit 模板包含其他键型。配位键不会猜测为单键。 |
 | `source_chemistry_unverifiable` | occurrence 的 component 缺少 CCD id、审计 JSON 缺少对应 CCD 记录，或记录包含 pickle 缺失、版本不兼容等可读错误。该原因不同于已经确认存在不支持键型。 |
 | `peptide_contract_not_lossless` | `peptide_like` 不能无歧义重建官方肽字段。当前只接纳单链、20 种标准氨基酸、残基编号连续、每个残基具有唯一 `N/CA/C/O` 原子名，并且相邻残基间仅存在顺序 `C—N` 连接的线性肽。 |
