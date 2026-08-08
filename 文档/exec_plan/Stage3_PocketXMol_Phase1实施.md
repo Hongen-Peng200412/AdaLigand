@@ -119,11 +119,12 @@
 - Job `338303` 于 `2026-08-08 00:55:06 +08:00` `COMPLETED 0:0`。`data_test.tar.gz` 大小为 `725657460` 字节，`/storage/penghongen/PocketXMol_official_test/complete.txt` 已存在；解压后的官方数据根为 `/storage/penghongen/PocketXMol_official_test/extracted/data`。
 - 解压目录包含 PepBDB 文件与 LMDB，其中 `/storage/penghongen/PocketXMol_official_test/extracted/data/pepbdb/lmdb/peptide.lmdb` 和 `pocmol10.lmdb` 均存在。官方数据下载不再是肽正式验收的阻断项。
 
-## 待完成范围
+## 收口状态
 
-- Phase 1 的三划分全量适配和四项配置忠实 CPU docking 闸均已完成；密度模块、零残差注入和微调仍属于后续阶段，不在本执行记录中启动。
+- Phase 1 的三划分全量适配和四项配置忠实 CPU docking 闸均已完成。
 - A–G 肽样本若用于额外代码路径验证，只能标为 `ag_contract_path_validation`，不能取代已经完成的官方 PepBDB 证据。
-- 重建两个仓库的学习分支，核验端点等价并推进 `Learn/CUMULATIVE`。
+- AdaLigand 与 Builder 都已重建本轮线性学习分支；两仓库的实现端点与学习端点具有相同 Git tree，`Learn/CUMULATIVE` 已分别快进到本轮学习端点。
+- 本轮没有待完成的技术或 Git 治理范围。密度模块、零残差注入和微调属于后续阶段，必须另行规划和启动。
 
 ## 计划与实现差异
 
@@ -150,4 +151,4 @@
 
 ### 未完成范围
 
-- Phase 1 技术验收没有未完成项：A–G 三划分全量适配与四项配置忠实 CPU 闸均已闭合。剩余工作仅为 AdaLigand 与 Builder 的双线学习历史重建和端点等价核验；密度模块与微调属于后续阶段。
+- Phase 1 没有未完成项：A–G 三划分全量适配、四项配置忠实 CPU 闸、两个仓库的学习历史重建、端点等价核验和 `Learn/CUMULATIVE` 推进均已闭合。密度模块与微调属于后续阶段。
