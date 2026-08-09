@@ -249,3 +249,5 @@ Revision note (2026-08-06): 下一版实现把 F1-centered 泛化为不重建 fo
 Revision note (2026-08-06): Job 335115 attempt a3 已完成 validation。200 项清单由 183 份完整 probability/components/F1-centered 产物与 17 份根级 `_BLOB_EXCEED` 构成，目录无活跃租约或错误；后续 heartbeat 不再把 validation 记为运行中，只监控 train 0/50 与 1/50，并保留 Job 335115 的 `try_lock` 与 `after_lock`。
 
 Revision note (2026-08-07): 用户明确要求已经完成并通过验收的单卡任务释放相应资源。主 agent 通过删除 Job 335115 自身的 `after_lock` 正常结束 allocation，Slurm 最终为 `COMPLETED 0:0`；heartbeat 继续只监控 Job 335116 与 Job 335493 的两个 train 分片，并在任一分片最终验收通过后按同一原则释放对应单卡资源。
+
+Revision note (2026-08-09): train 全局分片 0/50 与 1/50 均完成最终验收并释放各自 A800。Job 335116 的 275 项由 246 份完整 probability/components/F1-centered 产物与 29 份合法 `_BLOB_EXCEED` 构成；Job 335493 的 275 项由 247 份完整产物与 28 份合法 `_BLOB_EXCEED` 构成。两个集合均无缺失、冲突、活跃租约或原子临时文件。主 agent 分别只删除对应 `after_lock`，两个数字 Job 最终均为 `COMPLETED 0:0`。当前只完成 train 清单的 2/50，后续分片与 validation/train Gauss 增量回填均等待用户重新安排资源。

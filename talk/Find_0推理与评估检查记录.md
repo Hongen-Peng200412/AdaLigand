@@ -161,3 +161,15 @@ validation 公共清单恰好包含 200 个 PDB。正式目录中 200 项均有 
 用户要求已经完成并通过验收的单卡任务释放相应资源。主 agent 在释放前重新核对 Job 335115：Slurm 身份为父数组 `335115` 的分片 1，`try_lock_335115` 存在，`after_lock_335115` 存在，`kill_lock` 不存在；计算节点没有 validation 推理进程，A800 显存仅有 2 MiB 基础占用且利用率为 0%。此前 200 项 validation 的 183 份完整 F1-centered 产物与 17 份合法 `_BLOB_EXCEED` 已完成独立验收，因此满足安全释放条件。
 
 主 agent 只删除 `/home/penghongen/Feedback/Pocket_Plus/allocations/335115/after_lock_335115`，没有使用 `scancel`，也没有修改 `try_lock`、动态命令、release、launch、日志或正式推理产物。四锁执行器随后正常退出并清理活动锁；`sacct` 记录数字 Job 335115，即数组元素 `335115_1`，最终为 `COMPLETED 0:0`，`squeue` 中只剩仍在运行的 `335115_0`（数字 Job 335116，train 0/50）与 Job 335493（train 1/50）。本次释放没有触碰两个 train 作业。
+
+### 2026-08-08 02:20+08:00
+
+Job 335116 的 train 全局分片 0/50 已完成并通过主 agent 与独立只读复核。`train_pdb_ids.json[0::50]` 的 275 个 PDB 精确分成 246 份完整 probability/components/F1-centered 产物与 29 份合法根级 `_BLOB_EXCEED`；不存在缺失、冲突、`_RUNNING`、原子临时文件或当前错误。确认 `try_lock_335116` 已建立且计算进程退出后，主 agent 只删除 Job 335116 自己的 `after_lock`。四锁执行器正常退出，数字 Job 335116 最终为 `COMPLETED 0:0`，对应 A800 已释放。
+
+### 2026-08-09 20:37+08:00
+
+Job 335493 attempt a7 的 train 全局分片 1/50 已完成并通过主 agent 与独立只读复核。公共 train 清单共 13,714 项且无重复，零起始切片 `train_pdb_ids.json[1::50]` 恰好包含 275 个 PDB；正式目录由 247 份完整 probability/components/F1-centered 产物与 28 份合法根级 `_BLOB_EXCEED` 互斥覆盖，无缺失、部分终态、冲突、`_RUNNING` 或原子临时文件。28 份超限标记均满足 `limit=200` 且 `N_F1_eligible>200`；所有 `_COMPLETE` JSON 的 `output_role` 与必需文件组合正确。代表性读取 `10ay`、`8k9b` 与 `9zrz` 的 probability、forest、F1-centered NPZ 后，字段结构、有限性、三维 `float32` 概率图与 `[0,1]` 范围均通过。
+
+实际身份由 launch `/home/penghongen/Feedback/AdaLigand/launches/335493/train_anchor_O_O_prime_job335493_20260806T034515_a7`、动态命令 SHA-256 `9b9a690c7114e371d9710fba411447086c7cc9f9fbcc7b6695439e312a4596a6`、冻结 release `/home/penghongen/Feedback/Pocket_Plus/releases/Pocket_Plus_c65e77b0b031/Pocket_Plus` 与检查点 `TOP_epoch_00_score_0.2843.ckpt` 共同确定。父级 `try_lock_335493` 存在，Job 目录的 `after_lock_335493` 存在，`kill_lock` 不存在；计算节点没有生产进程，A800 为 2/81920 MiB、利用率 0%。标准错误中的 `Too many open files` 属于更早的 attempt 5/6；attempt a7 的标准输出明确记录第 7 次执行成功，未出现当前未处理错误。
+
+主 agent 随后只删除 `/home/penghongen/Feedback/AdaLigand/allocations/335493/after_lock_335493`，没有使用 `scancel`，也没有恢复 Matcher 或追加其他 train 分片。四锁执行器正常退出并清理活动锁；`sacct` 记录 Job 335493 最终为 `COMPLETED 0:0`，结束时间为 2026-08-09 20:37:46+08:00，对应 A800 已释放。当前正式 train 推理只覆盖全局分片 0/50 与 1/50，即 2/50；其余 48 个分片和 validation/train Gauss 增量回填等待用户重新安排资源。
