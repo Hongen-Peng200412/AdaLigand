@@ -213,6 +213,7 @@ density/{pdb_id}/ligand_dist.npz
 - 升级一份 `ligand_area.npz` 时，先证明全部旧字段逐数组保持一致，再原子替换正式文件。
 - 六个字段已经全部存在时直接跳过；六个字段只存在一部分时打印 `partial_existing_masks` 并保持文件不变；六个字段全部不存在时才生成。
 - 批处理入口必须显式接收 `--sample-scope all_valid|all_existing`。`all_valid` 只处理 `all_valid.json` 中的 PDB；`all_existing` 处理所有已有 `density/{pdb_id}/ligand_area.npz` 的 PDB。本轮正式命令使用 `all_existing`。
+- 正式 shell 必须由零基连续的 Slurm 数组启动。本轮使用 `--array 0-11`：每个数组任务先得到相同的排序全局 PDB 清单，再处理 `global_pdb_ids[SLURM_ARRAY_TASK_ID::SLURM_ARRAY_TASK_COUNT]`。12 个分片两两不重叠且并集等于全局清单；每个分片内部使用本任务的 `SLURM_CPUS_PER_TASK` 并行处理 PDB。
 
 ### 5.4 第一版多分类读取
 
@@ -542,8 +543,8 @@ ligand_language_models/{model_identity}/{safe_object_key}.npz
 
 1. 最小修改现有 E3 校验器，使旧文件、六字段完整文件均合法，六字段部分存在时明确报错。
 2. 编写旧字段不变、类别并集、空类别、类别重叠和 `other` 背景语义测试。
-3. 在 `Data_Preprocessing/Ori_Data_upgrade/` 编写必须显式选择 `all_valid` 或 `all_existing` 的批量入口；本轮使用 `all_existing`。
-4. 为该 Python 入口编写配套 shell，并通过 `训练与运行` 的完整模式准备服务器命令，由用户提交。
+3. 在 `Data_Preprocessing/Ori_Data_upgrade/` 编写必须显式选择 `all_valid` 或 `all_existing` 的批量入口；本轮使用 `all_existing`，并按排序全局清单的交错切片分配给 12 个 Slurm 数组任务。
+4. 为该 Python 入口编写配套 shell，从 `SLURM_ARRAY_TASK_ID`、`SLURM_ARRAY_TASK_COUNT` 和 `SLURM_CPUS_PER_TASK` 传递分片与分片内并行参数；通过 `训练与运行` 的完整模式准备服务器命令，由用户提交。
 5. 每个 PDB 的成功、跳过、字段部分存在和异常只写普通日志。任务结束后由子代理统一汇总日志，不直接修改 `info.json`。
 6. 用户运行并验收掩码后，才能另行授权实现维护 `info.json` 与 `all_valid.json` 的扫描器。
 
@@ -601,6 +602,7 @@ ligand_language_models/{model_identity}/{safe_object_key}.npz
 - 新增字段前后所有旧数组逐数组相等。
 - 六字段完整的文件不重复写；六字段部分存在的文件保持不变；
 - `all_valid` 与 `all_existing` 两种样本范围只选择各自规定的 PDB。
+- `--array 0-11` 的 12 个分片两两不重叠，并集严格等于未分片的排序全局 PDB 清单。
 
 ### 13.3 受体序列和残基映射
 

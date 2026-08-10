@@ -18,9 +18,10 @@
 
 - `upgrade_ligand_area_masks.py` 按 `occurrences.jsonl::type_tag` 合并已有 `mask_{candidate_id}`，追加六个 `bool (1,Z,Y,X)` 掩码；
 - 入口必须显式选择 `--sample-scope all_valid|all_existing`，本轮正式运行选择 `all_existing`；
+- Python 入口接收 `--shard-index` 与 `--num-shards`，使用排序全局清单的交错切片选择当前任务负责的 PDB；正式 `--array 0-11` 形成 12 个互斥分片；
 - 六字段完整时跳过，六字段部分存在时打印 `partial_existing_masks` 并保持文件不变，六字段全部不存在时才原子替换文件；
 - 单个 PDB 的异常只进入普通日志，不更新 `info.json`，也不阻止其他 PDB 继续处理；
-- `upgrade_ligand_area_masks.sh` 通过 `训练与运行` 完整模式调用正式入口。
+- `upgrade_ligand_area_masks.sh` 要求 Slurm 数组环境，从 `SLURM_ARRAY_TASK_ID`、`SLURM_ARRAY_TASK_COUNT` 和 `SLURM_CPUS_PER_TASK` 传递分片编号、分片总数和分片内 worker 数，并通过 `训练与运行` 完整模式调用正式入口。
 
 现有 E3 校验器 `Data_Preprocessing/Ori_Data/adaligand_preprocessing/stages/stage_e/ligand_area.py` 已做最小兼容修改：旧文件合法，六字段完整文件合法，部分字段存在时报契约错误。代码旁 `Data_Preprocessing/Ori_Data/README.md` 同步说明了六个可选字段。
 
@@ -40,6 +41,7 @@
 
 - 正式掩码入口通过 Python 静态编译和 shell 语法检查；
 - 隔离 fixture 已覆盖新增六字段、类别重叠、旧字段保持、完整字段跳过、部分字段不改写和两种样本范围；
+- 数组分片测试已覆盖 12 个交错分片两两不重叠、并集完整、各分片数量差不超过 1，以及非法分片参数报错；
 - E3 隔离测试已覆盖旧文件、六字段完整文件、部分字段和错误数据类型；
 - A–G 原有 `test_density_stage_e.py` 在当前 Windows 环境收集时缺少 RDKit，未进入测试函数；这是本地依赖缺失，不是测试断言失败；
 - 初始化入口的静态编译、历史原因数量检查和隔离端到端测试通过。
@@ -53,3 +55,15 @@
 - 没有实现受体序列、残基映射、50 维原子特征或语言模型产物。
 
 下一步由用户先运行一次性初始化并检查结果，再以 `all_existing` 运行掩码升级。掩码运行结束后只读汇总普通日志；只有用户验收后，后续维护扫描器才进入新的实现授权。
+
+准备好的正式掩码提交命令如下；`--mem 768G` 对数组中的每个任务分别生效：
+
+```bash
+bash 训练与运行/submit_task.sh \
+  --sh Data_Preprocessing/Ori_Data_upgrade/upgrade_ligand_area_masks.sh \
+  --resource cpu \
+  --array 0-11 \
+  --cpus 8 \
+  --mem 768G \
+  -- all_existing
+```
