@@ -1,0 +1,1134 @@
+{
+  "10ic": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "1zku": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/1zku/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    },
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "28qm": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/28qm/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "2hil": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/2hil/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "2w49": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/2w49/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "2xrp": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/2xrp/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "2zhc": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/2zhc/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "3g37": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/3g37/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "3gzt": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "3gzu": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "3iyk": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "3jao": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_fatal_log_allocation_overflow",
+      "detail": "正式 Stage F 中，Chimera 日志记录内存分配溢出错误，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "3jc9": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/3jc9/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "4a6j": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/4a6j/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "4v5n": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/4v5n/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "5aj0": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/5aj0/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "5fki": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/5fki/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "5nug": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/5nug/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "5y6p": [
+    {
+      "action": "auxiliary_mainchain_labels",
+      "reason": "missing_auxiliary_mainchain_labels",
+      "detail": "该 PDB 在当时 Stage1 源产物中实际存在，但缺少完整辅助主链监督标签；初始化前将 canonical receptor_tokens.npz 改名留档。",
+      "evidence": "C:/Users/15919/Desktop/Pocket_Plus/src/datasets/readme.md:62; CLAUDE/memory/handoffs/2026-07-27-stage1正式训练准备产物核验.md:23"
+    }
+  ],
+  "6b8h": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/6b8h/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "6gsh": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/6gsh/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "6hcm": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "6hcq": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "6jn9": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/6jn9/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "6jna": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/6jna/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "6jnc": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/6jnc/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "6jnd": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/6jnd/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "6k0a": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/6k0a/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "6kgx": [
+    {
+      "action": "stage_f_quality",
+      "reason": "stage_f_engineering_long_tail_timeout",
+      "detail": "正式 Stage F 中，该 PDB 在 MapQ 之后进入工程长尾超时，公开质量三件套未生成。",
+      "evidence": "文档/exec_plan/A-G数据流水线实现与全量运行.md:74"
+    }
+  ],
+  "6lqg": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_molmap_timeout_3600s",
+      "detail": "正式 Stage F 中，Chimera molmap 在 3600 秒内未完成，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "6mx4": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "6o6b": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/6o6b/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "6r8n": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/6r8n/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    },
+    {
+      "action": "stage_f_quality",
+      "reason": "mapq_q_score_out_of_range",
+      "detail": "正式 Stage F 中，MapQ 生成超出合法范围的原子 Q-score，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "6tba": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "6uz0": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_molmap_timeout_3600s",
+      "detail": "正式 Stage F 中，Chimera molmap 在 3600 秒内未完成，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "7a5o": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/7a5o/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "7a6u": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/7a6u/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "7ju4": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 第二阶段中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "文档/exec_plan/A-G数据流水线实现与全量运行.md:96"
+    }
+  ],
+  "7kzm": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 第二阶段中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "文档/exec_plan/A-G数据流水线实现与全量运行.md:96"
+    }
+  ],
+  "7mbt": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/7mbt/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "7mbu": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/7mbu/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "7n6g": [
+    {
+      "action": "auxiliary_mainchain_labels",
+      "reason": "missing_auxiliary_mainchain_labels",
+      "detail": "该 PDB 在当时 Stage1 源产物中实际存在，但缺少完整辅助主链监督标签；初始化前将 canonical receptor_tokens.npz 改名留档。",
+      "evidence": "C:/Users/15919/Desktop/Pocket_Plus/src/datasets/readme.md:62; CLAUDE/memory/handoffs/2026-07-27-stage1正式训练准备产物核验.md:23"
+    }
+  ],
+  "7nz2": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "7nz3": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "7nz4": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "7ojf": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/7ojf/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "7ooc": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/7ooc/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "7ood": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/7ood/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "7pel": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/7pel/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "7q4b": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/7q4b/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "7q4m": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/7q4m/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "7qof": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "7see": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/7see/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "7sfu": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "7ugp": [
+    {
+      "action": "stage_f_quality",
+      "reason": "mapq_fatal_log_atom_q_absent",
+      "detail": "正式 Stage F 中，MapQ 日志缺少所需原子 Q-score，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "7uk4": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/7uk4/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "7utl": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/7utl/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "7y7a": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_molmap_timeout_3600s",
+      "detail": "正式 Stage F 中，Chimera molmap 在 3600 秒内未完成，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "7yiu": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_molmap_timeout_missing_ccd_template",
+      "detail": "正式 Stage F 第二阶段中，缺少 CCD 模板获取结果，Chimera molmap 超时，公开质量三件套未生成。",
+      "evidence": "文档/exec_plan/A-G数据流水线实现与全量运行.md:96"
+    }
+  ],
+  "7ysq": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "7z8f": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 第二阶段中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "文档/exec_plan/A-G数据流水线实现与全量运行.md:96"
+    }
+  ],
+  "7z8g": [
+    {
+      "action": "auxiliary_mainchain_labels",
+      "reason": "missing_auxiliary_mainchain_labels",
+      "detail": "该 PDB 在当时 Stage1 源产物中实际存在，但缺少完整辅助主链监督标签；初始化前将 canonical receptor_tokens.npz 改名留档。",
+      "evidence": "C:/Users/15919/Desktop/Pocket_Plus/src/datasets/readme.md:62; CLAUDE/memory/handoffs/2026-07-27-stage1正式训练准备产物核验.md:23"
+    }
+  ],
+  "7z8i": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 第二阶段中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "文档/exec_plan/A-G数据流水线实现与全量运行.md:96"
+    }
+  ],
+  "7z8m": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "8amw": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8amw/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8ckb": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8ckb/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8cuz": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8cuz/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8cv0": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8cv0/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8cv1": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8cv1/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8dul": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "8dun": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "8e45": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_molmap_timeout_missing_ccd_template",
+      "detail": "正式 Stage F 第二阶段中，缺少 CCD 模板获取结果，Chimera molmap 超时，公开质量三件套未生成。",
+      "evidence": "文档/exec_plan/A-G数据流水线实现与全量运行.md:96"
+    }
+  ],
+  "8fed": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8fed/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8fee": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8fee/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8fef": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8fef/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8glv": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8glv/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8gy6": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8gy6/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8hiw": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8hiw/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8hky": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8hky/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8hkz": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8hkz/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8hl5": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8hl5/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8iyj": [
+    {
+      "action": "stage_f_quality",
+      "reason": "mapq_timeout_7200s",
+      "detail": "正式 Stage F 中，MapQ 在 7200 秒内未完成，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "8j07": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_molmap_timeout_large_grid_model",
+      "detail": "正式 Stage F 第二阶段中，模型与网格规模过大，Chimera molmap 超时，公开质量三件套未生成。",
+      "evidence": "文档/exec_plan/A-G数据流水线实现与全量运行.md:96"
+    }
+  ],
+  "8j24": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8j24/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8ofz": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8ofz/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8olb": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 第二阶段中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "文档/exec_plan/A-G数据流水线实现与全量运行.md:96"
+    }
+  ],
+  "8olc": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "8ry0": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8ry0/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8ry1": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8ry1/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8ryb": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8ryb/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8wkp": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8wkp/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8wq2": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8wq2/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "8wq4": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/8wq4/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9ay1": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9bw7": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "文档/exec_plan/A-G数据流水线实现与全量运行.md:91"
+    }
+  ],
+  "9byr": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9c1g": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9c1h": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9c1j": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9c1k": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "文档/exec_plan/A-G数据流水线实现与全量运行.md:91"
+    }
+  ],
+  "9cp1": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9cp1/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9cp2": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9cp2/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9cp3": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9cp3/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9cro": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9cro/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9crp": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9crp/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9crq": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9crq/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9dgr": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "文档/exec_plan/A-G数据流水线实现与全量运行.md:91"
+    }
+  ],
+  "9e5c": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9e5c/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9e5g": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9e5g/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9ek1": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9ek1/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9fgx": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9fgx/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9fgy": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9fgy/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9fkb": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "文档/exec_plan/A-G数据流水线实现与全量运行.md:91"
+    }
+  ],
+  "9fqr": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9fqr/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9gs0": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9h4p": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9hhl": [
+    {
+      "action": "auxiliary_mainchain_labels",
+      "reason": "missing_auxiliary_mainchain_labels",
+      "detail": "该 PDB 在当时 Stage1 源产物中实际存在，但缺少完整辅助主链监督标签；初始化前将 canonical receptor_tokens.npz 改名留档。",
+      "evidence": "C:/Users/15919/Desktop/Pocket_Plus/src/datasets/readme.md:62; CLAUDE/memory/handoffs/2026-07-27-stage1正式训练准备产物核验.md:23"
+    }
+  ],
+  "9hyf": [
+    {
+      "action": "stage_f_quality",
+      "reason": "mapq_q_score_out_of_range",
+      "detail": "正式 Stage F 中，MapQ 生成超出合法范围的原子 Q-score，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9iya": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_molmap_timeout_3600s",
+      "detail": "正式 Stage F 中，Chimera molmap 在 3600 秒内未完成，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9jel": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_molmap_timeout_3600s",
+      "detail": "正式 Stage F 中，Chimera molmap 在 3600 秒内未完成，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9l1x": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9l1x/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9l22": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9l22/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9lwj": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9lwl": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9mkb": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9mxh": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9mxj": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9mxv": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "文档/exec_plan/A-G数据流水线实现与全量运行.md:91"
+    }
+  ],
+  "9nw3": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "文档/exec_plan/A-G数据流水线实现与全量运行.md:91"
+    }
+  ],
+  "9o2y": [
+    {
+      "action": "stage_f_quality",
+      "reason": "mapq_q_score_out_of_range",
+      "detail": "正式 Stage F 中，MapQ 生成超出合法范围的原子 Q-score，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9olm": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9olm/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9opu": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9opu/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9u37": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_full_grid_cc_signal11",
+      "detail": "正式 Stage F 中，Chimera 完整网格相关系数路径以 signal 11 终止，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9v10": [
+    {
+      "action": "stage_f_quality",
+      "reason": "mapq_timeout_7200s",
+      "detail": "正式 Stage F 中，MapQ 在 7200 秒内未完成，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9v7i": [
+    {
+      "action": "auxiliary_mainchain_labels",
+      "reason": "missing_auxiliary_mainchain_labels",
+      "detail": "该 PDB 在当时 Stage1 源产物中实际存在，但缺少完整辅助主链监督标签；初始化前将 canonical receptor_tokens.npz 改名留档。",
+      "evidence": "C:/Users/15919/Desktop/Pocket_Plus/src/datasets/readme.md:62; CLAUDE/memory/handoffs/2026-07-27-stage1正式训练准备产物核验.md:23"
+    }
+  ],
+  "9vf5": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9vf5/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9wqp": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9wqp/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9y6s": [
+    {
+      "action": "stage_f_quality",
+      "reason": "chimera_molmap_timeout_3600s",
+      "detail": "正式 Stage F 中，Chimera molmap 在 3600 秒内未完成，公开质量三件套未生成。",
+      "evidence": "reports/runs/adaligand_ag_20260711T154658/stage_f/status.part_*.jsonl"
+    }
+  ],
+  "9yx6": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9yx6/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ],
+  "9z9y": [
+    {
+      "action": "stage_e_ligand_area",
+      "reason": "missing_ligand_area",
+      "detail": "正式 Stage E/E3 产物集合中缺少 density/9z9y/ligand_area.npz。",
+      "evidence": "talk/统计_2.md:727"
+    }
+  ]
+}
