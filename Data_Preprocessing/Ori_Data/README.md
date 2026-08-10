@@ -271,8 +271,16 @@ python -m adaligand_preprocessing.cli.ligand_distance --help
 | `union_mask` | `bool (1,Z,Y,X)` | 所有配体实例区域的并集 |
 | `mask_{cid}` | `int32 (K,3)` | 该配体区域的稀疏 `ZYX` 索引；唯一并按数组索引顺序排序 |
 | `centroid_voxel_{cid}` | `float32 (3,)` | `mask_{cid}` 对应体素中心的均值，世界 XYZ，单位 Å |
+| `ion_mask` | `bool (1,Z,Y,X)` | 可选升级字段；全部 `type_tag=ion` 配体区域的并集 |
+| `nucleotide_like_mask` | `bool (1,Z,Y,X)` | 可选升级字段；全部 `type_tag=nucleotide_like` 配体区域的并集 |
+| `peptide_like_mask` | `bool (1,Z,Y,X)` | 可选升级字段；全部 `type_tag=peptide_like` 配体区域的并集 |
+| `small_molecule_mask` | `bool (1,Z,Y,X)` | 可选升级字段；全部 `type_tag=small_molecule` 配体区域的并集 |
+| `sugar_mask` | `bool (1,Z,Y,X)` | 可选升级字段；全部 `type_tag=sugar` 配体区域的并集 |
+| `other_mask` | `bool (1,Z,Y,X)` | 可选升级字段；全部 `type_tag=other` 配体区域的并集，仅供备用 |
 
 每个 `occurrences.jsonl` 中的 `candidate_id` 都应有同名 `mask_{cid}` 和 `centroid_voxel_{cid}`。不同配体的区域允许重叠，`union_mask` 必须与全部稀疏索引的并集完全一致。
+
+六个 `type_tag` 类别掩码允许全部不存在，或同时完整存在；只出现其中一部分属于契约错误。它们之间允许重叠。正式五类为 `ion`、`nucleotide_like`、`peptide_like`、`small_molecule`、`sugar`，`other_mask` 不属于五类 softmax 标签。
 
 | 其余数组 | 类型与形状 | 含义 |
 |---|---|---|
