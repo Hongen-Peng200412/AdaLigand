@@ -74,6 +74,7 @@
 - [x] (2026-08-10 09:31+08:00) 三小时只读检查确认 Find_0 attempt a4推进到 `global_step=18395`，五项训练损失有限；第十二次验证、TOP0.6012、last与对应上一轮最佳TOP0.5946的 `BEST.ckpt` 保持完整，尚无第十三次验证。正式训练进程继续使用release `Pocket_Plus_dc0f05168815`与原batch6/global48契约。两张H100使用80.72/80.10 GiB，作业为 `RUNNING` 且只有 `after_lock_336298`，W&B持续更新，当前错误扫描为空。
 - [x] (2026-08-10 12:33+08:00) 三小时只读检查确认 Find_0 attempt a4推进到 `global_step=18998`，五项训练损失有限；第十二次验证、TOP0.6012、last与对应上一轮最佳TOP0.5946的 `BEST.ckpt` 保持完整，尚无第十三次验证。正式训练进程继续使用release `Pocket_Plus_dc0f05168815`与原batch6/global48契约。两张H100使用78.70/78.30 GiB，作业为 `RUNNING` 且只有 `after_lock_336298`，W&B内部日志持续更新，当前错误扫描为空。
 - [x] (2026-08-10 15:34+08:00) Find_0 attempt a4推进到 `global_step=19220` 并完成第十三次验证。验证总损失为 `0.297912`，配体体素PRAUC刷新为新高 `0.610505`；受体、原子和伪原子PRAUC为 `0.675975`、`0.675356` 和 `0.622059`。新TOP0.6105与last完整，`BEST.ckpt`按一次验证延迟刷新到上一轮最佳TOP0.6012；top-k保留策略移除最弱TOP0.5284。两张H100使用79.02/77.70 GiB，作业为 `RUNNING` 且只有 `after_lock_336298`，W&B持续更新，无OOM或未处理异常。
+- [x] (2026-08-10 18:34+08:00) 三小时只读检查确认 Find_0 attempt a4推进到 `global_step=19814`，五项训练损失有限；第十三次验证、TOP0.6105、last与对应上一轮最佳TOP0.6012的 `BEST.ckpt` 保持完整，尚无第十四次验证。正式训练进程继续使用release `Pocket_Plus_dc0f05168815`与原batch6/global48契约。两张H100使用78.13/78.90 GiB，作业为 `RUNNING` 且只有 `after_lock_336298`，W&B持续更新，当前错误扫描为空。
 - [ ] 只持续验收 Find_0 的后续验证指标和 checkpoint；本轮只运行 CPC1，不启动 CPC2。
 - [ ] 回填 mapping、运行检查记录和 CLAUDE handoff/memory；后续完整图推理与评估沿用既有主线。
 
