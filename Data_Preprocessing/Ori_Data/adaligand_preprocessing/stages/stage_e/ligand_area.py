@@ -37,6 +37,17 @@ from adaligand_preprocessing.utils.io import (
     safe_object_filename,
 )
 
+
+LIGAND_TYPE_MASK_KEYS = {
+    "ion_mask",
+    "nucleotide_like_mask",
+    "peptide_like_mask",
+    "small_molecule_mask",
+    "sugar_mask",
+    "other_mask",
+}
+
+
 def _pocket_voxel_center_axes_xyz(
     grid_shape_zyx: tuple[int, int, int],
     origin_xyz: np.ndarray,
@@ -275,6 +286,7 @@ def ligand_area_errors(
     ``expected_source_arrays`` 必须来自 ``build_ligand_area_arrays``，只比较
     ``union_mask``、各 ``mask_{cid}`` 与 ``centroid_voxel_{cid}``；本函数不实现
     第二套几何或半径公式。未传入时仅执行通用 schema/内部自洽验证。
+    六个配体类别掩码可以全部不存在或全部存在；只出现部分字段属于契约错误。
     """
     errors: list[str] = []
     shape = tuple(int(value) for value in grid_shape_zyx)
@@ -370,7 +382,18 @@ def ligand_area_errors(
             f"centroid_voxel_{candidate_id}",
         )
     }
-    unexpected_keys = set(arrays).difference(required_keys | dynamic_keys)
+    present_type_mask_keys = set(arrays).intersection(LIGAND_TYPE_MASK_KEYS)
+    if present_type_mask_keys and present_type_mask_keys != LIGAND_TYPE_MASK_KEYS:
+        errors.append("ligand_area_contract:partial_type_masks")
+    if present_type_mask_keys == LIGAND_TYPE_MASK_KEYS:
+        for key in sorted(LIGAND_TYPE_MASK_KEYS):
+            value = np.asarray(arrays[key])
+            if value.dtype != np.dtype(bool) or value.shape != (1, *shape):
+                errors.append(f"ligand_area_contract:type_mask:{key}")
+
+    unexpected_keys = set(arrays).difference(
+        required_keys | dynamic_keys | LIGAND_TYPE_MASK_KEYS
+    )
     if unexpected_keys:
         errors.append(
             "ligand_area_contract:unexpected_keys:"
@@ -609,4 +632,3 @@ def build_ligand_area(
         "n_occurrences": len(source.candidate_ids),
         "n_union_voxels": int(np.count_nonzero(arrays["union_mask"])),
     }
-
