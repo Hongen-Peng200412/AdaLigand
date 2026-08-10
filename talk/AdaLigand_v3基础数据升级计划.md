@@ -1,14 +1,14 @@
 # AdaLigand v3 基础数据升级计划
 
-> 状态：待用户审阅的实施计划，尚未获得代码修改、服务器同步或服务器运行授权。  
+> 状态：首轮本地实现已获授权；服务器同步、服务器提交和正式产物写入仍由用户执行。
 > 依据：`talk/talking/data_upgrade.md`、`talk/PDB_mmCIF分子与序列层次说明.md`、`文档/规划文档/数据处理_v2.md`、`talk/talking/Matcher_单候选闭集配体身份分类新方案.md`。  
-> 当前边界：只规划产物完整性名单、问题留档、配体类别体素掩码、受体序列与残基映射、配体语言模型和受体语言模型的准备方式。计划的具体执行需要用户额外授权。
+> 当前实现边界：只实现 `all_valid.json` 与 `info.json` 的一次性初始化，以及 `ligand_area.npz` 六个类别掩码的升级。受体序列、残基映射和语言模型仍只保留方案，必须另行授权实现。
 
 ## 1. 计划目标
 
 本轮升级在现有 AdaLigand A–G 产物基础上增加以下能力：
 
-1. 维护一个只会缩小的 `all_valid_list.json`。它表示截至当前处理步骤仍具有全部指定产物的 PDB 集合。
+1. 维护一个只会缩小的 `all_valid.json`。初始内容固定为当前 split 文件中全部 PDB 的并集。
 2. 维护一个不参与训练、过滤或任务编排的 `info.json`。它只保存每个 PDB 已知的缺失、异常、超时和未来质量过滤原因。
 3. 在现有 `ligand_area.npz` 中追加六个配体类别体素掩码，供未来五类配体加背景的 softmax 监督使用。
 4. 从现有 mmCIF 提取受体蛋白质、RNA 和 DNA 的完整 polymer entity 序列，保存 FASTA 和机器可读清单。
@@ -21,7 +21,7 @@
 
 - 不执行序列去冗余；
 - 不生成新的 train、validation、calibration 或 test；
-- 不修改 `/storage/penghongen/AdaLigand/Ori_Data/stage1_preparation_box_pool_2`；
+- 除新增或更新 `all_valid.json` 与 `info.json` 外，不修改 `/storage/penghongen/AdaLigand/Ori_Data/stage1_preparation_box_pool_2` 的其他内容；
 - 不修改 BOX 请求比例、`fraction` 读取逻辑或 batch 抽样逻辑；
 - 不处理相同 EMDB 被少数不同 PDB 引用的情况；
 - 不运行新的 Stage G 数值质量过滤，也不生成新的 `keep_list.jsonl`；
@@ -35,7 +35,7 @@
 - 服务器命令由用户亲手提交，除非用户另行明确授权 AI 提交。
 - 新代码不自动启动下一处理步骤，不自动调用 Stage release，不创建替用户决定是否接受结果的发布门控。
 - 产物校验只生成逐样本诊断和汇总，不根据未知异常数量替用户决定整批数据是否可用。
-- 一个 PDB 的普通处理异常、超时或字段不完整不会让其他 PDB 停止处理；对应原因写入 `info.json`。
+- 一个 PDB 的普通处理异常、超时或字段不完整不会让其他 PDB 停止处理。当前掩码升级只把这些结果打印到普通日志，不直接更新 `info.json`。
 - 只有全局输入无法读取、命令参数自相矛盾、输出根无法安全定位等使整条命令无法开展的问题，才使命令整体以非零退出码终止。
 - 只要控制进程完成全部可执行样本并写出汇总，即使存在逐样本失败，命令也可以正常结束；用户根据汇总和逐样本证据决定下一步。
 
@@ -49,14 +49,15 @@
 
 因此本轮清单统一使用小写 `pdb_id` 作为主键：
 
-- `all_valid_list.json` 保存排序后的 PDB 标识列表；
+- `all_valid.json` 保存排序后的 PDB 标识列表；
 - `info.json` 以 PDB 标识为键；
 - PDB 对应的 `emdb_id` 继续从 `raw/pair_list.jsonl` 查询，不在所有问题记录中重复保存。
 
 ### 3.2 旧目录和旧产物
 
-- 不重命名 `parse/{pdb_id}`、`density/{pdb_id}`、`labels/{pdb_id}` 或现有 BOX pool 中的 PDB 文件。
-- 辅助标签缺失、完整图过小或其他原因通过 `all_valid_list.json` 删除和 `info.json` 记录表达。
+- 不重命名 `parse/{pdb_id}`、`density/{pdb_id}`、`labels/{pdb_id}` 目录或现有 BOX pool 中的 PDB 文件。
+- 一次性初始化先把 `5y6p`、`7n6g`、`7z8g`、`9hhl`、`9v7i` 的 `parse/{pdb_id}/receptor_tokens.npz` 改名为 `receptor_tokens_old.npz`，再扫描当前产物。这五个 PDB 是历史证据确认的完整辅助主链监督标签缺失样本；不存在有可靠证据的第六个样本。
+- 辅助标签缺失、完整图过小或其他原因通过 `all_valid.json` 和 `info.json` 分别表达；`info.json` 中存在问题不自动决定样本是否进入 `all_valid.json`。
 - 已存在字段保持原名称、数据类型、形状和数值；新能力使用附加字段或附加文件。
 
 ### 3.3 配体类别
@@ -75,11 +76,11 @@ sugar
 
 五个正式类别发生体素重叠时，不设计专门消歧算法。Dataset 先计算 `background_mask = ~(ion_mask | nucleotide_like_mask | peptide_like_mask | small_molecule_mask | sugar_mask)`，再按 `[background_mask, ion_mask, nucleotide_like_mask, peptide_like_mask, small_molecule_mask, sugar_mask]` 的顺序堆叠布尔掩码并执行 `argmax`。多个正式类别同时为 True 时，固定顺序靠前的类别取得该体素；只有 `other_mask=True`、五个正式类别均为 False 的体素仍属于背景。
 
-## 4. `all_valid_list.json` 与 `info.json`
+## 4. `all_valid.json` 与 `info.json`
 
 ### 4.1 初始样本集合
 
-初始样本集合来自 `${ROOT}/raw/pair_list.jsonl` 中全部唯一、小写 `pdb_id`，其中 `${ROOT}` 表示正式 AdaLigand A–G 数据根。初始文件为：
+`all_valid.json` 来自 `/storage/penghongen/AdaLigand/Ori_Data/stage1_preparation_box_pool_2/split/` 中当前全部 split JSON 文件的 PDB 并集。初始文件为：
 
 ```json
 [
@@ -88,11 +89,11 @@ sugar
 ]
 ```
 
-数组按 `pdb_id` 排序，不保存重复项。
+数组中的 PDB 标识转换为小写，按 `pdb_id` 排序，不保存重复项。它不从 `pair_list.jsonl` 或现有产物目录推导。
 
 ### 4.2 只缩小、不自动恢复
 
-完整性扫描脚本接收当前 `all_valid_list.json` 和本次显式要求的产物组，计算：
+未来完整性扫描脚本接收当前 `all_valid.json` 和本次显式要求的产物组，计算：
 
 $$
 V_{k+1}=V_k\cap C_k,
@@ -100,15 +101,17 @@ $$
 
 其中：
 
-- $V_k$ 是扫描前的 `all_valid_list.json`；
+- $V_k$ 是扫描前的 `all_valid.json`；
 - $C_k$ 是本次要求的产物全部存在且通过对应字段检查的 PDB 集合；
 - $V_{k+1}$ 是扫描后原子替换写出的新名单。
 
-一个 PDB 一旦离开 `all_valid_list.json`，后续扫描不会自动把它重新加入。未来如果用户希望恢复某个 PDB，应由用户明确授权独立恢复动作，而不是由扫描脚本猜测。
+一个 PDB 一旦离开 `all_valid.json`，后续扫描不会自动把它重新加入。未来如果用户希望恢复某个 PDB，应由用户明确授权独立恢复动作，而不是由扫描脚本猜测。
+
+本轮只实现一次性初始化，不实现上述维护扫描器。只有用户运行并验收六类掩码后，才能另行实现只扫描已有产物的维护脚本。
 
 ### 4.3 可叠加的扫描要求
 
-完整性扫描脚本只实现少量名称明确的产物组，不建立复杂插件框架。计划支持的要求包括：
+未来完整性扫描脚本只实现已经落盘的产物组，不建立复杂插件框架，也不提前写入受体序列等尚未实现的逻辑。计划中的产物组包括：
 
 | 产物组名称 | 需要检查的具体产物 |
 |---|---|
@@ -125,7 +128,20 @@ $$
 
 ### 4.4 `info.json`
 
-`info.json` 初始化为所有 PDB 对应空问题列表：
+`info.json` 的键来自 `${ROOT}/raw/pair_list.jsonl` 中全部唯一、小写 `pdb_id`，其中 `${ROOT}` 表示正式 AdaLigand A–G 数据根。初始化时先检查八类当前产物：
+
+```text
+parse/{pdb_id}/occurrences.jsonl
+parse/{pdb_id}/ligand_coords.npz
+parse/{pdb_id}/receptor_tokens.npz
+labels/{pdb_id}/atom_labels.npz
+density/{pdb_id}/exp.npz
+density/{pdb_id}/sim.npz
+density/{pdb_id}/ligand_area.npz
+density/{pdb_id}/ligand_dist.npz
+```
+
+存在可靠历史证据时合并对应问题记录。一个 PDB 不在当前 split 并集内、又没有可恢复的逐 PDB 历史原因时，记录 `unknown_issue`，以区别于“已检查且没有已知问题”。位于 split 并集且没有已知问题的 PDB 保存空列表：
 
 ```json
 {
@@ -158,7 +174,7 @@ $$
 
 `info.json` 不保存 `valid/invalid`、`released/unreleased` 或类似替用户做决定的状态。重复执行同一动作时，完全相同的 `action + reason + detail + evidence` 不重复追加。
 
-并行 worker 不直接同时写 `info.json`。worker 返回逐样本问题，控制进程在本次命令结束时统一原子更新，避免 JSON 被并发覆盖。
+一次性初始化由控制进程统一原子写出 `all_valid.json` 和 `info.json`。初始化脚本、配套 shell 和历史原因清单属于机械性临时代码，保存在 `Data_Preprocessing/Ori_Data_upgrade/tmp/`，不作为后续科学主线入口。
 
 ## 5. `ligand_area.npz` 的六个类别掩码
 
@@ -187,14 +203,16 @@ $$
 4. 不清除不同类别之间的重叠体素；
 5. 不改变现有 `union_mask`、`mask_{candidate_id}` 或 `centroid_voxel_{candidate_id}`。
 
-六类掩码的并集必须等于现有 `union_mask`。该关系只用于诊断和测试，不触发自动发布决定。
+六类掩码的并集应等于现有 `union_mask`。该关系只在临时校验或结果分析中检查，不加入正式批处理的发布门控。
 
 ### 5.3 兼容方式
 
 - 继续保留现有 `schema_version=3`，把六个字段视为可识别的附加标签；不因添加字段让现有 Pocket_Plus BOX pool 拒绝读取。
 - 当前 E3 校验函数需要从“拒绝全部额外字段”改为“允许六个类别掩码，并在六个字段出现时检查它们全部齐全”。
-- 尚未升级的旧 `ligand_area.npz` 仍是合法基础产物；只有完整性扫描显式要求 `ligand_type_masks` 时，缺少六个字段的 PDB 才离开 `all_valid_list.json`。
+- 尚未升级的旧 `ligand_area.npz` 仍是合法基础产物；只有未来完整性扫描显式要求 `ligand_type_masks` 时，缺少六个字段的 PDB 才离开 `all_valid.json`。
 - 升级一份 `ligand_area.npz` 时，先证明全部旧字段逐数组保持一致，再原子替换正式文件。
+- 六个字段已经全部存在时直接跳过；六个字段只存在一部分时打印 `partial_existing_masks` 并保持文件不变；六个字段全部不存在时才生成。
+- 批处理入口必须显式接收 `--sample-scope all_valid|all_existing`。`all_valid` 只处理 `all_valid.json` 中的 PDB；`all_existing` 处理所有已有 `density/{pdb_id}/ligand_area.npz` 的 PDB。本轮正式命令使用 `all_existing`。
 
 ### 5.4 第一版多分类读取
 
@@ -504,30 +522,30 @@ ligand_language_models/{model_identity}/{safe_object_key}.npz
 - 冻结向量及其数据类型和维度；
 - 失败或不支持原因。
 
-五个正式配体类别中的一个配体身份如果缺少本轮指定语言模型的合法产物，对应 PDB 在显式执行 `ligand_language_model` 完整性扫描后离开 `all_valid_list.json`。`type_tag=other` 的配体不作为正式类别要求。
+五个正式配体类别中的一个配体身份如果缺少本轮指定语言模型的合法产物，对应 PDB 在显式执行 `ligand_language_model` 完整性扫描后离开 `all_valid.json`。`type_tag=other` 的配体不作为正式类别要求。
 
 超过模型 token 上限的配体不静默截断并伪装成完整表示。具体采用“不支持”、片段聚合还是其他模型，需要在语言模型实施前由用户确认。
 
 ## 12. 计划执行顺序
 
-计划的代码实现和服务器执行需要分别获得用户授权。获得授权后按下列顺序推进：
+代码实现和服务器执行分别授权。当前仅阶段 A 与阶段 B 的本地实现已获授权；服务器命令仍由用户提交。
 
 ### 阶段 A：名单和问题留档
 
-1. 实现 `all_valid_list.json` 初始化入口和 `info.json` 初始化入口。
-2. 实现显式产物组驱动的完整性扫描脚本。
-3. 使用本地小型 fixture 测试只缩小、不重复、原子写和问题追加。
-4. 准备服务器初始化和基础扫描命令，由用户提交。
+1. 在 `Data_Preprocessing/Ori_Data_upgrade/tmp/` 实现 `all_valid.json` 与 `info.json` 的一次性初始化入口、配套 shell 和历史原因清单。
+2. 在扫描八类当前产物前，把五个已确认样本的 `receptor_tokens.npz` 改名为 `receptor_tokens_old.npz`。
+3. 使用本地小型 fixture 测试 split 并集、问题去重、`unknown_issue`、五文件改名和原子写。
+4. 准备服务器初始化命令，由用户提交。
 5. 读取运行结果，形成逐原因、逐文件和总数量分析；不自动启动下一阶段。
 
 ### 阶段 B：六类 ligand-area 掩码
 
-1. 扩展 E3 类别掩码构造和校验函数。
+1. 最小修改现有 E3 校验器，使旧文件、六字段完整文件均合法，六字段部分存在时明确报错。
 2. 编写旧字段不变、类别并集、空类别、类别重叠和 `other` 背景语义测试。
-3. 编写只处理当前 `all_valid_list.json` 的批量入口。
-4. 准备服务器命令，由用户提交。
-5. 汇总成功、超时、已知异常和未知异常，并更新 `info.json`。
-6. 用户决定后显式运行 `ligand_type_masks` 完整性扫描，继续缩小 `all_valid_list.json`。
+3. 在 `Data_Preprocessing/Ori_Data_upgrade/` 编写必须显式选择 `all_valid` 或 `all_existing` 的批量入口；本轮使用 `all_existing`。
+4. 为该 Python 入口编写配套 shell，并通过 `训练与运行` 的完整模式准备服务器命令，由用户提交。
+5. 每个 PDB 的成功、跳过、字段部分存在和异常只写普通日志。任务结束后由子代理统一汇总日志，不直接修改 `info.json`。
+6. 用户运行并验收掩码后，才能另行授权实现维护 `info.json` 与 `all_valid.json` 的扫描器。
 
 ### 阶段 C：受体序列、残基映射和 50 维特征
 
@@ -564,12 +582,11 @@ ligand_language_models/{model_identity}/{safe_object_key}.npz
 
 ### 13.1 名单和留档
 
-- 初始名单来自 `pair_list.jsonl` 的唯一 PDB 集合；
+- 初始名单来自当前全部 split JSON 文件的唯一 PDB 并集；
 - 重复 PDB 不进入输出；
-- 每次扫描满足 $V_{k+1}\subseteq V_k$；
-- 已删除 PDB 不会因后续产物补齐而自动恢复；
-- `info.json` 初始化覆盖全部 PDB；
-- 并行问题汇总不会破坏 JSON；
+- `info.json` 初始化覆盖 `pair_list.jsonl` 中的全部唯一 PDB；
+- split 外且没有可靠逐 PDB 原因的样本记录 `unknown_issue`；
+- 五个已确认缺失完整辅助主链监督标签的受体文件按约定改名；
 - 完全相同的问题记录不会重复追加。
 
 ### 13.2 类别掩码
@@ -582,6 +599,8 @@ ligand_language_models/{model_identity}/{safe_object_key}.npz
 - `other` 体素在第一版整数标签中成为 background；
 - 类别重叠按固定顺序产生确定结果；
 - 新增字段前后所有旧数组逐数组相等。
+- 六字段完整的文件不重复写；六字段部分存在的文件保持不变；
+- `all_valid` 与 `all_existing` 两种样本范围只选择各自规定的 PDB。
 
 ### 13.3 受体序列和残基映射
 
@@ -616,12 +635,12 @@ ligand_language_models/{model_identity}/{safe_object_key}.npz
 - 已知问题与未知问题分别列出；
 - 失败是否集中在特定序列长度、配体类别、原子数或文件状态；
 - 新旧字段一致性检查；
-- `all_valid_list.json` 扫描前后数量和被删除 PDB；
+- `all_valid.json` 扫描前后数量和被删除 PDB；
 - 对每类问题是否值得补算、修复或直接接受的具体建议。
 
 报告只提供事实和建议，不替用户改变名单、修改 split、重新运行任务或决定产物可以发布。
 
-## 15. 实施前仍需用户确认的事项
+## 15. 后续阶段仍需用户确认的事项
 
 以下事项不阻止本计划落盘，但在相应代码实现前必须确认：
 
@@ -632,4 +651,4 @@ ligand_language_models/{model_identity}/{safe_object_key}.npz
 5. 语言模型特征保存为 `float16` 还是 `float32`；
 6. 配体超过 202 token 时采用“不支持”、片段聚合还是其他编码器。
 
-在用户明确授权实施前，本计划不允许触发任何代码修改、服务器同步、服务器命令提交或正式产物写入。
+阶段 A 与阶段 B 仅获本地实现和本地测试授权。AI 不同步服务器、不提交服务器任务、不写正式服务器产物；这些动作由用户亲手执行，除非用户再次明确授权。阶段 C–E 仍不得开始实现。
