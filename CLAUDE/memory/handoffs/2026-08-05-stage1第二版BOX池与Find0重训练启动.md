@@ -84,6 +84,11 @@
 - 2026-08-09 16:47，Find_0 attempt a4推进到step16007，五项训练损失有限；第十次验证、TOP0.5946、last与对应上一轮最佳0.5870 TOP的BEST保持完整，尚无第十一次验证。正式进程与resolved配置继续精确使用release Pocket_Plus_dc0f05168815、两类9³/num_conv0、batch6/global48、warmup0.005、patience3与在线W&B。双H100使用79.79/80.87GiB，作业RUNNING且只有after_lock，当前错误扫描为空。
 - 2026-08-09 19:47，Find_0 attempt a4推进到step16172并完成第十一次验证：总验证损失0.301422，配体体素/受体/原子/伪原子PRAUC为0.589994/0.664389/0.668781/0.615416，配体体素PRAUC未超过当前最佳0.594641。新TOP0.5900与last完整，BEST已刷新到当前全局最佳TOP0.5946；top-k保留策略移除最弱TOP0.4720。双H100使用80.93/80.89GiB，作业RUNNING且只有after_lock，当前错误扫描为空。
 - 2026-08-10 00:27，本轮监控因 `10.102.33.220:10022` 在认证前持续超时而未完成：统一SSH helper两次有限重试和独立TCP端口探测均超时。没有执行任何服务器写入、锁操作或作业控制命令，不能据此判断Job336298状态；最后成功证据仍为19:47的step16172与健康第十一次验证。
+- 2026-08-10 03:28，服务器连接已恢复。Find_0 attempt a4推进到step17537，五项训练损失有限；第十一次验证、TOP0.5900、last与当前全局最佳TOP0.5946的BEST保持完整，尚无第十二次验证。正式进程继续使用release Pocket_Plus_dc0f05168815、batch6/global48、warmup0.005、patience3与在线W&B。双H100使用80.14/79.88GiB，作业RUNNING且只有after_lock，当前错误扫描为空。
+- 2026-08-10 06:30，Find_0 attempt a4推进到step17804并完成第十二次验证：总验证损失0.295210，配体体素/受体/原子/伪原子PRAUC均刷新为新高0.601202/0.683164/0.683900/0.636159。新TOP0.6012与last完整，BEST仍按一次验证延迟对应上一轮最佳TOP0.5946；top-k保留策略移除最弱TOP0.5116。双H100使用79.02/78.55GiB，作业RUNNING且只有after_lock，当前错误扫描为空。
+- 2026-08-10 09:31，Find_0 attempt a4推进到step18395，五项训练损失有限；第十二次验证、TOP0.6012、last与对应上一轮最佳TOP0.5946的BEST保持完整，尚无第十三次验证。正式进程继续使用release Pocket_Plus_dc0f05168815与原batch6/global48契约。双H100使用80.72/80.10GiB，作业RUNNING且只有after_lock，W&B持续更新，当前错误扫描为空。
+- 2026-08-10 12:33，Find_0 attempt a4推进到step18998，五项训练损失有限；第十二次验证、TOP0.6012、last与对应上一轮最佳TOP0.5946的BEST保持完整，尚无第十三次验证。正式进程继续使用release Pocket_Plus_dc0f05168815与原batch6/global48契约。双H100使用78.70/78.30GiB，作业RUNNING且只有after_lock，W&B内部日志持续更新，当前错误扫描为空。
+- 2026-08-10 15:34，Find_0 attempt a4推进到step19220并完成第十三次验证：总验证损失0.297912，配体体素PRAUC刷新为新高0.610505；受体/原子/伪原子PRAUC为0.675975/0.675356/0.622059。新TOP0.6105与last完整，BEST按一次验证延迟刷新到上一轮最佳TOP0.6012；top-k保留策略移除最弱TOP0.5284。双H100使用79.02/77.70GiB，作业RUNNING且只有after_lock，W&B持续更新，无OOM或未处理异常。
 - 诊断使用的 CPU Job 335495、336466 和 336494 均已停止生产进程并进入 `try_lock` 后释放准确 `after_lock`。335495/336466 最终为 `COMPLETED 0:0`；336494 在有效第二版结果落盘后停止重复第一版复放，预期为 `FAILED 9:0`。三个 CPU allocation 均已释放，远端证据保留。
 
 ## AdaLigand 记录
