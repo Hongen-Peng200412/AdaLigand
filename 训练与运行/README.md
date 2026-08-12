@@ -46,6 +46,12 @@ bash 训练与运行/submit_task.sh \
 
 Slurm 作业可能排队数小时。如果在提交命令运行时就复制代码，作业真正开始时可能仍执行旧代码。本系统在每次即将执行任务时才计算项目内容哈希并创建 release；启用 `--after_hold` 后，删除 `try_lock` 触发的再次执行也会建立对应 release，因此每次执行与 release 一一对应。
 
+数组元素同时启动且看到相同项目内容时，release 创建器原子创建内容专属锁目录。获得锁的
+进程完成只读副本后，其余进程校验并复用同一目录，不会并发移动各自的临时目录。锁目录是
+`<feedback-root>/releases/.<release-id>.lockdir`；`release-id` 由项目目录名和内容哈希前
+12 位组成，例如 `AdaLigand_115100194b3b`。正常或已处理的异常退出会删除锁目录；等待方
+超过 30 分钟只报错，不会自动删除所有者状态未知的锁目录。
+
 release 是只读运行副本，不是训练结果目录。任务产生的 checkpoint、指标、概率图或其他业务产物，仍由任务脚本和项目代码决定位置。
 
 ## 4. 服务器目录分别保存什么
@@ -63,9 +69,11 @@ $HOME/Feedback/AdaLigand/
 ├── launches/<job-id>/<launch-id>/
 │   ├── launch.json
 │   └── run_cmd.sh
-└── releases/AdaLigand_<内容哈希>/
-    ├── manifest.json
-    └── AdaLigand/
+└── releases/
+    ├── .AdaLigand_<内容哈希前缀>.lockdir  # 创建或校验期间存在；所有者异常终止时可能残留
+    └── AdaLigand_<内容哈希前缀>/
+        ├── manifest.json
+        └── AdaLigand/
 ```
 
 - `allocations/` 保存 Slurm 资源内当前可控制的执行状态和合并日志。

@@ -1,8 +1,8 @@
 # AdaLigand v3 基础数据升级计划
 
-> 状态：首轮本地实现已获授权；服务器同步、服务器提交和正式产物写入仍由用户执行。
+> 状态：名单初始化、配体类别掩码与 occurrence 级配体语言模型管线均已完成；prepared、SMI-TED 和启用 `deterministic_eval=True` 的 MoLFormer 已通过正式汇总和产物核验。
 > 依据：`talk/talking/data_upgrade.md`、`talk/PDB_mmCIF分子与序列层次说明.md`、`文档/规划文档/数据处理_v2.md`、`talk/talking/Matcher_单候选闭集配体身份分类新方案.md`。  
-> 当前实现边界：只实现 `all_valid.json` 与 `info.json` 的一次性初始化，以及 `ligand_area.npz` 六个类别掩码的升级。受体序列、残基映射和语言模型仍只保留方案，必须另行授权实现。
+> 当前实现边界：已实现 `all_valid.json` 与 `info.json` 的一次性初始化、`ligand_area.npz` 六个类别掩码升级和 occurrence 级配体语言模型管线。维护清单扫描器、受体序列、受体残基映射和受体语言模型仍须另行授权。
 
 ## 1. 计划目标
 
@@ -15,13 +15,13 @@
 5. 在现有受体原子信息基础上建立“受体原子 → 有坐标残基 → 完整序列位置 → 语言模型特征”的简化映射。
 6. 为每个有坐标受体残基保存重原子几何中心，使未来模型可以直接把残基当作三维图节点。
 7. 保留当前 49 维受体原子特征，同时新增包含主链标记的 50 维受体原子特征。
-8. 为配体和受体语言模型离线特征规定不重复存储、可追溯的产物位置和字段。
+8. 为配体 occurrence 和受体序列语言模型离线特征规定可追溯的产物位置和字段。
 
 本轮不会改变当前 Stage1 的训练样本身份或已经生成的 BOX：
 
 - 不执行序列去冗余；
 - 不生成新的 train、validation、calibration 或 test；
-- 除新增或更新 `all_valid.json` 与 `info.json` 外，不修改 `/storage/penghongen/AdaLigand/Ori_Data/stage1_preparation_box_pool_2` 的其他内容；
+- 除已经生成的 `all_valid.json`、`info.json` 和新建的 `ligand_language_models/` 外，不修改 `/storage/penghongen/AdaLigand/Ori_Data/stage1_preparation_box_pool_2` 的现有内容；
 - 不修改 BOX 请求比例、`fraction` 读取逻辑或 batch 抽样逻辑；
 - 不处理相同 EMDB 被少数不同 PDB 引用的情况；
 - 不运行新的 Stage G 数值质量过滤，也不生成新的 `keep_list.jsonl`；
@@ -502,34 +502,67 @@ features_for_entity_e[s]
 
 ## 11. 配体语言模型特征
 
-配体语言模型部分依据 `talk/talking/Matcher_单候选闭集配体身份分类新方案.md`。第一轮计划比较 MoLFormer 与 SMI-TED$_{289M}$，按配体化学身份 `object_key` 计算，不按 occurrence 重复计算。
+第一轮固定生成以下两套原始分子级表示：
 
-建议保存：
+- `ibm-research/MoLFormer-XL-both-10pct`；
+- SMI-TED Light 289M，权重文件 `smi-ted-Light_40.pt`。
+
+处理和保存单位是 `(pdb_id, candidate_id)`，不是全局 `object_key`。同一
+`object_key` 在不同 PDB 或同一 PDB 的不同 occurrence 中都分别准备 SMILES、分别
+运行模型并分别保存。只保存 `float32 (768,)` 分子级向量，不保存 token 级或原子
+级向量，不做 L2 归一化、共同缩放或可训练投影。
+
+普通 CCD 使用现有 `LigandObject.smiles`。BRANCHED 优先用 pdbeccdutils 从完整 PDB
+mmCIF 生成 CLC（Covalently Linked Component，共价连接组分），再按
+`(ccd_id, auth_asym_id, auth_seq_id, insertion_code)` 残基身份多重集合精确对应。
+没有唯一精确 CLC 或唯一 CLC 没有生成非空 SMILES 时，从 LigandObject 删除当前
+occurrence 的 `present=False` 原子，并只保留两端均存在的已有键。代码不实现模糊
+匹配、手写离去原子规则、字符串拼接多个 SMILES 或自定义化学反应引擎。
+
+模型输入以 canonical non-isomeric SMILES 为目标，同时保存 assembled isomeric
+SMILES、实际输入字符串和立体信息是否被删除。真实断开组分、盐、形式电荷、金属
+和单原子离子保持不变；不去盐、不取最大组分、不中和。RDKit parse、sanitize、
+组分连接核对、tokenizer 词表和长度检查都只记录事实：只要存在非空 SMILES，仍可
+交给模型尝试。
+
+MoLFormer 不请求截断，超过 202 token 的输入仍交给官方模型并记录长度。SMI-TED
+保持官方 `model.encode` 行为，包括 RDKit 规范化、202 token 截断、官方 tokenizer
+和自编码器池化；结果保存截断前 token 数和按官方上限得到的诊断 token 前缀，但不
+声称取得了官方接口没有暴露的内部 token 张量。独立规范化无法确认 tokenizer 输入、
+但官方 `model.encode` 仍返回向量时，向量照常保存且 `model_smiles=null`。SMI-TED 的独立运行时固定
+`transformers==4.57.6`，避免已实测的新版本 tokenizer 静默把普通化学 token 变成
+`<pad>`。
+
+模型若返回任意数值 `float32 (768,)`，即使含 NaN 或 Inf 也保存并记录；没有输出
+或形状错误时只保存失败记录，不伪造向量。`type_tag=other` 不编码，只在报告中计数。
+本阶段不新增维护 `all_valid.json` 或 `info.json` 的逻辑，也不因语言模型结果自动
+改变任何样本名单。
+
+正式产物按 PDB 保存：
 
 ```text
-ligand_language_models/{model_identity}/{safe_object_key}.npz
+ligand_language_models/
+├── prepared/{pdb_id}/prepared_smiles.jsonl
+├── molformer/{pdb_id}/candidate_{candidate_id}.npz
+├── molformer/{pdb_id}/results.jsonl
+├── smi_ted_289m/{pdb_id}/candidate_{candidate_id}.npz
+└── smi_ted_289m/{pdb_id}/results.jsonl
 ```
 
-每份产物至少保存：
-
-- 原始结构身份和 `object_key`；
-- 原始 SMILES；
-- 实际送入模型的规范化 SMILES；
-- 模型名称、checkpoint revision 和 tokenizer revision；
-- token 数；
-- 是否超过模型长度限制；
-- 是否包含断开的多个组分、金属或电荷；
-- 输入规范化是否删除立体信息；
-- 冻结向量及其数据类型和维度；
-- 失败或不支持原因。
-
-五个正式配体类别中的一个配体身份如果缺少本轮指定语言模型的合法产物，对应 PDB 在显式执行 `ligand_language_model` 完整性扫描后离开 `all_valid.json`。`type_tag=other` 的配体不作为正式类别要求。
-
-超过模型 token 上限的配体不静默截断并伪装成完整表示。具体采用“不支持”、片段聚合还是其他模型，需要在语言模型实施前由用户确认。
+三个阶段各自在 `reports/` 保存数组分片报告和显式最终汇总。最终汇总重新扫描实际
+逐 PDB 产物，简要记录出现次数最多的精确 SMILES；该统计不参与任何输入选择。
+处理主线见 `Data_Preprocessing/Ori_Data_upgrade/ligand_language_model/README.md`，完整字段见
+同目录 `产物字段参考.md`，稳定环境核对与人工提交命令见同目录 `README_run.md`；Job
+339574 探针环境的一次性迁移命令保存在执行记录中。
 
 ## 12. 计划执行顺序
 
-代码实现和服务器执行分别授权。当前仅阶段 A 与阶段 B 的本地实现已获授权；服务器命令仍由用户提交。
+代码实现和服务器执行分别授权。阶段 A、阶段 B 和阶段 D 均已正式运行并验收；阶段 D
+使用用户授予的本次服务器提交权限完成。以后再次运行正式服务器命令，仍须由用户提交或
+由用户另行明确授权 AI 提交。
+
+用户已经明确把阶段 D 提前到阶段 C 之前实施；以下字母仍表示能力分组，不再表示
+必须严格按 C、D 的字母顺序执行。阶段 D 不读取阶段 C 的受体序列或残基映射产物。
 
 ### 阶段 A：名单和问题留档
 
@@ -561,12 +594,13 @@ ligand_language_models/{model_identity}/{safe_object_key}.npz
 
 ### 阶段 D：配体语言模型
 
-1. 冻结 MoLFormer 与 SMI-TED 的精确模型和 tokenizer revision。
-2. 从 `object_key` 清单准备规范化 SMILES 和长度分桶。
-3. 本地验证产物字段、去重和失败记录。
-4. 准备 GPU 服务器命令，由用户提交。
-5. 分析五类配体的可编码率、超长率、立体信息删除率和失败原因。
-6. 用户决定后显式运行 `ligand_language_model` 完整性扫描。
+1. 从五类正式 occurrence 准备逐 PDB SMILES；CPU 任务按 PDB 数组分片，可选择 `all_valid` 或 `all_existing`。
+2. BRANCHED 先做 CLC 完整残基身份多重集合精确对应，必要时使用 LigandObject present 图后备表示。
+3. 本轮先运行 SMI-TED、验收并汇总，再运行 MoLFormer；每个 GPU 数组任务跨其负责的全部 PDB occurrence 组成全局 batch，再把向量分发回逐 PDB 目录。
+4. MoLFormer 默认 batch_size 参数为 256；SMI-TED 使用官方 `model.encode` 并传 batch_size 参数 100，当前分片少于 100 条时传实际条数，实际内部批量由冻结的官方源码决定。
+5. 本地验证字段、精确对应、有效 CLC 不依赖后备输入、后备图、旧向量清理、续跑、普通 batch 逐条重试和最终全局汇总；临时校验代码不进入正式目录。
+6. 准备 CPU、GPU 和汇总服务器命令，由用户分别提交；代码不自动启动下一阶段。
+7. 运行后分析五类配体的准备来源、可编码率、超长率、词表覆盖、立体信息删除率、NaN/Inf 和失败原因，不自动修改 `all_valid.json` 或 `info.json`。
 
 ### 阶段 E：受体语言模型
 
@@ -621,12 +655,17 @@ ligand_language_models/{model_identity}/{safe_object_key}.npz
 
 ### 13.4 语言模型产物
 
-- 相同 `object_key` 的配体不重复编码；
+- 每个 `(pdb_id, candidate_id)` 独立准备和编码，相同 `object_key` 不跨 occurrence 去重；
 - 相同 `sequence_key` 的受体序列不重复编码；
-- 特征中没有 NaN 或 Inf；
+- 配体模型只保存数值 `(768,)`，NaN 与 Inf 原样保存并准确计数；
 - 受体特征第一维等于完整序列长度；
-- 配体超长、解析失败和规范化变化均有明确记录；
-- 模型名称、模型 revision、tokenizer revision 和输入摘要能够重建产物身份。
+- 配体超长、解析失败、sanitize 失败、规范化变化、词表不支持和模型异常均有明确记录；
+- CLC 选择只接受完整残基身份多重集合的唯一精确对应；
+- present 图遇到键类型或手性 one-hot 漂移时，确定性回退方式和出现次数均有记录；
+- 同一 PDB 的 prepared 记录中 `candidate_id` 必须唯一，避免同名 NPZ 被静默覆盖；
+- GPU batch 跨当前数组任务负责的 PDB 组成，不按单个 PDB 分批；
+- SMI-TED 的官方截断与 MoLFormer 的不截断行为分别有明确记录；
+- 模型名称、occurrence 身份、准备输入和模型实际规范化输入能够追溯每份产物。
 
 ## 14. 完成后的分析报告
 
@@ -650,7 +689,8 @@ ligand_language_models/{model_identity}/{safe_object_key}.npz
 2. 修饰残基无法转换成标准一字母符号时使用未知字符还是排除该 entity；
 3. 首批受体蛋白质、RNA 和 DNA 语言模型及其 checkpoint revision；
 4. 受体语言模型长序列的分窗和重叠区域聚合方式；
-5. 语言模型特征保存为 `float16` 还是 `float32`；
-6. 配体超过 202 token 时采用“不支持”、片段聚合还是其他编码器。
+5. 受体语言模型特征保存为 `float16` 还是 `float32`。
 
-阶段 A 与阶段 B 仅获本地实现和本地测试授权。AI 不同步服务器、不提交服务器任务、不写正式服务器产物；这些动作由用户亲手执行，除非用户再次明确授权。阶段 C–E 仍不得开始实现。
+阶段 A 与阶段 B 已由用户提交并验收。用户后来明确授权 AI 依次提交并监控阶段 D；
+正式 prepared、SMI-TED 和 MoLFormer 已完成；具体 Job、异常处理和核验证据见
+`文档/exec_plan/AdaLigand_v3基础数据升级实施.md`。阶段 C 与阶段 E 仍不得开始实现。
