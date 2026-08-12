@@ -52,6 +52,27 @@ release_id="${project_name}_$(printf '%s' "${content_hash}" | cut -c1-12)"
 release_directory="${releases_root}/${release_id}"
 release_project_root="${release_directory}/${project_name}"
 
+# mkdir 在共享文件系统上原子地决定唯一创建者，因此跨节点数组不会同时移动临时目录。
+# 锁目录等待超过 30 分钟时只报错；脚本不会擅自删除可能仍由另一个进程持有的目录。
+lock_directory="${releases_root}/.${release_id}.lockdir"
+lock_wait_seconds=0
+while ! mkdir "${lock_directory}" 2>/dev/null; do
+    if ((lock_wait_seconds >= 1800)); then
+        fail "等待 release 锁目录超过 30 分钟：${lock_directory}"
+    fi
+    sleep 1
+    lock_wait_seconds=$((lock_wait_seconds + 1))
+done
+
+temporary_directory=""
+cleanup_release_state() {
+    if [[ -n ${temporary_directory} && -d ${temporary_directory} ]]; then
+        rm -rf -- "${temporary_directory}"
+    fi
+    rmdir "${lock_directory}" 2>/dev/null || true
+}
+trap cleanup_release_state EXIT
+
 if [[ -d "${release_project_root}" ]]; then
     existing_hash="$(sed -n 's/.*"content_sha256": *"\([^"]*\)".*/\1/p' \
         "${release_directory}/manifest.json" 2>/dev/null || true)"
@@ -61,19 +82,14 @@ if [[ -d "${release_project_root}" ]]; then
     printf '%s\n' "${release_project_root}"
     exit 0
 fi
+[[ ! -e "${release_directory}" ]] \
+    || fail "已有不完整的 release 目录：${release_directory}"
 
 temporary_directory="${releases_root}/.${release_id}.tmp.$$"
 case "${temporary_directory}" in
     "${releases_root}/."*) ;;
     *) fail "临时 release 路径越界：${temporary_directory}" ;;
 esac
-cleanup_temporary() {
-    if [[ -d "${temporary_directory}" ]]; then
-        rm -rf -- "${temporary_directory}"
-    fi
-}
-trap cleanup_temporary EXIT
-
 mkdir -p "${temporary_directory}/${project_name}"
 rsync -a \
     --exclude '.git/' \
@@ -115,12 +131,7 @@ cat >"${temporary_directory}/manifest.json" <<EOF
 }
 EOF
 
-if [[ -e "${release_directory}" ]]; then
-    cleanup_temporary
-else
-    mv "${temporary_directory}" "${release_directory}"
-fi
-trap - EXIT
+mv "${temporary_directory}" "${release_directory}"
 
 printf '[create_release] 创建 %s\n' "${release_directory}" >&2
 printf '%s\n' "${release_project_root}"
