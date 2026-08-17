@@ -4,7 +4,11 @@
 
 ## 实现与隔离边界
 
+- Pocket_Plus 共同实现基点：`f2216171f8279dcee4bb09cba168540e340d67f4`。
 - Pocket_Plus 实现分支：`codex/stage1-v3-data-preparation`。
+- Pocket_Plus 实现端点：`bbaebe008d42e89923375eeaad98d055b43e030f`。
+- Pocket_Plus 学习分支：`Learn/stage1-v3-data-preparation`，端点为 `da659b999eaa70aac26a9ead221a129e4434dd04`。
+- 用户验收后的 Pocket_Plus 累计端点：`Learn/CUMULATIVE@186bfd05b90f6cbe3fe165e16068ac4bcdc39c7f`。该提交只增加用户对代码复杂度的批注，没有改变正式数据。
 - 独立工作树：`C:\Users\15919\.codex\worktrees\stage1-v3-data-preparation\Pocket_Plus`。
 - 服务器工具目录：`/home/penghongen/My_Project/Pocket_Plus/ops/stage1_data_preparation/`。
 - 正式数据根：`/storage/penghongen/AdaLigand/Ori_Data`。
@@ -69,3 +73,5 @@ Job `345237` 为 `COMPLETED 0:0`。来源为 22,251 个 PDB、662,078 条 Stage 
 ## 后续边界
 
 本记录到可供训练读取的数据准备产物为止。Dataset 对迁移后 NPY 的读取、`feat[49] + is_backbone[1]` 的模型内 50 维拼接、训练启动和推理程序由后续任务完成；本轮没有提前修改这些主代码。
+
+后续工作的当前规格为 `文档/规划文档/Stage1第三版训练IO实施计划.md`，实施前代码审计与停点为 `文档/exec_plan/Stage1第三版训练IO与入口实施.md`。未来任务应从这两份文档继续，不应把本记录中的“数据准备已完成”误读为 Dataset、Loader 或训练入口也已完成。

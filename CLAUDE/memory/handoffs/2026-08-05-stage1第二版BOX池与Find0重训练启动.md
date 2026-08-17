@@ -2,7 +2,7 @@
 
 ## 当前目标
 
-建立与旧池并存的 Stage1 第二版 BOX 池，并从头训练 Find_0 CPC1。第二版 train 与 validation 都是冻结的 `0 center + 5 bias + 5 context`；bias 在旧偏移上增加独立方向、长度均匀 0–3 Å 的物理漂移，context 不设受体原子数量门槛。新 Find_0 不运行 CPC2。
+Stage1 第二版 BOX 池已经发布并验收；Find_0 CPC1 的 W&B 运行 `pencounkdual-111/AdaLigand_Stage1/es683hq5` 已由用户接受为完成或基本完成。当前目标是使用现存最高配体体素 PRAUC 对应的 `TOP_epoch_00_score_0.6203.ckpt` 进入完整图 calibration、语义与实例评估及测试。Job336298不再恢复或监控，本轮不运行CPC2；未来断点续训保留为可选事项，但不阻塞当前评估。
 
 ## Pocket_Plus 实现
 
@@ -96,6 +96,7 @@
 - 2026-08-12 10:43，累计检查确认Find_0 attempt a4在此前两轮例行检查中健康推进至step24779，随后在step26084确认第十七次验证：总验证损失刷新为新低0.283119；配体体素/受体/原子PRAUC刷新为新高0.619077/0.699819/0.703241，伪原子PRAUC为0.656728，未超过现有最佳0.661703。新TOP0.6191与last完整，BEST按一次验证延迟刷新到上一轮全局最佳TOP0.6130；top-k保留策略移除最弱TOP0.5668。双H100使用78.91/78.82GiB，作业RUNNING且只有after_lock，W&B持续更新，无OOM或未处理异常。
 - 2026-08-12 16:44，Find_0 attempt a4推进到step26780并完成第十八次验证：配体体素/原子PRAUC刷新为新高0.620293/0.706577；总验证损失0.284030、受体PRAUC0.699564和伪原子PRAUC0.649742未超过各自现有最佳。新TOP0.6203与last完整，BEST按一次验证延迟刷新到上一轮全局最佳TOP0.6191；top-k保留策略移除最弱TOP0.5769。双H100使用78.94/78.82GiB，作业RUNNING且只有after_lock，W&B持续更新，无当前OOM或未处理异常。
 - 2026-08-12 19:45，hnode01于19:15意外重启并进入DOWN，Job336298父运行状态为NODE_FAIL 1:0；Slurm依据Requeue=1自动重新排队，当前为PENDING(Resources)、Restarts=1。中断前W&B摘要到step27221，第十八次验证的TOP0.6203、last及对应TOP0.6191的BEST完整。当前无训练进程，只有既有after_lock，尚未重新取得资源且未操作任何锁。heartbeat临时改为每30分钟；重新分配后先利用自动重建的pre_lock核对恢复命令、原release与checkpoint，禁止从头覆盖原运行目录。
+- 2026-08-17，用户确认已取消Job336298，并把W&B运行`es683hq5`接受为本轮完成或基本完成。Slurm只读核验显示父作业于2026-08-13 02:01:19成为`CANCELLED by 1351`；这不是自然早停。后续默认使用实际最高配体体素PRAUC对应的TOP0.6203进入评估和测试，不再等待训练恢复，也不启动CPC2。`last.ckpt`保留未来断点续训可能性；若以后恢复，必须另行验证完整Lightning状态恢复并使用新目录，不覆盖attempt a4。
 - 诊断使用的 CPU Job 335495、336466 和 336494 均已停止生产进程并进入 `try_lock` 后释放准确 `after_lock`。335495/336466 最终为 `COMPLETED 0:0`；336494 在有效第二版结果落盘后停止重复第一版复放，预期为 `FAILED 9:0`。三个 CPU allocation 均已释放，远端证据保留。
 
 ## AdaLigand 记录
@@ -103,3 +104,4 @@
 - ExecPlan：`文档/exec_plan/Stage1第二版BOX池与Find_0重训练实施.md`。
 - 检查记录：`talk/Stage1第二版BOX池与Find_0重训练检查记录.md`。
 - 上述文件、mapping 与本 handoff 只留在 AdaLigand `Learn/CUMULATIVE` 工作树，不修改索引或其他任务内容。
+- 只服务于Job336298节点故障恢复的`adaligand-stage1-boxpool2` heartbeat已停止；后续评估与测试由对应推理执行记录继续维护。

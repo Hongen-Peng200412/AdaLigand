@@ -402,3 +402,9 @@
 - 19:44检查发现Job336298由运行态变为 `PENDING (Resources)`。进一步核对 `scontrol` 与 `sacct -X` 后确认：hnode01在19:15意外重启并进入 `DOWN`，节点原因精确为 `Node unexpectedly rebooted [slurm@2026-08-12T19:15:04]`；本次父作业状态为 `NODE_FAIL`、退出码 `1:0`，Slurm已依据 `Requeue=1` 自动重新排队，当前 `Restarts=1`。这不是模型OOM、代码异常或用户操作。
 - 节点中断前W&B摘要更新到 `trainer/global_step=27221`，五项训练损失均为有限值；最新完成的仍是第十八次验证。`TOP_epoch_00_score_0.6203.ckpt`、`last.ckpt`、10份TOP候选与按一次验证延迟对应TOP0.6191的 `BEST.ckpt` 均完整。allocation错误文件的大小和修改时间仍停留在attempt a4启动前，其中Traceback属于attempt a1历史错误。
 - 当前作业没有计算资源或训练进程，allocation目录只保留既有 `after_lock_336298`，尚未重新创建pre_lock或try_lock。本次没有删除或创建锁、没有重提或取消作业，也没有修改服务器代码或产物。监控临时改为每30分钟；待Slurm重新分配资源后，先利用任务系统自动重建的pre_lock核对动态命令、冻结release和checkpoint恢复方式，禁止默认脚本从头覆盖原运行目录。
+
+## 2026-08-17 16:43：用户取消 Job336298，训练阶段按“完成或基本完成”收口
+
+- 用户确认已取消 Job336298，并接受 W&B 项目 `pencounkdual-111/AdaLigand_Stage1` 中的运行 `es683hq5` 作为本轮完成或基本完成的 Find_0 训练结果。只读 `sacct -X` 核验显示父作业于2026-08-13 02:01:19结束，最终状态为 `CANCELLED by 1351`、退出码 `1:0`、累计时长 `8-00:51:15`；这是用户主动终止，不是自然早停或完整跑完。
+- 当前可用于后续评估的最后证据为：W&B 摘要 `global_step=27221`；第十八次验证配体体素 PRAUC `0.6202929`；实际最高分 checkpoint `TOP_epoch_00_score_0.6203.ckpt`；`last.ckpt`；以及因一次验证延迟仍对应 `TOP_epoch_00_score_0.6191.ckpt` 的 `BEST.ckpt`。因此后续评估默认优先核对并使用 TOP0.6203，而不把 `BEST.ckpt` 文件名误当作本轮最高分模型。
+- 本轮不再恢复、重新提交或监控 Job336298，也不启动 CPC2。完整图 calibration、语义评估、实例评估与测试可以直接推进；未来若用户决定断点续训，再单独核对 `last.ckpt` 是否能完整恢复优化器、调度器、`global_step` 与验证状态，并使用新目录避免覆盖 attempt a4。该可选恢复不再阻塞当前评估。

@@ -81,8 +81,9 @@
 - [x] (2026-08-12 10:43+08:00) 累计检查确认 Find_0 attempt a4在此前两轮例行检查中健康推进至step24779，随后在 `global_step=26084` 确认第十七次验证。验证总损失刷新为新低 `0.283119`；配体体素、受体和原子PRAUC刷新为新高 `0.619077`、`0.699819` 和 `0.703241`，伪原子PRAUC为 `0.656728`，未超过现有最佳0.661703。新TOP0.6191与last完整，`BEST.ckpt`按一次验证延迟刷新到上一轮全局最佳TOP0.6130；top-k保留策略移除最弱TOP0.5668。两张H100使用78.91/78.82 GiB，作业为 `RUNNING` 且只有 `after_lock_336298`，W&B持续更新，无OOM或未处理异常。
 - [x] (2026-08-12 16:44+08:00) 三小时只读检查确认 Find_0 attempt a4推进到 `global_step=26780` 并完成第十八次验证。配体体素与原子PRAUC刷新为新高 `0.620293` 和 `0.706577`；验证总损失为 `0.284030`，受体与伪原子PRAUC为 `0.699564` 和 `0.649742`，未超过各自现有最佳。新TOP0.6203与last完整，`BEST.ckpt`按一次验证延迟刷新到上一轮全局最佳TOP0.6191；top-k保留策略移除最弱TOP0.5769。两张H100使用78.94/78.82 GiB，作业为 `RUNNING` 且只有 `after_lock_336298`，W&B持续更新，无当前OOM或未处理异常。
 - [x] (2026-08-12 19:45+08:00) Job336298 所在hnode01于19:15意外重启，Slurm将父作业记为 `NODE_FAIL` 并自动重新排队；当前Job336298为 `PENDING (Resources)`、`Requeue=1`、`Restarts=1`，hnode01为 `DOWN`，原因明确为 `Node unexpectedly rebooted`。中断前W&B摘要到 `global_step=27221`，第十八次验证的TOP0.6203、last及对应上一轮最佳TOP0.6191的BEST均完整。当前没有训练进程，只有既有 `after_lock_336298`；尚未重新取得资源，不操作任何锁。改为每30分钟检查重新分配与恢复门槛；重新取得资源后先利用自动重建的pre_lock核对恢复命令和checkpoint，禁止从头盲目覆盖原运行目录。
-- [ ] 只持续验收 Find_0 的后续验证指标和 checkpoint；本轮只运行 CPC1，不启动 CPC2。
-- [ ] 回填 mapping、运行检查记录和 CLAUDE handoff/memory；后续完整图推理与评估沿用既有主线。
+- [x] (2026-08-17 16:43+08:00) 用户确认已取消 Job 336298，并接受 W&B 运行 `pencounkdual-111/AdaLigand_Stage1/es683hq5` 作为本轮“完成或基本完成”的 Find_0 训练结果。只读核验显示 Job 最终于 2026-08-13 02:01:19 成为 `CANCELLED by 1351`；该状态是用户主动终止，不是自然早停或完整跑完。当前可用证据仍为中断前摘要 `global_step=27221`、第十八次验证配体体素 PRAUC `0.620293`、`TOP_epoch_00_score_0.6203.ckpt`、`last.ckpt` 以及按一次验证延迟对应 TOP0.6191 的 `BEST.ckpt`。
+- [x] (2026-08-17 16:48+08:00) 已将训练阶段结论回填到本 ExecPlan、运行检查记录、mapping 与 CLAUDE handoff/memory，并停止只服务于 Job 336298 的节点故障恢复 heartbeat。后续完整图推理、评估和测试不再等待本轮训练恢复；默认优先核对并使用实际配体体素 PRAUC 最高的 `TOP_epoch_00_score_0.6203.ckpt`，正式运行前仍须确认文件存在且可加载。
+- [ ] 使用第二版 BOX 池 Find_0 的现存 checkpoint 执行既有完整图 calibration、语义与实例评估及测试。未来如决定断点续训，另行核对 `last.ckpt` 的完整 Lightning 状态恢复方式；该可选事项不阻塞当前评估。
 
 ## Surprises & Discoveries
 
@@ -149,9 +150,13 @@
   Rationale: attempt a2 已出现真实 OOM，attempt a3 虽越过旧失败步数但仍长期占用约 79–81 GiB，且当前 H100 不支持 `expandable_segments`。用户提出的结构改动直接减少三维卷积激活量，比降低批量更符合“更稳、更快且保持全局批量”的目标；`num_conv=0` 只需放宽构造参数校验，不改变剩余两层 stride-2 卷积、GAP 和输出接口。
   Date/Author: 2026-08-05 / 用户与 Codex
 
+- Decision: Job 336298 不再从节点故障后的重新排队状态恢复；把 W&B 运行 `es683hq5` 视为本轮完成或基本完成，并直接进入评估和测试，同时保留未来断点续训的选择。
+  Rationale: 用户已主动取消作业并明确接受现存训练程度。第十八次验证、最高配体体素 PRAUC 对应 TOP checkpoint 与 `last.ckpt` 均已落盘，足以进入既有完整图评估；继续训练不是当前评估的前置条件。
+  Date/Author: 2026-08-17 / 用户
+
 ## Outcomes & Retrospective
 
-第二版 BOX 池已经最终发布并通过完整深验收；正式过滤 split 与16个辅助标签排除编号的版本关系也已复核。旧 unet_c1 与旧 Find_1 均已停止。新 unet_c1 的首个 H100 allocation 因 GPU 待重映射显存行而无法初始化 CUDA，证据保留后已释放；相同科学参数的 A800 Job 336558 已完成首次验证并保存可恢复 checkpoint。Find_0 attempt a2 在尚无 checkpoint 时遇到真实 CUDA OOM；attempt a3 越过旧失败步数后按用户授权由 `kill_lock` 主动结束。当前 attempt a4 从 release `Pocket_Plus_dc0f05168815` 采用 9³/`num_conv=0` 结构训练，已完成首次验证并保存 checkpoint；虽然显存仍接近 H100 上限，但没有新的真实 OOM。
+第二版 BOX 池已经最终发布并通过完整深验收；正式过滤 split 与16个辅助标签排除编号的版本关系也已复核。旧 unet_c1 与旧 Find_1 均已停止。新 unet_c1 的首个 H100 allocation 因 GPU 待重映射显存行而无法初始化 CUDA，证据保留后已释放；相同科学参数的 A800 Job 336558 保存了可恢复 checkpoint，随后因吞吐过慢由用户主动取消。Find_0 attempt a2 在尚无 checkpoint 时遇到真实 CUDA OOM；attempt a3 越过旧失败步数后按用户授权由 `kill_lock` 主动结束。attempt a4 从 release `Pocket_Plus_dc0f05168815` 采用 9³/`num_conv=0` 结构运行到 W&B 摘要 step27221，并完成18次验证；最高配体体素 PRAUC 为0.620293，对应 `TOP_epoch_00_score_0.6203.ckpt`。hnode01意外重启后作业曾自动重新排队，用户随后主动取消 Job 336298，并把该 W&B 运行接受为本轮完成或基本完成。训练阶段现已收口，直接转入完整图评估和测试；未来断点续训保留为可选事项，而不是当前阻断。
 
 对 A800 与历史 H100 unet_c1 的吞吐差异已经完成独立定量收口。训练阶段主要受共享 Lustre 上随机大 NPZ 完整读取限制：旧 H100 验证前 GPU 中位利用率只有 42.47%，当前 A800 为 98%。validation 请求具有很高的 PDB 局部性，两卡均保持约 90% 以上 GPU 利用率，因此反映出 H100 的前向计算优势；A800 每个 validation 请求耗时为 H100 的 1.74 倍。A800 validation 后的典型训练速度仍约 272.8 step/h，与验证前 273.8 step/h 相同；平均值下降来自 12 个合计 6.996 小时的离散 I/O/运行时长尾。三组受控 CPU 复放中，validation 后训练窗口分别比前置窗口快 2.9%、8.2% 和 7.0%，因此不能把现象归因于 validation 固定破坏 DataLoader。优先优化方向是把完整大 NPZ 改成可局部读取的 `.npy` memory map 或空间分块格式，其次才是分阶段缓存、worker 数和节点侧暂存。三个临时 CPU allocation 已释放，GPU 训练、正式脚本和科学参数均未因诊断而改变。
 
@@ -190,7 +195,7 @@
 
 ## Idempotence and Recovery
 
-新旧准备根分离，因此第二版失败不会破坏旧 BOX 池。单 PDB NPZ 原子发布，失败分片可以按相同数组编号重跑；根 `_COMPLETE` 缺失时训练不得开始。Job 336298 在 `pre_lock` 期间不会冻结 release，修复并安全同步后仍可从最新实现第一次执行。未经再次核对 Job 身份，不操作任何 `pre_lock`、`try_lock`、`after_lock` 或 `kill_lock`。
+新旧准备根分离，因此第二版失败不会破坏旧 BOX 池。单 PDB NPZ 原子发布，失败分片可以按相同数组编号重跑；根 `_COMPLETE` 缺失时训练不得开始。Job 336298 已由用户取消，不再操作其 `pre_lock`、`try_lock`、`after_lock` 或 `kill_lock`，也不重新提交本轮训练。现存 `TOP_epoch_00_score_0.6203.ckpt` 用于当前评估候选；`last.ckpt` 保留未来断点续训所需状态。若未来恢复训练，必须另建不覆盖 attempt a4 的运行目录，并在启动前证明优化器、调度器、`global_step` 与验证状态能够完整恢复。
 
 ## Artifacts and Notes
 
@@ -208,3 +213,5 @@
 ## Plan Revision Note
 
 2026-08-05：首次建立本文。计划吸收用户对 train/validation `0:5:5`、新旧准备根并存、CPC1-only、H100 batch 6、先排队后验收和正式管线不新增哈希的最终决定。
+
+2026-08-17：依据用户主动取消 Job 336298 并接受 W&B `es683hq5` 为完成或基本完成的决定，关闭节点故障恢复分支，把现存最高 PRAUC TOP checkpoint 转入评估与测试主线，同时保留未来断点续训但不把它设为当前前置条件。
