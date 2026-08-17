@@ -103,7 +103,7 @@ upstream assets
 
 1. `unet_c1` 单通道 + ligand/aux heads；
 2. 两个 Find 共用 `[8,4,0]` point embed；
-3. `Find_0` raw49 core hard scatter 与 `Find_1` 无 voxel Transformer 的非块式 embed/scatter；
+3. `Find_0` raw50 core hard scatter 与 `Find_1` 无 voxel Transformer 的非块式 embed/scatter；
 4. 公共二值 target/loss 适配；
 5. CPC2 model-only hook 修补；
 6. batch preflight 后冻结五套 config。
@@ -179,13 +179,13 @@ worker 缓存优先保留轻量点对象和已打开的只读索引，例如 rec
 
 ### 5.1 Find_0
 
-Find_0 与 Find_1 都实例化同一 point-side `Stage1EmbedHead`：atom MLP `49→128→128`，point value `Linear(128→64)+Linear(49→64)`，trunk/voxel block 数为 0，point block radii 为 `[8.0,4.0,0.0]`。Find_0 只在 voxel receptor grid 构造处使用 raw49：
+Find_0 与 Find_1 都实例化同一 point-side `Stage1EmbedHead`：模型输入边界先把 `receptor_tokens.npz:feat[49]` 与同一原子的 `is_backbone[1]` 拼成 raw50；atom MLP 为 `50→128→128`，point value 为 `Linear(128→64)+Linear(50→64)`，trunk/voxel block 数为 0，point block radii 为 `[8.0,4.0,0.0]`。Find_0 只在 voxel receptor grid 构造处使用 raw50：
 
 ```text
-voxel_receptor = hard_scatter_sum(raw_core_atom_feat_49)
+voxel_receptor = hard_scatter_sum(raw_core_atom_feat_50)
 ```
 
-point path 仍运行共同 embed 并提供 A_feat_L1–L4；voxel path 不消费这些 learned point features。不要为了 raw49 voxel 基线删除或绕过 point path。
+point path 仍运行共同 embed 并提供 A_feat_L1–L4；voxel path 不消费这些 learned point features。不要为了 raw50 voxel 基线删除或绕过 point path。
 
 ### 5.2 Find_1
 
@@ -246,10 +246,10 @@ forward_voxel_probability(batch):
     if unet_c1:
         voxel_input = density_input
     if Find_0:
-        receptor_grid = hard_scatter_sum(raw49[core])
+        receptor_grid = hard_scatter_sum(raw50[core])
         voxel_input = concat(density56, receptor_grid)
     if Find_1:
-        receptor_grid = voxel_mlp_centroid_residual_soft_splat(raw49[core])
+        receptor_grid = voxel_mlp_centroid_residual_soft_splat(raw50[core])
         voxel_input = concat(density56, receptor_grid)
     run exactly three voxel recycles
     return final ligand logits
@@ -377,7 +377,7 @@ tests/test_cpc_model_only_restore.py
 tests/model/test_voxel_probability_forward.py
 ```
 
-覆盖：105/107/1 voxel 输入通道、两个 Find 的共同 point embed、Find_0 raw49 hard scatter、Find_1 trunk/voxel block 为 0 且 point radii `[8,4,0]`、core-only scatter、direct 1×1 heads、aux hardmask、总损失权重、CPC1→CPC2 state、voxel-only 逐元素等价及 skipped-branch 调用计数。
+覆盖：106/108/1 voxel 输入通道、两个 Find 的共同 point embed、Find_0 raw50 hard scatter、Find_1 trunk/voxel block 为 0 且 point radii `[8,4,0]`、core-only scatter、direct 1×1 heads、aux hardmask、总损失权重、CPC1→CPC2 state、voxel-only 逐元素等价及 skipped-branch 调用计数。
 
 ### 11.3 推理与树
 

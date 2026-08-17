@@ -2,7 +2,7 @@
 
 > **文档角色**：本文是 `Find_0`、`Find_1` 与 `unet_c1` 的训练实施主规格。它规定冻结数据准备、统一 Dataset/Collator、模型差异、监督、五套训练、BEST 选择、CPC 接缝与训练交付物。一个没有项目上下文的实现者应能仅凭本文、本文列出的上游契约和现有 Pocket_Plus 代码完成训练主线。
 >
-> **并列文档**：完整图推理、阈值标定、F1/CLG 居中推理和 selector 见 `文档/规划文档/Stage1训练与多阈值推理.md`；盘上字段与目录见 `文档/讨论/BOX-level数据契约.md`。上游资产的唯一事实来源是 `Data_Preprocessing/Ori_Data/README.md`。
+> **并列文档**：完整图推理、阈值标定、F1/CLG 居中推理和 selector 见 `文档/规划文档/Stage1训练与多阈值推理.md`；盘上字段与目录见 `文档/规划文档/BOX-level数据契约.md`。上游资产的唯一事实来源是 `Data_Preprocessing/Ori_Data/README.md`。
 >
 > **低权重附录**：`文档/规划文档/Stage1实现细节手册.md` 只给代码落点、伪代码、测试和 AI 实施顺序。若与本文冲突，以本文为准。
 >
@@ -48,17 +48,17 @@ stage1_model_name ∈ {Find_0, Find_1, unet_c1}
 
 以下四项并列、显式且可独立验收，不得藏在训练循环或 `Dataset.__getitem__` 中；但不再建设单独的 Stage1 eligibility 工程、版本、入口或排除清单：
 
-1. **主 split**：按 PDB 分组冻结 train/validation/calibration/held-out pool；挑选 validation 300 与 calibration 100 时直接要求完整图三轴均不小于 80。
-2. **训练 BOX 池预计算与筛选**：对 train occurrence 解析真实 crop；只有无需补零且 shape 恰为 80³ 的记录进入冻结池。失败 pair/occurrence 不产生 BOX 记录，Dataset 不在取样时临时跳过或崩溃。
+1. **主 split**：按 PDB 分组，使用 EMDB 首次发布时间、Stage G 质量字段和资产门禁冻结 train/validation/calibration/held-out/缺日期隔离集合；validation 固定 200，calibration 固定 100。
+2. **训练 BOX 池预计算与筛选**：只有完整图三轴均不小于 80 且全部迁移后资产通过核对的 PDB 进入 train/validation；Dataset 不在取样时临时跳过或崩溃。
 3. **固定 validation selection**：只从已经满足 80³ 条件的 validation PDB 生成，三个 producer 和五个训练阶段共用。
-4. **held-out pool 去冗余**：论文严格测试前再做；当前只冻结其 split 身份，不检查小图、不去冗余，也不阻塞训练、calibration 或近期实验。
+4. **held-out 后续处理**：论文严格测试前再做去冗余；当前按 `2026-01-01` 日期界线冻结身份，不阻塞训练、calibration 或近期实验。
 
 依赖顺序固定为：
 
 ```text
-Stage G 最终 keep-list
+Stage G candidates.pending.jsonl + PDB–EMDB pair + EMDB map release
+  → 日期、质量与迁移后资产门禁
   → 按 PDB 分组的主 split
-  → validation/calibration 选择时检查三轴 ≥80
   → train BOX pool / validation selection
 
 冻结 held-out pool
@@ -71,16 +71,17 @@ split、BOX pool 与 validation selection 分别保留自己的入口、冻结�
 
 以 PDB–EMDB pair 为基本条目，但 **PDB 身份是不可跨 split 的分组键**：同一 PDB 的全部 EMDB、occurrence、训练位置及后续推理产物必须属于同一 split。
 
-从 Stage G 最终 keep-list 按 PDB 分组冻结：
+从 Stage G `candidates.pending.jsonl` 按 PDB 分组冻结。一个 PDB 对应多个 EMDB 时使用最早非空 map release；`map_release < 2026-01-01` 才能进入非留出候选，等于或晚于界线的 PDB 全部进入 held-out，缺日期者进入隔离集合。非留出候选还必须满足 `map_resolution < 4.0`、`cc_contour > 0.65` 和迁移后资产契约。
 
 | split | 数量 | 当前职责 |
 |---|---:|---|
-| train | `floor(0.75 × N)` | 三个 Stage1 producer、selector 及后续模型训练 |
-| validation | 固定 300 | 选择各训练 run 的 BEST checkpoint |
+| train | 13,717 | 三个 Stage1 producer、selector 及后续模型训练 |
+| validation | 固定 200 | 选择各训练 run 的 BEST checkpoint |
 | calibration | 固定 100 | 冻结完整图阈值和少量推理参数，并汇报校准集最优结果 |
-| held-out pool | 其余全部 | 以后去冗余形成严格测试集；当前不作为完成门槛 |
+| held-out | 2,497 | 首次发布时间等于或晚于界线；以后去冗余形成严格测试集 |
+| quarantine_missing_release | 357 | 无法确定首次发布时间；不进入训练、验证或校准 |
 
-split 在看见模型结果前一次冻结。validation 与 calibration 的候选必须先满足三轴均不小于 80；train 的可消费集合以后由冻结 BOX pool 中实际存在的记录确定。calibration 不参与 epoch/checkpoint 选择；validation 不选择完整图阈值；当前不把未去冗余 held-out pool 冒充测试集。
+合格 PDB 按 `sha256(3407|eval|pdb_id)` 升序排列，前 200 个进入 validation，随后 100 个进入 calibration，其余全部进入 train。split 在看见模型结果前一次冻结；calibration 不参与 epoch/checkpoint 选择，validation 不选择完整图阈值，当前不把未去冗余 held-out 冒充测试集。正式统计和失败分类见 `BOX-level数据契约.md` §3.1。
 
 ### 2.3 统一 80³ 起点解析
 
@@ -113,21 +114,21 @@ $$
 R=\left(\frac{3K_{occ}}{4\pi}\right)^{1/3}.
 $$
 
-每个 bias 向量独立地按体积均匀分布采样于半径 `R` 的球内，加到 occurrence center 后调用起点解析器。不得按 ligand 再过滤，不做 jitter、重试或去重；clamp 后相同的起点仍保留为不同候选。
+每个 bias 向量先独立地按体积均匀分布采样于半径 `R` 的球内，再叠加一个方向独立、长度在 0–3 Å 均匀采样的漂移，最后加到 occurrence center 并调用起点解析器。不得按 ligand 再过滤，不做去重；clamp 后相同的起点仍保留为不同候选。
 
-context 直接复用项目已有的一键生成逻辑：每个合法 context 必须包含至少 1000 个 core receptor heavy atoms。context 不绑定 occurrence。生成器耗尽尝试后保留实际得到的合法起点数，不因少于 3 个而使整个 PDB 或训练启动失败。
+context 从完整图逐轴合法整数起点均匀采样，不设置核心受体重原子数量门槛，也不按配体位置过滤。context 不绑定 occurrence；每个 PDB 目标 500 个，最多尝试 3000 次。正式第三版 train 与 validation 均没有零 context PDB。
 
 ### 2.5 每个 epoch 的固定比例
 
 训练时，每个 PDB 每 epoch 从其全部 occurrence 中无放回抽取最多 50 个；不足 50 全取，超过 50 时用显式 epoch/采样 seed 重抽，因此长尾 occurrence 可以跨 epoch 被看到。每个入选 occurrence 产生：
 
 ```text
-center : bias : context = 1 : 5 : 3
+center : bias : context = 0 : 5 : 5
 ```
 
-- center 使用唯一 center 起点；
+- center 起点只保留为兼容字段，不进入第三版训练请求；
 - bias 从 30 个预生成候选中选 5 个；
-- context 从该 PDB context 池选 3 个；池中只有 1–2 个合法起点时有放回抽到 3 项，池为空时该 occurrence 只产生 center/bias，不伪造 context，也不让训练崩溃。因此 `1:5:3` 是存在至少一个合法 context 时的名义比例。
+- context 从该 PDB context 池选 5 个；不足 5 个时允许放回采样，池为空时不伪造 context，也不让训练崩溃。因此正式名义比例为 `0:5:5`。
 
 训练不再施加在线平移 jitter。只保留现有同步随机 90° 空间旋转，并同时作用于密度、受体坐标、hardmask 和全部 target；若一次奇数个 90° 转动交换了两个数组轴，`voxel_size_world` 的对应 XYZ 轴尺度也必须同步交换，随后重算 BOX 中心和 world/centered 坐标，不能假设三个 voxel size 严格相等。仅 train 启用。validation、calibration 和所有推理关闭旋转。
 
@@ -163,14 +164,14 @@ ResolvedStage1Crop
 
 | 逻辑资产 | 用途 |
 |---|---|
-| raw experimental density | 三个模型的实验密度来源 |
-| raw simulated density | Find 的 56 路配方 |
-| receptor coordinates + 49D features | Find 输入；三个模型的 auxiliary target 构造 |
+| `exp.npy` + `exp.npz` 元数据 | 三个模型的实验密度来源与完整图几何 |
+| `sim.npy` + `sim.npz` 元数据 | Find 的 56 路配方 |
+| receptor coordinates + 49D `feat` + `is_backbone` | Find 输入；模型内部拼成 50D；三个模型的 auxiliary target 构造 |
 | `binding_atom` | A target 与 `voxel_label` |
-| schema v3 ligand-area union mask | voxel ligand target 与 P target |
+| `union_mask.npy` + schema v3 ligand-area 稀疏实例 | voxel ligand target、P target、center 与 bias 几何 |
 | per-occurrence ligand-area mask | center、bias 与评估 |
 
-49D 受体特征必须由完整受体预计算后按 `atom_global_indices` 切片；不得在 80³ BOX 内重算其中依赖邻域的特征。
+49D `feat` 必须由完整受体预计算后按 `atom_global_indices` 切片；不得在 80³ BOX 内重算其中依赖邻域的特征。Dataset 同步切片既有 `is_backbone (N,) bool`，在模型输入边界把它转换为 `float32 (N,1)` 并拼到 `feat` 末尾，得到 50D `atom_feat`；不得修改或重复编码 `receptor_tokens.npz`。
 
 ### 3.3 receptor 的 8 Å加载、point buffer 与 core scatter
 
@@ -235,7 +236,7 @@ Find 额外字段：
 | 字段 | shape / dtype | 语义 |
 |---|---|---|
 | `atom_global_indices` | `[N_A] int64` | core+8 Å加载集合在整图 receptor 表中的索引 |
-| `atom_feat` | `[N_A,49] float32` | 49D 基础特征 |
+| `atom_feat` | `[N_A,50] float32` | 前 49 维来自 `receptor_tokens.npz:feat`，最后 1 维来自同一原子的 `is_backbone` |
 | `atom_coord_world` | `[N_A,3] float32` | 世界 XYZ |
 | `atom_coord_local_voxel` | `[N_A,3] float32` | BOX 内连续 XYZ voxel 坐标 |
 | `atom_coord_centered_world` | `[N_A,3] float32` | 以 BOX 物理中心为原点的 XYZ Å坐标 |
@@ -274,7 +275,7 @@ $$
 
 三个 producer 均使用 Pocket_Plus 当前 RAUNet64 voxel backbone，启用 voxel ligand head 与 voxel auxiliary head；训练时随机 1–3 次 recycle，validation/calibration/推理固定 3 次，跨 recycle state detach。
 
-两个 Find 还共用同一个 point-side `Stage1EmbedHead` 和 point backbone。配置固定为无 trunk block、无 voxel block、三个 point blocks，buffer 依次裁为 8 Å、4 Å、0 Å；共享 atom MLP 为 `49→128→128`，最终 point value 投影为 64D 并加 `Linear(49→64)` raw residual。两个 Find 的模型前向都能导出 A_feat_L1–L4；centered 归档只保存 A_feat_L1–L3，不保存交叉注意力后的 A_feat_L4。centered 生产还把当前输入 `atom_feat` 按模型输出的 `A_global_index` 对齐并直接保存为 `A_feat_L0 float32 (N_A,49)`；下游不再为恢复 raw49 二次读取完整 receptor 表。`A_global_index` 仍保留原子身份追踪用途。两个 Find 的科学差异只在 voxel 分支进入 RAUNet 前的 receptor grid 构造。
+两个 Find 还共用同一个 point-side `Stage1EmbedHead` 和 point backbone。配置固定为无 trunk block、无 voxel block、三个 point blocks，buffer 依次裁为 8 Å、4 Å、0 Å；共享 atom MLP 为 `50→128→128`，最终 point value 投影为 64D 并加 `Linear(50→64)` raw residual。两个 Find 的模型前向都能导出 A_feat_L1–L4；centered 归档只保存 A_feat_L1–L3，不保存交叉注意力后的 A_feat_L4。centered 生产还把当前输入 `atom_feat` 按模型输出的 `A_global_index` 对齐并直接保存为 `A_feat_L0 float32 (N_A,50)`；下游不再为恢复运行时 50D 输入二次读取完整 receptor 表。`A_global_index` 仍保留原子身份追踪用途。两个 Find 的科学差异只在 voxel 分支进入 RAUNet 前的 receptor grid 构造。
 
 所有 ligand/auxiliary 输出头前的额外 3×3 Conv3d block 数固定为 0：
 
@@ -285,16 +286,16 @@ num_conv3d_aux: 0
 
 两个 head 均由最终 voxel feature 直接接各自 1×1 输出层。这里删除的是当前配置中的额外输出前卷积，不删除通用 head 代码。
 
-### 4.2 Find_0：raw49 voxel hard scatter
+### 4.2 Find_0：raw50 voxel hard scatter
 
-`Find_0` 保留 §4.1 的共同 point-side `Stage1EmbedHead`，因此能导出与 Find_1 同类的 A_feat_L1–L4。它只在 voxel 分支采用最简单的 raw49 基线：
+`Find_0` 保留 §4.1 的共同 point-side `Stage1EmbedHead`，因此能导出与 Find_1 同类的 A_feat_L1–L4。它只在 voxel 分支采用最简单的 raw50 基线：
 
 - core receptor 按原子局部连续坐标 floor 到唯一 home voxel；
-- 同 voxel 采用 sum，得到 49D raw receptor grid；
+- 同 voxel 采用 sum，得到 50D raw receptor grid；
 - 不使用 MLP、residual、occupancy、centroid encoding 或 soft splat；
-- voxel backbone 输入为 56D density + 49D receptor = **105 channels**。
+- voxel backbone 输入为 56D density + 50D receptor = **106 channels**。
 
-验收标准是 point 分支确实运行共同的 `[8,4,0]` blocks，而 voxel 分支不消费 point-side learned embedding，hard floor/sum scatter 的 value 恰为 raw49。
+验收标准是 point 分支确实运行共同的 `[8,4,0]` blocks，而 voxel 分支不消费 point-side learned embedding，hard floor/sum scatter 的 value 恰为 raw50。
 
 ### 4.3 Find_1：无 Transformer 的非块式 embed/scatter
 
@@ -313,11 +314,11 @@ point_buffer_radii: [8.0, 4.0, 0.0]
 
 Dataset 直接加载 core+8 Å；point blocks 按上述半径逐层裁剪。voxel 分支在任何 Transformer 前完成的非块式编码固定为：
 
-1. 共享 atom MLP：`h=MLP(49 → 128 → 128)`。
-2. voxel value：把 `h` 与既有 6D relative/centroid encoding 送入 voxel projection 得到 49D；与 raw 49D identity residual 相加，residual gate 固定为 1。
-3. 只对 core atoms 做 sigma=0.7 的 `3×3×3` Gaussian scatter；追加现有 2D occupancy，得到 51D receptor voxel grid。
+1. 共享 atom MLP：`h=MLP(50 → 128 → 128)`。
+2. voxel value：把 `h` 与既有 6D relative/centroid encoding 送入 voxel projection 得到 50D；与 raw 50D identity residual 相加，residual gate 固定为 1。
+3. 只对 core atoms 做 sigma=0.7 的 `3×3×3` Gaussian scatter；追加现有 2D occupancy，得到 52D receptor voxel grid。
 4. point value 与共同 point branch 完全遵守 §4.1，不构成 Find_1 独有差异。
-5. voxel backbone 输入为 56D density + 51D receptor = **107 channels**；point backbone 输入为 64D。
+5. voxel backbone 输入为 56D density + 52D receptor = **108 channels**；point backbone 输入为 64D。
 
 residual、occupancy、centroid encoding、MLP 和 Gaussian scatter 用于 voxel 前处理；trunk/voxel Transformer 明确不允许。point Transformer 只限共同的 `[8,4,0]` 三层。`Stage1EmbedHead` 必须以最小修改支持 voxel block 数为 0 时仍执行既有非块式 voxel 投影，不另造第二个 embed subsystem。
 
@@ -477,7 +478,7 @@ CPC2 保持 Pocket_Plus 现有 model-only 初始化语义：严格加载同名 C
 forward_voxel_probability(batch) → voxel_logits_ligand
 ```
 
-它复现与完整 forward 相同的最短 voxel 构造和固定 3 次 recycle，但不抽取共享 `_forward_voxel_branch`、不重构现有训练 forward。`unet_c1` 只运行 density→voxel backbone；`Find_0` 直接运行 raw49 core hard scatter；`Find_1` 只运行 voxel MLP/centroid/residual/Gaussian scatter。两个 Find 都跳过 `[8,4,0]` point blocks、P candidates、point backbone、A/P heads 和 sparse-refine，也不导出居中特征。当前模型不存在 A/P 后半段回写 voxel 分支的路径，因此该入口必须与完整 forward 的 `voxel_logits_ligand` 逐元素等价，而不是近似模型。
+它复现与完整 forward 相同的最短 voxel 构造和固定 3 次 recycle，但不抽取共享 `_forward_voxel_branch`、不重构现有训练 forward。`unet_c1` 只运行 density→voxel backbone；`Find_0` 直接运行 raw50 core hard scatter；`Find_1` 只运行 voxel MLP/centroid/residual/Gaussian scatter。两个 Find 都跳过 `[8,4,0]` point blocks、P candidates、point backbone、A/P heads 和 sparse-refine，也不导出居中特征。当前模型不存在 A/P 后半段回写 voxel 分支的路径，因此该入口必须与完整 forward 的 `voxel_logits_ligand` 逐元素等价，而不是近似模型。
 
 `F1_centered`、`CLG_centered` 和 `Selected_Refined_Centered` 仍走完整 forward。代码落点与伪代码见低权重手册。
 
@@ -491,8 +492,8 @@ forward_voxel_probability(batch) → voxel_logits_ligand
 2. **边界筛选**：validation/calibration 选择时排除任一轴 `<80` 的候选；train 只物化真实 80³ BOX，正式 Dataset 不临时 skip 或崩溃，且不存在独立 eligibility 目录。
 3. **统一路径**：四种请求 provider 经过同一个 materializer/collator；推理不构造 fake target。
 4. **8 Å/core 两层 receptor**：Dataset 直接加载 core+8 Å，point blocks 为 `[8,4,0]`，voxel scatter 仅 core；全局索引不丢失。
-5. **Find_0**：共同 point embed 生效；voxel 仅 hard floor/sum raw49，voxel input 105D，point input 64D。
-6. **Find_1**：trunk/voxel block 为 0、point blocks 为 `[8,4,0]`，voxel 非块式 MLP/residual/centroid/Gaussian scatter 生效，voxel input 107D，point input 64D。
+5. **Find_0**：共同 point embed 生效；voxel 仅 hard floor/sum raw50，voxel input 106D，point input 64D。
+6. **Find_1**：trunk/voxel block 为 0、point blocks 为 `[8,4,0]`，voxel 非块式 MLP/residual/centroid/Gaussian scatter 生效，voxel input 108D，point input 64D。
 7. **unet_c1**：模型数值输入只有单通道 experimental density；auxiliary target 不被拼入输入。
 8. **target 与 loss**：union mask、P home voxel、binding atom、hardmask 限定 auxiliary 四条路径逐项正确；没有 `ligand_dist_map` 依赖。
 9. **增强**：90° 旋转同步作用于所有几何/target；validation 与推理确定性。
@@ -506,7 +507,7 @@ forward_voxel_probability(batch) → voxel_logits_ligand
 
 ## 9. 第一版禁止项
 
-- 不把 validation 300 改成 calibration 或 test，也不让 calibration 反选 checkpoint。
+- 不把 validation 200 改成 calibration 或 test，也不让 calibration 反选 checkpoint。
 - 不在训练循环中现场划 split、生成 BOX 池、过滤小图或修 target；也不新建独立 eligibility 工程。
 - 不引入在线平移 jitter、图外 padding、空间 `voxel_valid_mask` 或候选相关训练样本。
 - 不让 Find_1 的 voxel 前处理出现 Transformer block；共同 point branch 只使用 `[8,4,0]` 三层。

@@ -15,10 +15,10 @@
 | 去重后的配体化学结构 | `ligand_objects/{safe_object_key}.npz` |
 | 去重后的配体描述子 | `ligand_descriptors/{safe_object_key}.npz` |
 | 受体原子的结合位点标签 | `labels/{pdb_id}/atom_labels.npz` |
-| 实验密度网格 | `density/{pdb_id}/exp.npz` |
-| 受体模拟密度网格 | `density/{pdb_id}/sim.npz` |
-| 配体占据的稀疏体素 | `density/{pdb_id}/ligand_area.npz` |
-| 每个密度体素中心到最近配体原子的距离 | `density/{pdb_id}/ligand_dist.npz` |
+| 实验密度网格 | `density/{pdb_id}/exp.npy`；几何与来源元数据在 `exp.npz` |
+| 受体模拟密度网格 | `density/{pdb_id}/sim.npy`；几何与来源元数据在 `sim.npz` |
+| 配体占据区域 | 稠密并集 `density/{pdb_id}/union_mask.npy`；稀疏实例与元数据在 `ligand_area.npz` |
+| 每个密度体素中心到最近配体原子的距离 | `density/{pdb_id}/ligand_dist.npy`；元数据在 `ligand_dist.npz` |
 | 配体与受体口袋的逐原子 Q-score | `quality_atoms/{pdb_id}.npz` |
 | 每个配体的聚合质量指标 | `quality/{pdb_id}.jsonl` |
 | 质量指标的输入和工具身份 | `quality/{pdb_id}.provenance.json` |
@@ -49,7 +49,7 @@ python -m adaligand_preprocessing.cli.ligand_distance --help
 - 世界坐标顺序是 `XYZ`，单位是 Å；密度数组顺序是 `(通道,Z,Y,X)`。
 - `origin` 是网格物理边界的下角点。索引 `(x,y,z)` 对应体素中心 `origin + (index + 0.5) * voxel_size`。
 - 除 `ligand_objects/*.npz` 外，读取 NPZ 时使用 `allow_pickle=False`。配体化学对象含对象数组，因此必须使用 `allow_pickle=True`。
-- NPZ 默认用 `numpy.savez` 原子写入。`ligand_area.npz` 是唯一例外：它使用 ZIP DEFLATED 压缩，写后完整重读验证，再原子替换目标文件。
+- A–G 生产器初始写入的 NPZ 默认用 `numpy.savez` 原子发布，`ligand_area.npz` 使用 ZIP DEFLATED 压缩。正式数据根已在 2026-08-17 把四个训练用完整体数组迁移到同目录 NPY；NPZ 只保留其余元数据与稀疏数组。迁移记录见“Stage E”开头和项目规划文档 `数据处理_v2.md` §9.1。
 - 数值缺失使用 `NaN`，JSON 缺失使用 `null`，不适用的文本和列表分别使用空字符串和空列表。具体字段的空值含义见对应表格。
 - JSONL 文件的每条记录都是一个完整 JSON 对象；记录之间不共享隐含状态。
 
@@ -207,11 +207,12 @@ python -m adaligand_preprocessing.cli.ligand_distance --help
 
 ## Stage E：密度与配体区域
 
-### `density/{pdb_id}/exp.npz`
+### `density/{pdb_id}/exp.npy` 与 `exp.npz`
+
+`exp.npy` 保存 `float32 (1,Z,Y,X)` 实验密度，保持原始幅值且不归一化。`exp.npz` 保存下表元数据，不再包含 `grid`。
 
 | 数组 | 类型与形状 | 含义 |
 |---|---|---|
-| `grid` | `float32 (1,Z,Y,X)` | 实验密度；保持原始幅值，不归一化 |
 | `voxel_size` | `float32 (3,)` | 实际 XYZ 体素尺寸，单位 Å；接近但不保证严格等于 1.0 |
 | `origin` | `float32 (3,)` | 网格物理边界下角点，世界 XYZ，单位 Å |
 | `target_voxel_size` | `float32` 标量 | 重采样目标，当前为 1.0 Å |
@@ -223,7 +224,7 @@ python -m adaligand_preprocessing.cli.ligand_distance --help
 | `contour_path`、`contour_source` | 字符串标量 | EMDB 元数据中的字段位置和来源文本 |
 | `native_shape_zyx` | `int64 (3,)` | 原始密度数组形状 |
 | `even_input_shape_zyx` | `int64 (3,)` | 补成偶数后的输入形状 |
-| `canonical_shape_zyx` | `int64 (3,)` | 与 `grid.shape[1:]` 相同的输出形状 |
+| `canonical_shape_zyx` | `int64 (3,)` | 与 `exp.npy.shape[1:]` 相同的输出形状 |
 | `resample_mode` | 字符串标量 | 各轴体素是否需要重采样的模式 |
 | `source_map_sha256`、`source_meta_sha256` | 字符串标量 | 原始图和 EMDB 元数据的 SHA-256 |
 | `source_map_size`、`source_meta_size` | `int64` 标量 | 原始文件字节数 |
@@ -236,13 +237,12 @@ python -m adaligand_preprocessing.cli.ligand_distance --help
 
 实验图重采样复用 `geometry/legacy/mrc_pocket.py` 中冻结的 Pocket Plus 数值函数。其来源、函数摘要与允许的适配记录在同目录 `mrc_pocket.source.json`。
 
-### `density/{pdb_id}/sim.npz`
+### `density/{pdb_id}/sim.npy` 与 `sim.npz`
 
-`grid`、`voxel_size`、`origin` 必须与 `exp.npz` 的形状和物理位置一致。模拟图只使用首个模型、规范化异构位置选择和 `group_PDB=ATOM` 的受体重原子；不包含水、配体或其他 `HETATM` 原子。
+`sim.npy` 保存 `float32 (1,Z,Y,X)` 模拟密度，形状必须与 `exp.npy` 相同；`sim.npz` 保存下表元数据，不再包含 `grid`。`voxel_size`、`origin` 必须与 `exp.npz` 的物理位置一致。模拟图只使用首个模型、规范化异构位置选择和 `group_PDB=ATOM` 的受体重原子；不包含水、配体或其他 `HETATM` 原子。
 
 | 数组 | 类型与形状 | 含义 |
 |---|---|---|
-| `grid` | `float32 (1,Z,Y,X)` | Chimera `molmap` 生成并对齐实验网格的受体模拟密度 |
 | `voxel_size` | `float32 (3,)` | 与 `exp.npz` 相同的 XYZ 体素尺寸，单位 Å |
 | `origin` | `float32 (3,)` | 与 `exp.npz` 相同的世界 XYZ 网格边界原点，单位 Å |
 | `schema_version` | `uint16` 标量 | 模拟密度文件契约版本 |
@@ -264,11 +264,12 @@ python -m adaligand_preprocessing.cli.ligand_distance --help
 
 模拟密度数组必须有限、非零、具有方差并在三个空间方向都有内容。
 
-### `density/{pdb_id}/ligand_area.npz`
+### `density/{pdb_id}/union_mask.npy` 与 `ligand_area.npz`
+
+`union_mask.npy` 保存 `bool (1,Z,Y,X)` 的全部配体实例区域并集。`ligand_area.npz` 保存稀疏实例、可选类别掩码与下表元数据，不再包含 `union_mask`。
 
 | 数组 | 类型与形状 | 含义 |
 |---|---|---|
-| `union_mask` | `bool (1,Z,Y,X)` | 所有配体实例区域的并集 |
 | `mask_{cid}` | `int32 (K,3)` | 该配体区域的稀疏 `ZYX` 索引；唯一并按数组索引顺序排序 |
 | `centroid_voxel_{cid}` | `float32 (3,)` | `mask_{cid}` 对应体素中心的均值，世界 XYZ，单位 Å |
 | `ion_mask` | `bool (1,Z,Y,X)` | 可选升级字段；全部 `type_tag=ion` 配体区域的并集 |
@@ -278,7 +279,7 @@ python -m adaligand_preprocessing.cli.ligand_distance --help
 | `sugar_mask` | `bool (1,Z,Y,X)` | 可选升级字段；全部 `type_tag=sugar` 配体区域的并集 |
 | `other_mask` | `bool (1,Z,Y,X)` | 可选升级字段；全部 `type_tag=other` 配体区域的并集，仅供备用 |
 
-每个 `occurrences.jsonl` 中的 `candidate_id` 都应有同名 `mask_{cid}` 和 `centroid_voxel_{cid}`。不同配体的区域允许重叠，`union_mask` 必须与全部稀疏索引的并集完全一致。
+每个 `occurrences.jsonl` 中的 `candidate_id` 都应有同名 `mask_{cid}` 和 `centroid_voxel_{cid}`。不同配体的区域允许重叠，`union_mask.npy` 必须与全部稀疏索引的并集完全一致。
 
 六个 `type_tag` 类别掩码允许全部不存在，或同时完整存在；只出现其中一部分属于契约错误。它们之间允许重叠。正式五类为 `ion`、`nucleotide_like`、`peptide_like`、`small_molecule`、`sugar`，`other_mask` 不属于五类 softmax 标签。
 
@@ -286,7 +287,7 @@ python -m adaligand_preprocessing.cli.ligand_distance --help
 |---|---|---|
 | `schema_version` | `uint16` 标量，值为 3 | 配体区域文件契约版本 |
 | `source_manifest_sha256` | 字符串标量 | E1、Stage C 与所用 LigandObject 输入集合的稳定 SHA-256 |
-| `grid_shape_zyx` | `int64 (3,)` | 与 `union_mask.shape[1:]` 相同的网格形状 |
+| `grid_shape_zyx` | `int64 (3,)` | 与 `union_mask.npy.shape[1:]` 相同的网格形状 |
 | `voxel_size_xyz` | `float32 (3,)` | 与 `exp.npz.voxel_size` 相同，单位 Å |
 | `origin_xyz` | `float32 (3,)` | 与 `exp.npz.origin` 相同，单位 Å |
 | `origin_semantics` | 字符串标量 | `origin_xyz` 表示网格物理边界下角点 |
@@ -301,20 +302,21 @@ python -m adaligand_preprocessing.cli.ligand_distance --help
 
 C/N/O/P/S 的范德华半径分别为 1.70/1.55/1.52/1.80/1.80 Å，其他有效元素使用 RDKit 周期表数值。
 
-## 独立训练标签：`density/{pdb_id}/ligand_dist.npz`
+## 独立训练标签：`density/{pdb_id}/ligand_dist.npy` 与 `ligand_dist.npz`
 
 该文件不属于 A–G 阶段状态，也不改变 `exp.npz`、`sim.npz` 或
 `ligand_area.npz`。`adaligand-ligand-distance` 读取已经完成的实验密度与配体
 坐标，为训练重复使用的完整实验密度网格生成一次最近距离。
 
+`ligand_dist.npy` 保存 `float16 (1,Z,Y,X)` 最近距离；没有任何 `present=True` 配体原子时全部为正无穷。`ligand_dist.npz` 只保存下列元数据，不再包含 `distance`。
+
 | 字段 | 数据类型与形状 | 含义 |
 |---|---|---|
-| `distance` | `float16 (1,Z,Y,X)` | 每个实验密度体素中心到最近实际配体重原子的欧氏距离，单位 Å；没有任何 `present=True` 配体原子时全部为正无穷 |
 | `schema_version` | `uint16` 标量，值为 1 | 配体距离文件契约版本 |
 | `source_exp_identity_sha256` | 字符串标量 | `exp.npz` 的空间定义、来源与重采样身份摘要 |
 | `source_occurrences_sha256` | 字符串标量 | `parse/{pdb_id}/occurrences.jsonl` 文件 SHA-256 |
 | `source_ligand_coords_sha256` | 字符串标量 | `parse/{pdb_id}/ligand_coords.npz` 文件 SHA-256 |
-| `grid_shape_zyx` | `int64 (3,)` | `distance.shape[1:]`，依次是 Z、Y、X 长度 |
+| `grid_shape_zyx` | `int64 (3,)` | `ligand_dist.npy.shape[1:]`，依次是 Z、Y、X 长度 |
 | `voxel_size_xyz` | `float32 (3,)` | 与 `exp.npz.voxel_size` 完全相同的 XYZ 体素尺寸，单位 Å |
 | `origin_xyz` | `float32 (3,)` | 与 `exp.npz.origin` 完全相同的网格物理边界下角点，单位 Å |
 | `origin_semantics` | 字符串标量 | 固定为 `pocket_plus_corner`，表示 `origin_xyz` 是网格物理边界下角点 |
@@ -515,11 +517,11 @@ C/N/O/P/S 的范德华半径分别为 1.70/1.55/1.52/1.80/1.80 Å，其他有效
 1. `occurrences.jsonl` 中存在该 `cid`，并给出唯一 `object_key`。
 2. `ligand_objects/{safe_object_key}.npz` 的 `atoms` 长度等于 `coords_{cid}`、`present_{cid}` 和 `qscore_{cid}` 的长度。
 3. `present_{cid}.sum()` 等于 `occurrences.jsonl` 的 `n_heavy_atoms`；`coords_{cid}[~present_{cid}]` 全为 `NaN`。
-4. `mask_{cid}` 的三列顺序为 `ZYX`，其索引都落在 `exp.npz` 的 `grid.shape[1:]` 内。
+4. `mask_{cid}` 的三列顺序为 `ZYX`，其索引都落在 `exp.npy.shape[1:]` 内。
 5. `quality/{pdb_id}.jsonl` 中 `n_present == n_valid == present_{cid}.sum()`。
 6. `receptor_tokens.npz`、`atom_labels.npz` 的受体数组长度一致；`binding_atom` 等价于 `nearest_dist <= binding_threshold`。
-7. `exp.npz` 与 `sim.npz` 的 `grid` 形状、`voxel_size` 和 `origin` 完全一致。
-8. `ligand_dist.npz` 的 `distance.shape[1:]`、`voxel_size_xyz` 和 `origin_xyz` 分别等于 `exp.npz` 的 `grid.shape[1:]`、`voxel_size` 和 `origin`；三个来源摘要对应当前实验密度身份、occurrence 文件和配体坐标文件。
+7. `exp.npy` 与 `sim.npy` 形状完全一致；`exp.npz` 与 `sim.npz` 的 `voxel_size` 和 `origin` 完全一致。
+8. `ligand_dist.npy.shape[1:]`、`ligand_dist.npz:voxel_size_xyz` 和 `ligand_dist.npz:origin_xyz` 分别等于 `exp.npy.shape[1:]`、`exp.npz:voxel_size` 和 `exp.npz:origin`；三个来源摘要对应当前实验密度身份、occurrence 文件和配体坐标文件。
 
 完整自动检查位于 `tests/`。Windows 测试应使用较短的临时目录，例如：
 

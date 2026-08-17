@@ -89,16 +89,16 @@ BOX 角点：
 
 | 文件 | 关键字段 | Stage1 用途 |
 | --- | --- | --- |
-| `density/{pdb_id}/exp.npz` | `grid`、`voxel_size`、`origin` | 所有模型来源的实验密度和完整图几何 |
-| `density/{pdb_id}/sim.npz` | `grid`、`voxel_size`、`origin` | Find 额外使用的模拟密度；几何必须与实验密度一致 |
-| `density/{pdb_id}/ligand_area.npz` | `union_mask`、`grid_shape_zyx`、`mask_{occurrence_id}` | 训练目标、校准真值和候选组件与真实配体的交集 |
-| `density/{pdb_id}/ligand_dist.npz` | `distance` | 最近配体原子距离；训练时转换为 `1 / (1 + distance_Å)` |
-| `parse/{pdb_id}/receptor_tokens.npz` | `coords`、49 维 `feat`、`res_type`、`atom_name` | Find 原子输入、受体辅助目标和 hardmask |
+| `density/{pdb_id}/exp.npy` + `exp.npz` | NPY 为 `float32 (1,D,H,W)` 实验密度；NPZ 为 `voxel_size`、`origin`、`canonical_shape_zyx` 等元数据 | 所有模型来源的实验密度和完整图几何 |
+| `density/{pdb_id}/sim.npy` + `sim.npz` | NPY 为 `float32 (1,D,H,W)` 模拟密度；NPZ 为 `voxel_size`、`origin` 等元数据 | Find 额外使用的模拟密度；几何必须与实验密度一致 |
+| `density/{pdb_id}/union_mask.npy` + `ligand_area.npz` | NPY 为 `bool (1,D,H,W)` 并集；NPZ 为 `grid_shape_zyx`、`mask_{occurrence_id}` 等稀疏实例与元数据 | 训练目标、校准真值和候选组件与真实配体的交集 |
+| `density/{pdb_id}/ligand_dist.npy` + `ligand_dist.npz` | NPY 为 `float16 (1,D,H,W)` 最近距离；NPZ 为几何和来源元数据 | 最近配体原子距离；训练时转换为 `1 / (1 + distance_Å)` |
+| `parse/{pdb_id}/receptor_tokens.npz` | `coords`、49 维 `feat`、`is_backbone`、`res_type`、`atom_name` | Find 原子输入、受体辅助目标和 hardmask；模型内部把 `feat` 与 `is_backbone` 拼成 50 维运行时输入 |
 | `labels/{pdb_id}/atom_labels.npz` | `binding_atom` | 与完整受体原子表对齐的结合区域标签 |
 
-`ligand_area.npz` 的 `union_mask` 是 `bool (1,D,H,W)`；`True` 表示至少一个真实配体实例占据该体素，`False` 表示未占据。每个 `mask_{occurrence_id}` 是整数 `(K_occ,3)` ZYX 稀疏坐标表。
+`union_mask.npy` 是 `bool (1,D,H,W)`；`True` 表示至少一个真实配体实例占据该体素，`False` 表示未占据。每个 `ligand_area.npz:mask_{occurrence_id}` 是整数 `(K_occ,3)` ZYX 稀疏坐标表。
 
-Find centered 产物中的 `A_global_index` 指向 `receptor_tokens.npz` 第一维，以恢复未持久化的 49 维基础特征。
+`receptor_tokens.npz` 继续保存 `feat (N,49) float32` 与 `is_backbone (N,) bool` 两个独立数组，不修改上游 schema。Dataset 按同一原子行序切片后，把 `is_backbone` 转成 `float32 (N,1)` 并在模型输入边界拼到 `feat` 末尾，得到 50 维 `atom_feat`。Find centered 产物中的 `A_global_index` 指向 `receptor_tokens.npz` 第一维，用于原子身份追踪。
 
 ### 2.3 80³ BOX 的运行时物化
 
@@ -117,52 +117,56 @@ centered 正式推理默认把 12 个有序 BOX 放入同一次完整 wrapper fo
 
 ### 3.1 冻结数据划分
 
-生产入口是 `python -m src.datasets.ops.stage1_split`。输出：
+第三版正式产物位于 `/storage/penghongen/AdaLigand/Ori_Data/stage1_preparation_box_pool_3/split`，生产入口由 Pocket_Plus 的 `ops/stage1_data_preparation/freeze_split.py` 和 `run/fetch_and_freeze_split.sh` 提供。输出：
 
 ```text
 <数据划分目录>/
 ├── train.json
 ├── validation.json
 ├── calibration.json
-├── held_out_pool.json
+├── held_out.json
+├── quarantine_missing_release.json
+├── pdb_audit.jsonl
+├── emdb_release_dates.jsonl
 ├── config.json
 ├── summary.json
 └── _COMPLETE
 ```
 
-四个数据划分文件都是 JSON 对象数组。每项保留输入 keep-list 的原始字段，并且至少包含 `pdb_id: str`。同一个 PDB 不得跨数据划分。
+五个数据划分文件都是 JSON 对象数组。每项保留 Stage G `candidates.pending.jsonl` 的原始字段，并且至少包含 `pdb_id: str`。同一个 PDB 不得跨 train、validation、calibration；held-out 与缺日期隔离集合也不进入前三者。
 
 选择规则：
 
-- `validation` 和 `calibration` 只接收完整图 Z、Y、X 三轴都不小于 80 的 PDB。
-- 默认请求 300 个 validation PDB 和 100 个 calibration PDB。
-- 设输入中的唯一 PDB 总数为 `N`；train 从两个评估数据划分之外选择 `floor(0.75 * N)` 个 PDB，其余进入 `held_out_pool`。
-- train 不预先排除短图；后续 BOX 池不为短图发布 PDB NPZ。
-- `held_out_pool` 不执行额外去重或形状过滤。
-- 当前实现不创建独立的 `eligibility` 目录、合格或排除 PDB 清单，也没有对应生产命令。短图计数只出现在普通 `summary.json` 中。
+- 一个 PDB 对应多个 EMDB 时，以 `raw/pair_list.jsonl` 所列 EMDB 的最早非空 `admin.key_dates.map_release` 为首次发布时间。
+- 首次发布时间严格早于 `2026-01-01` 才能进入非留出候选；等于或晚于该日期的 PDB 连同全部 Stage G 候选进入 `held_out.json`。缺少首次发布时间的 PDB 进入 `quarantine_missing_release.json`。
+- 非留出候选必须至少有一条记录同时满足 `map_resolution < 4.0` 与 `cc_contour > 0.65`；边界值不通过。进入 train、validation 或 calibration 的清单只保留逐条满足这两个质量条件的记录。
+- 质量通过后还必须具备四个迁移后 NPY、四个元数据 NPZ、`receptor_tokens.npz` 与 `atom_labels.npz`，并通过 dtype、shape、几何和原子标签长度核对；完整图 Z、Y、X 三轴还必须均不小于 80。
+- 合格 PDB 按 `sha256(3407|eval|pdb_id)` 升序排列；前 200 个属于 validation，随后 100 个属于 calibration，其余全部属于 train。
+- `pdb_audit.jsonl` 为每个来源 PDB 保存首次发布时间、最终状态、完整图形状和失败细节；`emdb_release_dates.jsonl` 是可续传的权威日期缓存。
 
 命令参数 `--seed` 的默认值是 3407。`config.json` 字段：
 
 | 字段 | 类型与含义 |
 | --- | --- |
 | `schema_version` | `int`，当前为 `1` |
-| `seed` | `int`，排名种子 |
-| `train_fraction` | `float`，当前为 `0.75` |
+| `release_cutoff` | `str`，当前为 `2026-01-01` |
+| `release_rule` | `str`，最早 EMDB map release 严格早于界线才进入非留出候选 |
+| `map_resolution_exclusive_max` | `float`，当前为 `4.0` |
+| `cc_contour_exclusive_min` | `float`，当前为 `0.65` |
+| `minimum_grid_shape_zyx` | 长度 3 的 `int` 数组，当前为 `[80,80,80]` |
 | `validation_pdb_count` | `int`，请求的 validation PDB 数 |
 | `calibration_pdb_count` | `int`，请求的 calibration PDB 数 |
-| `minimum_validation_calibration_shape_zyx` | 长度 3 的 `int` 数组，当前为 `[80,80,80]` |
-| `assignment` | `str`，当前为 `"sha256(seed|purpose|pdb_id) ascending"` |
-| `keep_list_path` | `str`，输入 keep-list 路径 |
-| `keep_list_sha256` | `str`，输入文件的 64 个十六进制字符 SHA-256 文本 |
-| `held_out_deduplication` | `bool`，当前为 `false` |
+| `seed` | `int`，当前为 `3407` |
+| `eval_assignment` | `str`，当前为 `"sha256(seed|eval|pdb_id) ascending; first 200 validation, next 100 calibration"` |
+| `candidates_path`、`pair_list_path`、`release_cache_path` | `str`，本次冻结读取的三个正式输入路径 |
 
-`summary.json` 保存 `seed`、`source_pdb_count`、`source_row_count`、`validation_calibration_shape_checked_pdb_count`、`short_map_encountered_while_selecting_eval_count`，类型均为 `int`。`splits` 对象对每个数据划分保存 `pdb_count: int` 和 `row_count: int`；这里的 `row_count` 是既有字段名，表示保留的 keep-list 记录数。
+正式 `summary.json` 记录 22,251 个来源 PDB 和 662,078 条来源候选。审计状态为：eligible 14,017、held_out 2,497、missing_release_date 357、quality_rejected 3,718、invalid 1,655、missing_file 4、short_map 3。正式划分为 train 13,717 PDB/451,505 条候选，validation 200/6,104，calibration 100/2,426，held-out 2,497/81,922，缺日期隔离 357/11,327。
 
 `_COMPLETE` 是零字节文件，在其他文件全部成功发布后最后创建。
 
 ### 3.2 训练预定位 BOX 池
 
-生产入口是 `python -m src.datasets.ops.stage1_box_pool`。输出：
+第三版正式产物位于 `/storage/penghongen/AdaLigand/Ori_Data/stage1_preparation_box_pool_3/box_pool`，生产入口由 Pocket_Plus 的 `ops/stage1_data_preparation/build_box_pool_3.py`、`run/build_box_pool_3.sh` 和 `run/finalize_box_pool_3.sh` 提供。输出：
 
 ```text
 <BOX池目录>/
@@ -181,15 +185,15 @@ centered 正式推理默认把 12 个有序 BOX 放入同一次完整 wrapper fo
 | --- | --- | --- |
 | `pdb_id` | Unicode 标量 | 当前 PDB 身份 |
 | `occurrence_id` | `int32 (N_occ,)` | 真实配体实例编号 |
-| `center_start_zyx` | `int32 (N_occ,3)` | 与 `occurrence_id` 同序的居中正样本 BOX 起点 |
-| `bias_start_zyx` | `int32 (N_occ,30,3)` | 每个真实配体实例的 30 个偏置正样本 BOX 起点 |
+| `center_start_zyx` | `int32 (N_occ,3)` | 与 `occurrence_id` 同序的兼容字段；第三版请求比例为 0，不抽取 center 条目 |
+| `bias_start_zyx` | `int32 (N_occ,30,3)` | 每个真实配体实例的 30 个偏置正样本 BOX 起点；包含经验半径偏移和额外 0–3 Å 独立漂移 |
 | `context_start_zyx` | `int32 (N_context,3)` | 与真实配体实例无关的受体上下文 BOX 起点 |
 
-上下文 BOX 从逐轴合法的整数起点均匀采样。80³ 核心中至少包含 1000 个受体重原子才保留；生成器不按配体位置过滤。每个 PDB 目标上限为 500 个上下文 BOX，最多尝试 3000 次，因此 `N_context` 可以是 0 到 500。
+上下文 BOX 从逐轴合法的整数起点均匀采样，不设置核心受体重原子数量门槛，也不按配体位置过滤。每个 PDB 目标为 500 个上下文 BOX，最多尝试 3000 次，因此 `N_context` 可以是 0 到 500；本次正式 train 与 validation 均没有零 context PDB。
 
 不同 bias 随机样本解析到同一合法整数 BOX 起点时，重复起点原样保留。
 
-训练和验证请求采用 `center:bias:context = 1:5:3`。每个 PDB 每次最多选择 50 个 occurrence；上下文池有 1 或 2 项时允许放回采样至 3 项；上下文池为空时不伪造请求。
+训练和验证请求采用 `center:bias:context = 0:5:5`。每个 PDB 每次最多选择 50 个 occurrence；center 起点只为兼容既有字段而保留，不进入请求。上下文池不足 5 项时可以放回采样；上下文池为空时不伪造请求。
 
 validation 使用冻结请求，不保存增强后的数组。train 的随机 90° 旋转会同步旋转密度、监督图和 Find 原子坐标；奇数次四分之一转交换空间轴时，还会交换 `voxel_size_world` 的对应 XYZ 尺度，并重新计算 BOX 中心和原子世界坐标，不能用“体素尺寸近似 1 Å”代替几何变换。
 
@@ -217,23 +221,23 @@ validation 使用冻结请求，不保存增强后的数组。train 的随机 90
 - `box_shape_zyx=[80,80,80]`
 - `bias_candidates_per_occurrence=30`
 - `bias_radius_formula="R=(3*K_occ/(4*pi))**(1/3)"`
-- `bias_selected_per_epoch=5`
-- `context_generator` 中的均匀合法起点、目标数 500、最大尝试数 3000、核心受体重原子下限 1000、`ligand_filter=false`
+- `extra_bias_drift_max_angstrom=3.0`
+- `extra_bias_drift_length_sampling="uniform_0_to_max_angstrom"`
+- `context_generator` 中的均匀合法起点、目标数 500、最大尝试数 3000、核心受体重原子下限 0、`ligand_filter=false`
 - `occurrence_cap_per_pdb_per_epoch=50`
-- `entry_ratio={"center":1,"bias":5,"context":3}`
-- `train_random_rotation_90_degree=true`
+- `entry_ratio={"center":0,"bias":5,"context":5}`
 - `seed: int`
 - `seed_rule="sha256(base_seed|split_name|pdb_id) first_uint64"`
 
 `summary.json` 保存：
 
 - `seed: int`
-- train 的 `requested_pdb`、`published_pdb`、`short_map_count`、`zero_context_pdb_count`、`underfilled_context_pdb_count`
-- validation 的 `requested_pdb`、`published_pdb`、`zero_context_pdb_count`、`underfilled_context_pdb_count`
+- train 的 `requested_pdb`、`published_pdb`、`zero_context_pdb_count`
+- validation 的 `requested_pdb`、`published_pdb`、`zero_context_pdb_count`
 - `validation_selection` 的 `pdb_count`、`center_count`、`bias_count`、`context_count`
 - `manifest` 的 train 与 validation 文件数
 
-上述计数全部是 `int`。`_COMPLETE` 是最后创建的零字节文件。
+正式结果为 train 13,717/13,717 PDB、validation 200/200 PDB，两个集合的 `zero_context_pdb_count` 都为 0；固定验证选择有 16,525 个 bias、16,525 个 context 和 0 个 center 条目。上述计数全部是 `int`。`_COMPLETE` 是最后创建的零字节文件。
 
 ### 3.3 比例请求表
 
@@ -603,7 +607,7 @@ Gauss scorer 使用与 GPU 主线相同的 PDB 根目录 `_RUNNING` 租约，并
 | `A_coord_local_xyz` | `float32 (L_A,3)` | BOX 局部连续 XYZ |
 | `A_coord_centered_world` | `float32 (L_A,3)` | 相对 BOX 中心的世界 XYZ，单位 Å |
 | `A_probability` | `float32 (L_A,)` | A 原子概率 |
-| `A_feat_L0` | `float32 (L_A,49)` | 当前 centered 输入 `batch["atom_feat"]` 中、按 `A_global_index` 对齐到模型输出 A 行序的原始受体特征；位于点侧嵌入层之前并保留 float32 精度 |
+| `A_feat_L0` | `float32 (L_A,50)` | 当前 centered 输入 `batch["atom_feat"]` 中、按 `A_global_index` 对齐到模型输出 A 行序的运行时受体特征；前 49 维来自 `feat`，最后 1 维来自 `is_backbone`，位于点侧嵌入层之前并保留 float32 精度 |
 | `A_feat_L1` | `float16 (L_A,C_L1)` | `outputs["A_feat_L1"]`；点侧嵌入与界面归一化完成、真实原子密度调制发生之前的 A 表示 |
 | `A_feat_L2` | `float16 (L_A,C_L2)` | `outputs["A_feat_L2"]`；真实原子密度调制完成后送入点骨干网络的 A 输入表示 |
 | `A_feat_L3` | `float16 (L_A,C_L3)` | `outputs["real_feat_before_interaction"]`；点骨干网络处理完成、A↔P 交叉注意力发生之前的 A 最终表示 |

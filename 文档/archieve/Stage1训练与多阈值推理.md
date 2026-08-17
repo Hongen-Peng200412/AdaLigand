@@ -2,7 +2,7 @@
 
 > **文档角色**：本文是 Stage1 完整图推理、阈值标定、组件森林、CLG、三类居中推理、selector 与结构化选择的科学和运行主规格。它面向没有上下文的实现者，规定“计算什么、结果代表什么、各集合承担什么职责”。
 >
-> **并列文档**：三类 producer 的 Dataset、模型与训练见 `文档/规划文档/Stage1训练实现计划.md`；盘上字段、dtype、目录和 ragged 关系见 `文档/讨论/BOX-level数据契约.md`；上游整图资产见 `Data_Preprocessing/Ori_Data/README.md`。
+> **并列文档**：三类 producer 的 Dataset、模型与训练见 `文档/规划文档/Stage1训练实现计划.md`；盘上字段、dtype、目录和 ragged 关系见 `文档/规划文档/BOX-level数据契约.md`；上游整图资产见 `Data_Preprocessing/Ori_Data/README.md`。
 >
 > **低权重附录**：`文档/规划文档/Stage1实现细节手册.md` 只补充代码落点、伪代码、测试和续跑示例，不改变本文。
 >
@@ -82,7 +82,7 @@ Selected_Refined_Centered
 forward_voxel_probability(batch)
 ```
 
-该入口复现完整 forward 中最短的 voxel 构造和固定 3 次 recycle，但保持训练 `forward` 原样、不抽共享分支。`unet_c1` 只运行 density→voxel backbone；`Find_0` 直接做 raw49 core hard scatter；`Find_1` 只运行无 Transformer 的 voxel MLP/centroid/residual/soft-splat。两个 Find 都跳过 `[8,4,0]` point blocks、P candidate、point backbone、A/P heads 和 sparse-refine。窗口形状固定 `80×80×80`，stride 固定 40。
+该入口复现完整 forward 中最短的 voxel 构造和固定 3 次 recycle，但保持训练 `forward` 原样、不抽共享分支。`unet_c1` 只运行 density→voxel backbone；`Find_0` 直接做 raw50 core hard scatter，其中第 50 维由 `receptor_tokens.npz:is_backbone` 在模型输入边界拼接；`Find_1` 只运行无 Transformer 的 voxel MLP/centroid/residual/soft-splat。两个 Find 都跳过 `[8,4,0]` point blocks、P candidate、point backbone、A/P heads 和 sparse-refine。窗口形状固定 `80×80×80`，stride 固定 40。
 
 对长度 `L≥80` 的任一轴，窗口起点是：
 
@@ -407,7 +407,7 @@ Find 的 centered A 表固定为“来源 blob 的 10 Å包络 ∩ 当前 80³ B
 - `A_feat_L2`：`outputs["A_feat_L2"]`，真实原子密度调制完成后送入点骨干网络的 A 输入表示；
 - `A_feat_L3`：`outputs["real_feat_before_interaction"]`，点骨干网络处理完成、A↔P 交叉注意力发生之前的 A 最终表示。
 
-正式 centered 归档还直接保存 `A_feat_L0[N_A,49] float32`。生产时从当前 BOX 输入 `atom_feat` 中按 `A_global_index` 对齐到模型输出 A 行序，保留原始 float32 精度；Selector 不再二次读取整图 receptor 49D 基础表。`A_global_index` 继续承担身份追踪。`A_probability=sigmoid(A_logit)`。
+正式 centered 归档还直接保存 `A_feat_L0[N_A,50] float32`。生产时从当前 BOX 输入 `atom_feat` 中按 `A_global_index` 对齐到模型输出 A 行序，保留原始 float32 精度；前 49 维来自 `feat`，最后 1 维来自同一原子的 `is_backbone`。Selector 不再二次读取整图 receptor 基础表。`A_global_index` 继续承担身份追踪。`A_probability=sigmoid(A_logit)`。
 
 Find 的 P 表保存坐标、`P_probability=sigmoid(P_logit)` 与：
 
@@ -484,7 +484,7 @@ $$
 
 ### 8.1 一个 CLG 是一个样本
 
-selector run 启动前扫描一次所有已完整发布的 `CLG_centered`，按固定顺序冻结 `input_CLG_list.json`。清单同时保存逐 split 的完整 PDB inventory 与逐 `(split,pdb_id,CLG_id)` 项：一个合法但 `N_CLG=0` 的 PDB 仍保留在 PDB inventory 中，只是不产生 Selector 训练样本。运行中新增样本不进入当前 Dataset；以后另启 run 才可使用更多数据。可选 `input_CLG_list_path` 必须来自同一 `stage1_model_name`；指定后逐 PDB、逐 CLG 要求完整存在，不静默取交集。固定 validation 300 的完整性按 PDB inventory 判断，全部可读前只能试跑，不能产生正式 BEST。一个 `selector_seed` 统一控制初始化、按 PDB 分组的 batch sampler 与 DataLoader worker 随机性；sampler 以确定性顺序打乱 PDB 和 PDB 内 CLG，单个 batch 不跨 PDB，以免反复解压同一 PDB 聚合归档。
+selector run 启动前扫描一次所有已完整发布的 `CLG_centered`，按固定顺序冻结 `input_CLG_list.json`。清单同时保存逐 split 的完整 PDB inventory 与逐 `(split,pdb_id,CLG_id)` 项：一个合法但 `N_CLG=0` 的 PDB 仍保留在 PDB inventory 中，只是不产生 Selector 训练样本。运行中新增样本不进入当前 Dataset；以后另启 run 才可使用更多数据。可选 `input_CLG_list_path` 必须来自同一 `stage1_model_name`；指定后逐 PDB、逐 CLG 要求完整存在，不静默取交集。固定 validation 200 的完整性按 PDB inventory 判断，全部可读前只能试跑，不能产生正式 BEST。一个 `selector_seed` 统一控制初始化、按 PDB 分组的 batch sampler 与 DataLoader worker 随机性；sampler 以确定性顺序打乱 PDB 和 PDB 内 CLG，单个 batch 不跨 PDB，以免反复解压同一 PDB 聚合归档。
 
 一个样本读取：
 
@@ -644,7 +644,7 @@ $$
 
 oracle-label 条件损失加权是默认参考；联合预测有效性条件损失加权必须报告通过降低 `p_G` 来减轻条件损失的退化风险；中间一式称为停止梯度的预测有效性条件损失加权。第一梯队胜出后，第二梯队只分别测试 `lambda_count=0.03` 和 `gamma_focal=2`，不做完整笛卡尔积。
 
-每个 selector run 以固定 validation 300 上、与上述条件损失加权公式完全一致的 total loss 最小选择 BEST。BEST 冻结后，令
+每个 selector run 以固定 validation 200 上、与上述条件损失加权公式完全一致的 total loss 最小选择 BEST。BEST 冻结后，令
 
 $$
 M_{instance}=\frac14\left(
