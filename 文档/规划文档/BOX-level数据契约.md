@@ -193,7 +193,7 @@ centered 正式推理默认把 12 个有序 BOX 放入同一次完整 wrapper fo
 
 不同 bias 随机样本解析到同一合法整数 BOX 起点时，重复起点原样保留。
 
-训练和验证请求采用 `center:bias:context = 0:5:5`。每个 PDB 每次最多选择 50 个 occurrence；center 起点只为兼容既有字段而保留，不进入请求。上下文池不足 5 项时可以放回采样；上下文池为空时不伪造请求。
+训练请求采用 `center:bias:context = 0:5:5`，冻结验证请求采用 `0:1:1`。两者对每个 PDB 都最多选择 50 个 occurrence；center 起点只为兼容既有字段而保留，不进入请求。训练上下文池不足 5 项时可以放回采样；验证每个 occurrence 只选择 1 个上下文候选。上下文池为空时不伪造请求。
 
 validation 使用冻结请求，不保存增强后的数组。train 的随机 90° 旋转会同步旋转密度、监督图和 Find 原子坐标；奇数次四分之一转交换空间轴时，还会交换 `voxel_size_world` 的对应 XYZ 尺度，并重新计算 BOX 中心和原子世界坐标，不能用“体素尺寸近似 1 Å”代替几何变换。
 
@@ -226,6 +226,7 @@ validation 使用冻结请求，不保存增强后的数组。train 的随机 90
 - `context_generator` 中的均匀合法起点、目标数 500、最大尝试数 3000、核心受体重原子下限 0、`ligand_filter=false`
 - `occurrence_cap_per_pdb_per_epoch=50`
 - `entry_ratio={"center":0,"bias":5,"context":5}`
+- `validation_entry_ratio={"center":0,"bias":1,"context":1}`
 - `seed: int`
 - `seed_rule="sha256(base_seed|split_name|pdb_id) first_uint64"`
 
@@ -237,35 +238,26 @@ validation 使用冻结请求，不保存增强后的数组。train 的随机 90
 - `validation_selection` 的 `pdb_count`、`center_count`、`bias_count`、`context_count`
 - `manifest` 的 train 与 validation 文件数
 
-正式结果为 train 13,717/13,717 PDB、validation 200/200 PDB，两个集合的 `zero_context_pdb_count` 都为 0；固定验证选择有 16,525 个 bias、16,525 个 context 和 0 个 center 条目。上述计数全部是 `int`。`_COMPLETE` 是最后创建的零字节文件。
+正式结果为 train 13,717/13,717 PDB、validation 200/200 PDB，两个集合的 `zero_context_pdb_count` 都为 0。2026-08-18 按同一 seed 3407 覆盖发布的固定验证选择有 3,305 个 bias、3,305 个 context 和 0 个 center 条目；原 `0:5:5` 验证选择不再是活动产物。上述计数全部是 `int`。`_COMPLETE` 是每次完整发布最后创建的零字节文件。
 
-### 3.3 比例请求表
+### 3.3 训练消费契约
 
-训练 Dataset 或验证入口第一次以 `box_sample_fraction < 1` 构造请求时，请求层可以创建：
+当前活动 Dataset 不提供请求比例截断参数，也不创建额外的 train 或 validation 比例请求文件。训练按 manifest 生成每个 epoch 的完整 `0:5:5` 请求；验证完整展开活动 `validation_selection.npz` 中冻结的 `0:1:1` 请求。
 
-```text
-<BOX池目录>/train_selection_{fraction}_seed{seed}.npz
-<BOX池目录>/validation_selection_{fraction}_seed{seed}.npz
-```
+四个完整体数组通过只读内存映射现场裁出 80³：
 
-`stage1_box_pool` 命令本身不创建这些文件；比例等于 1 时也不创建。
-
-| 字段 | dtype 与形状 | 含义 |
+| 完整图文件 | dtype 与形状 | 同目录元数据来源 |
 | --- | --- | --- |
-| `pdb_id` | Unicode `(N_req,)` | 请求所属 PDB |
-| `box_start_zyx` | `int32 (N_req,3)` | 完整图离散 BOX 起点 |
-| `role` | Unicode `(N_req,)` | `center`、`bias` 或 `context` |
-| `occurrence_id` | `int32 (N_req,)` | 真实配体实例编号；不适用时为 `-1` |
-| `candidate_index` | `int32 (N_req,)` | bias 或 context 候选编号；不适用时为 `-1` |
-| `require_targets` | `bool (N_req,)` | `True` 表示 Dataset 必须构造监督字段 |
-| `box_sample_fraction` | `float64` 标量 | 请求保留比例 |
-| `request_seed` | `int64` 标量 | 抽样种子 |
-| `selection_epoch` | `int64` 标量 | 固定为 `0` |
-| `source_manifest_sha256` | Unicode 标量 | 来源 `manifest.json` 摘要 |
-| `source_validation_sha256` | Unicode 标量 | validation 文件中保存的来源 `validation_selection.npz` 摘要；train 文件中不存在 |
-| `schema_version` | `uint16` 标量 | 当前为 `1` |
+| `exp.npy` | `float32 (1,D,H,W)` | `exp.npz` |
+| `sim.npy` | `float32 (1,D,H,W)` | `sim.npz` |
+| `union_mask.npy` | `bool (1,D,H,W)` | `ligand_area.npz` |
+| `ligand_dist.npy` | `float16 (1,D,H,W)` | `ligand_dist.npz` |
 
-比例小于 1 时各 epoch 复用冻结请求；比例等于 1 时 train 请求可以按 epoch 重新选择。
+Dataset 只复制实际裁块，不因缓存计量或数值检查读取完整体数组。实际密度裁块必须有限，距离裁块必须有限且非负，union mask 保持 bool。完整图形状、体素尺寸、世界坐标原点和 schema 来自小型 NPZ；完整数组的迁移一致性由 `reports/runs/stage1_npy_migration_20260817_v1/_COMPLETE` 及其摘要负责。
+
+受体资产不改写：`receptor_tokens.npz:feat` 保持 `float32 (N_receptor,49)`，`is_backbone` 保持 `bool (N_receptor,)`。Dataset/Collator 分别传递两个字段；模型输入边界仅在当前模型期望 50 维时，把主链标志转为 `float32 (N_receptor,1)` 并拼到特征末尾。旧 49 维模型继续直接使用基础特征。
+
+DataLoader 的正式口径是 `prefetch_factor=4`、`pin_memory=true`、`persistent_workers=false`。单卡使用 16 CPU/16 workers；双卡 DDP 每个 rank 使用 16 workers，总计 32 CPU/32 workers。禁止把 worker 设为常驻，因为每个 epoch 的动态训练请求由主进程重新生成。
 
 ## 4. Stage1 正式输出目录与状态
 
