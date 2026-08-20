@@ -41,6 +41,8 @@
 | 2026-08-18 04:43--04:44 二次稳定检查 | 经过 30 分钟命令自然睡眠后，Job 仍为 `RUNNING`，主进程和两个 16-worker 池存活；H100 快照利用率 67%，显存 79,826/81,559 MiB。 | W&B `hqumqkex` 前进到 `trainer/global_step=245`、`epoch=0`，五项 step loss 仍为有限值；a4 错误切片为空，锁状态正常，尚无 checkpoint。后续自然睡眠间隔可扩大到 1 小时。 |
 | 2026-08-19 19:41--19:42 持续目标首次检查 | 用户为本对话建立持续目标：只监视 Job `346737`，出现可恢复故障时在同一训练范围内修复并留痕，直到训练正常完成。Job 已连续运行约 48 小时，H100 快照利用率 96%，显存 80,708/81,559 MiB；a4 错误切片为空。 | W&B `hqumqkex` 前进到 `trainer/global_step=10,421`、`epoch=0`。最新验证配体体素 PRAUC 为 `0.523583`，已有最高 TOP 文件为 `TOP_epoch_00_score_0.5382.ckpt`；`BEST.ckpt`、`last.ckpt` 和十个 TOP checkpoint 已发布。 |
 | 2026-08-20 00:21--00:22 新最佳检查 | 本机私网 SSH 路由在一次 60 分钟睡眠结束时暂时超时；30 分钟命令睡眠后重新连接成功，Job 始终为 `RUNNING`。H100 快照利用率 98%，显存 80,454/81,559 MiB；33 个训练相关 Python 进程存活，a4 错误切片为空。 | W&B `hqumqkex` 前进到 `trainer/global_step=11,624`。最新验证配体体素 PRAUC 为 `0.551052`；`TOP_epoch_00_score_0.5511.ckpt` 与 `last.ckpt` 已于 2026-08-19 23:15 发布，成为当前新最高 TOP。SSH 路由超时没有改变训练进程、checkpoint 或锁。 |
+| 2026-08-20 04:26 validation 检查 | Job 继续为 `RUNNING`，W&B `hqumqkex` 前进到 `trainer/global_step=12,653`。本轮 validation 配体体素 PRAUC 为 `0.538107`，低于当前最高分 0.5511；训练与四项结构验证指标均为有限值，a4 错误切片为空。 | `TOP_epoch_00_score_0.5381.ckpt` 与 `last.ckpt` 已于 03:39 发布；`BEST.ckpt` 仍与 `TOP_epoch_00_score_0.5511.ckpt` 相同，锁状态保持只有 `after_lock_346737`。 |
+| 2026-08-20 08:30 validation 检查 | Job 继续为 `RUNNING`，W&B `hqumqkex` 前进到 `trainer/global_step=13,685`。本轮 validation 配体体素 PRAUC 为 `0.546674`，仍低于当前最高分 0.5511；训练与四项结构验证指标均为有限值，H100 和 33 个训练相关 Python 进程保持活动，a4 错误切片为空。 | `TOP_epoch_00_score_0.5467.ckpt` 与 `last.ckpt` 已于 08:03 发布；`BEST.ckpt` 仍与 `TOP_epoch_00_score_0.5511.ckpt` 相同，锁状态保持只有 `after_lock_346737`。 |
 
 ## 当前训练契约证据
 
@@ -53,7 +55,7 @@
 | 配体距离损失 | `0.3` | frozen `config.yaml` |
 | 数据加载参数 | `prefetch_factor=4`、`persistent_workers=false` | frozen `config.yaml` 与正式实现 |
 | 优化与验证 | batch 8；全局 batch 48；每 epoch 40 次 validation；调度器绝对改善阈值 `0.003` | 第 4 次 `config.yaml` |
-| 当前进度 | W&B `hqumqkex`；`trainer/global_step=11,624`、`epoch=0`；最新验证配体体素 PRAUC `0.551052` | 2026-08-20 00:22 的 `wandb-summary.json` |
+| 当前进度 | W&B `hqumqkex`；`trainer/global_step=13,685`、`epoch=0`；最新验证配体体素 PRAUC `0.546674` | 2026-08-20 08:30 的 `wandb-summary.json` |
 | 当前 checkpoint | `BEST.ckpt`、`last.ckpt`；最高 TOP 为 `TOP_epoch_00_score_0.5511.ckpt` | 2026-08-20 00:22 的服务器文件清单 |
 
 ## 后续监视规则
