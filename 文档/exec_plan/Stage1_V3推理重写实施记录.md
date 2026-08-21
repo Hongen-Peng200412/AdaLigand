@@ -61,6 +61,14 @@ basic tune 使用全部 blobs，包括 `fits_centered_box=false` 的区域。Gau
 
 AdaLigand `文档/规划文档/BOX-level数据契约.md` 的推理章节已整体替换为通用 F-alpha 当前契约；旧固定 F1/F3 字段和 calibration 身份规则不留在活动契约中。
 
+### tune 前固定体素数门槛
+
+2026-08-22，用户补充 `prefiltered_min_voxel`：`tune` 命令必须显式提供该整数，basic 与 Gaussian 在尝试任何评分或选择参数前共同固定该门槛。体素数不足的候选不从 PDB 事实中删除，而是在全部参数组合中保持未入选；真实 occurrence 因此仍可贡献 FN。
+
+选择 JSON 分别保存固定 `prefiltered_min_voxel` 和搜索所得 `min_voxels`。两者互不限制：即使前者大于配置列表中的某些后者，也只会产生冗余参数尝试，不构成契约错误。centered 首次评分、score-only 与 evaluate 同时应用分数阈值和两个体素数门槛。
+
+同一次收口把用户已经在主工作树更新的推理 batch 配置融入原有配置历史：A800/H100 的完整图窗口 batch 为 16、centered batch 为 8；A100 对应值分别为 8 和 4。YAML 当前正式值按 A800/H100 写为 16 和 8，README 同时说明两类 GPU 的取值。
+
 ## 当前验证证据
 
 改写前基线：
@@ -99,6 +107,18 @@ python -m pytest tests/inference/test_stage1_cuda.py -q
 2 passed in 2.79s
 ```
 
+`prefiltered_min_voxel` 与主工作树 batch 参数融入后的回归为：
+
+```text
+python -m pytest tests/inference/test_stage1_v3.py tests/datasets/test_stage1_dataset.py -q
+35 passed in 4.01s
+
+python -m pytest tests/inference/test_stage1_cuda.py -q
+2 passed in 3.40s
+```
+
+同一端点通过 `src/inference` 与 `tests/inference` 编译检查、五个 CLI 子命令帮助、OmegaConf 解析和 `git diff --check`。OmegaConf 实际读取 `window.batch_size=16`、`centered.batch_size=8`。当前 Windows 环境没有安装 Black，因此本次没有追加伪造的 Black 结果；修改函数已经由主代理按文件与调用顺序逐一检查职责、位置、嵌套、Docstring 和行内注释。
+
 ## 独立审查结论
 
 布局/Git、注释/文档与逻辑三类独立审查都完成了三轮全面只读核查。第三轮之后，各审查者只复核自己已经报告的问题，不再扩大范围；三份窄口径复核最终均为 `APPROVED`。
@@ -115,6 +135,7 @@ python -m pytest tests/inference/test_stage1_cuda.py -q
 - basic tune 直接使用全部 blobs，因此不需要为了 `fits_centered_box` 建立第二个候选筛选路径。
 - 主代理自查时补充端点两侧测试：1000 个来源 blob 继续生成空候选 centered，1001 个来源 blob 只写 `_BLOB_EXCEED`。
 - 第 1 轮逻辑审查要求补充 centered 真实 CUDA 证据；新增测试随即发现并修复 `voxel_final` 来源体素轴与通道轴颠倒问题。
+- 后续 `prefiltered_min_voxel` 没有裁剪候选 ragged 数组或建立适配层，只在既有校准事实增加一个布尔候选轴，并在三个既有 `selected` 写入位置并列应用固定预过滤与最终 `min_voxels`。
 
 ### 中性差异
 
@@ -124,9 +145,19 @@ python -m pytest tests/inference/test_stage1_cuda.py -q
 
 当前阶段未发现。
 
-### 未完成范围
+## Git 双线收口
 
-- 重建 Pocket Plus 与 AdaLigand 学习线，验证实现端点与学习端点等价，并快进两个 `Learn/CUMULATIVE`。
-- 写最终 CLAUDE handoff；不在本任务启动服务器正式推理。
+核心实现与学习内容完成后，两个仓库均从本轮共同基点重建学习线：
+
+| 仓库 | 实现内容端点 | 学习内容端点 | 等价 tree |
+| --- | --- | --- | --- |
+| Pocket Plus | `8304dc8` | `abc88fc` | `6097f880e18dad971702c1bccb0d3c97d75e60c5` |
+| AdaLigand | `74457b5` | `3b0e9b4` | `d0e3f1a9fd9fcee29e28e154303a8015e916926e` |
+
+表中端点是本次最终记录写入前的等价核验结果。Pocket Plus 学习线按科学原语、centered 字段、五阶段入口、测试、文档排列；AdaLigand 学习线按 BOX-level 权威契约、执行记录、映射索引排列。两组端点分别通过 `git diff --quiet` 与 tree 哈希双重等价核验；Pocket Plus 学习内容端点再次通过 CPU 35 项和 CUDA 2 项回归。Pocket Plus 的 `Learn/CUMULATIVE` 在学习内容端点之后继续保留用户独立的 Find_1 学习率提交；AdaLigand 的累计学习线直接指向本轮学习端点。
+
+### 后续范围
+
+- 正式运行 basic 或 Gaussian tune 时显式选择 `prefiltered_min_voxel`；本任务不启动服务器正式推理。
 
 本记录只在实现冻结、审查结论、Git 端点或正式运行等明确事件后更新，不保存逐命令流水账。
