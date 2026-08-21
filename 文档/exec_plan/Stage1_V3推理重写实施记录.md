@@ -145,9 +145,19 @@ python -m pytest tests/inference/test_stage1_cuda.py -q
 
 当前阶段未发现。
 
-### 未完成范围
+## Git 双线收口
 
-- 重建 Pocket Plus 与 AdaLigand 学习线，验证实现端点与学习端点等价，并快进两个 `Learn/CUMULATIVE`。
-- 写最终 CLAUDE handoff；不在本任务启动服务器正式推理。
+核心实现与学习内容完成后，两个仓库均从本轮共同基点重建学习线：
+
+| 仓库 | 实现内容端点 | 学习内容端点 | 等价 tree |
+| --- | --- | --- | --- |
+| Pocket Plus | `8304dc8` | `abc88fc` | `6097f880e18dad971702c1bccb0d3c97d75e60c5` |
+| AdaLigand | `74457b5` | `3b0e9b4` | `d0e3f1a9fd9fcee29e28e154303a8015e916926e` |
+
+表中端点是本次最终记录写入前的等价核验结果。Pocket Plus 学习线按科学原语、centered 字段、五阶段入口、测试、文档排列；AdaLigand 学习线按 BOX-level 权威契约、执行记录、映射索引排列。两组端点分别通过 `git diff --quiet` 与 tree 哈希双重等价核验；Pocket Plus 学习内容端点再次通过 CPU 35 项和 CUDA 2 项回归。Pocket Plus 的 `Learn/CUMULATIVE` 在学习内容端点之后继续保留用户独立的 Find_1 学习率提交；AdaLigand 的累计学习线直接指向本轮学习端点。
+
+### 后续范围
+
+- 正式运行 basic 或 Gaussian tune 时显式选择 `prefiltered_min_voxel`；本任务不启动服务器正式推理。
 
 本记录只在实现冻结、审查结论、Git 端点或正式运行等明确事件后更新，不保存逐命令流水账。
