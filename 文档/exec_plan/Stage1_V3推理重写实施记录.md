@@ -1,69 +1,153 @@
 # Stage1 V3 推理重写实施记录
 
-本文记录 Pocket Plus 中 Stage1 V3 推理主线的实现、验证和收口证据。规划规格位于 `C:\Users\15919\Desktop\Pocket_Plus\talk\refactor\stage1_v3_inference.md`，字段权威位于 `C:\Users\15919\Desktop\AdaLigand\文档\规划文档\BOX-level数据契约.md`。
+本文记录 Pocket Plus Stage1 V3 推理主线的实现、验证、独立审查和双线 Git 收口证据。当前规格是 Pocket Plus `talk/refactor/stage1_v3_inference.md`，跨项目字段权威是 AdaLigand `文档/规划文档/BOX-level数据契约.md`。本记录保存已经发生的过程与证据，不替代两份当前规格。
 
-## 范围
+## 本轮覆盖范围
 
-本轮删除活动代码树中的旧 Selector、组件森林、CLG、Li 和多 Fα 推理入口，重新建立四个 producer 共用的单一主线：
+2026-08-21，用户批准把上一版固定 F1/F3 的 `calibrate/run` 改为五个可独立提交的阶段：
 
-- `unet_c1`、`Find_0`、`Find_1`、`Find_2` 均生产 F1 basic 与 F3 centered。
-- F1 basic 使用语义 micro-F1 阈值和最终 F1 选择目标。
-- F3 centered 使用语义 micro-F3 阈值和最终 F2 选择目标；Find 使用 A 原子 Gaussian 分数，U-Net 使用来源概率均值。
-- 四个 producer 的配体概率均不乘受体 hardmask。
-- Matcher 首先消费 `F3_centered.npz`；F1 basic 是便捷推理产物。
+1. `probability` 生成完整图概率。
+2. `blobs` 拟合或读取一个正浮点 alpha 的语义阈值，并生成 `F{alpha}_blobs.npz`。
+3. `centered` 从 blobs 生成 `F{alpha}_centered.npz`，或用 score-only 只更新 `score/selected`。
+4. `tune` 从 blobs 调整 basic 选择参数，或从 centered 调整 Gaussian 选择参数。
+5. `evaluate` 独立评估 blobs 或 centered。
 
-本轮不提交服务器正式推理任务，也不修改 Matcher。真实 checkpoint 的全链运行必须在模型产物确定后由用户另行授权。
+本轮不修改 Stage1 Dataset、训练代码、模型定义或 Matcher，不提交服务器正式推理任务。完整图配体概率继续不乘受体 hardmask。
 
-## 关键实现事件
+## Git 共同基点
 
-### 单一生产入口
+首次正式写入前完成只读检查：
 
-Pocket Plus 新主线位于 `src/inference/`，由 `训练与运行/sh/infer/stage1_v3.sh` 调用 `python -m src.inference.cli`。CLI 只解析 `calibrate` 或 `run` 子命令、显式路径并构造 Dataset 与 wrapper；跨 PDB 编排位于 `workflow.py`，单 PDB 发布事务位于 `pipeline.py`。
+| 仓库 | 共同基点 | 实现分支 | 开始状态 |
+| --- | --- | --- | --- |
+| Pocket Plus | `Learn/CUMULATIVE@916dced93b5c0f19418ddba0077f5504faa1ffd7` | `codex/stage1-inference-falpha` | 工作区干净；该提交是全部本地、远端跟踪引用和登记 worktree 按提交者时间形成的唯一最新提交 |
+| AdaLigand | `Learn/CUMULATIVE@4bce2a38f0aba721b7f582e21aa59a862933cd79` | `codex/stage1-inference-falpha-contracts` | 工作区干净；该提交是全部本地引用和登记 worktree 按提交者时间形成的唯一最新提交 |
 
-模型代码来源必须显式选择 `current_workspace` 或 `training_snapshot`。训练 resolved config 负责模型结构，当前 V3 Dataset 始终来自活动代码。2026-08-20 的可读性重做删除了 checkpoint、resolved config 与推理配置摘要；calibration 只保存 checkpoint 的规范化绝对路径。同一 checkpoint 的不同 F3/F2 目标或其他科学配置使用不同的显式 `output_root` 版本目录。
+未修改或推送远端引用。
 
-本次重做不迁移 `src/inference/` 的文件，不新增承载 Dataset、collator、wrapper、blobs 与保存开关的顶层包装函数。代码只删除一次转发、写后重复读取和摘要计算，保留线程回调、惰性生成器与原子发布事务所必需的局部函数。公开入口、科学数组和文件读写 Docstring 按字段、dtype、shape、坐标和 offsets 对齐补全。
+## 已完成实现事件
 
-### GPU 与 CPU 重叠
+### 五阶段入口与动态路径
 
-完整图阶段在唯一 GPU owner 线程中执行 H2D、前向和 D2H；CPU 线程提前物化窗口并按提交顺序融合。一个 PDB 的完整概率离开 GPU 后，概率 NPZ 压缩与 F1/F3 26 邻域连通区域提取并行执行，GPU 开始下一 PDB。
+Pocket Plus `src/inference/workflow.py` 已从活动树删除。`src/inference/pipeline.py` 直接提供五个 `run_*_stage()` 入口，`src/inference/cli.py` 只解析参数、读取 JSON 清单，并在 probability 或正常 centered 阶段恢复 wrapper 与构造 Dataset。
 
-centered 阶段同样提前物化 batch，异步复制 GPU 输出并在 CPU 整理。一个 PDB 的字段齐备后，concatenate 与 NPZ 压缩进入发布线程，GPU 开始下一 PDB。两个 PDB 级待发布队列限制大数组常驻数量。
+`src/inference/artifacts.py::f_alpha_tag()` 把 2.0、0.5、1.5 分别编码为 `F2`、`F0p5`、`F1p5`。同一 `output_root` 可以复用 probability，并逐次增加多个 alpha 的 blobs 和 centered。正式代码不计算 checkpoint、配置或代码摘要，不建立 `_valid*` 身份层。
 
-推理线程共享同一 V3 Dataset 与 mmap LRU。缓存只在 OrderedDict 和字节计数更新期间持有可重入锁，实际 NPY 裁块与密度通道构造不在锁内。
+PDB 清单改为顶层字符串列表 JSON。可分片生产阶段使用固定 seed 3407 打乱完整列表，再按 `[shard_index::shard_count]` 选择 0-based 分片；语义拟合、tune 与 evaluate 不分片。
 
-### 科学与发布收口
+### centered 字段与评分边界
 
-概率科学 NPZ 精确保留概率和世界几何三字段；窗口几何与性能分别写 JSON。blob 阶段保存阈值下全部 26 邻域连通区域，不提前应用 `min_voxels`。F3 候选数严格超出 `blob_limit` 时只写 `_BLOB_EXCEED` 事实并继续生产，不再保留跳过 PDB 的特殊终态。
+所有 producer 都执行完整 forward 并保存 `voxel_final`。`unet_*` 只保存共同字段与 V 特征；`Find_*` 另外保存 auxiliary、A/P 和三张 float32 48³ 稠密数组。alpha 不再决定前向模式或字段集合。
 
-F1 basic 显式关闭 V 学习特征、A/P、辅助受体概率和 48³ 稠密数组。F3 centered 保存 V 特征与三张 float32 48³ 数组；Find 另外保存 A/P 表。`A_feat_L0` 为 49 维基础特征与 `is_backbone` 拼接后的 float32 50 维数组，上游 `receptor_tokens.npz` 不改写。
+`forward_min_voxels` 只决定哪些 `fits_centered_box=true` 的来源 blob 进入 GPU。选择 JSON 中的 `min_voxels` 只决定 `selected`。未评分 centered 不含 `score/selected`；score-only 只增加或替换这两个数组。
 
-大型 NPZ 使用同目录临时文件和 `os.replace` 原子发布，不再执行压缩后立即完整解压重读。读取调用点只解压明确消费的字段。第二轮审查后，冻结 `score/selected` 改为在 centered 第一次正式压缩前写入；validation/train 不再为了两个一维字段完整解压并二次压缩 F3，calibration 在最终 `min_voxels` 冻结后重新生成正式候选集合。
+basic tune 使用全部 blobs，包括 `fits_centered_box=false` 的区域。Gaussian tune 继续使用 A 原子 5 Å 截断分数，并保留粗搜索、细搜索和最终最小体素数三个阶段。alpha 与 `objective_beta` 独立，配置推荐值均为 2.0。
 
-## 审查与验证证据
+### 最小 `_BLOB_EXCEED` 改正
 
-上一轮三类独立全面审查分别覆盖 Git/布局/函数边界、注释与 Docstring、科学逻辑与用户契约。审查发现并已修订的阻断包括：巨型 CLI、全 train 概率常驻内存、跨阶段不重叠、BF16 直接进入 NumPy、共享缓存竞争、不可执行的校准搜索、缺少 `centered_box_index`、偏斜 blob 的 BOX 判定错误、macro 与逐候选事实不完整、calibration 完成标记不完整，以及科学 NPZ 混入性能字段。
+用户在计划批准后补充最小规则：centered 开始时，若来源 blobs 的 `blob_index` 长度严格大于全局常量 1000，立即写 `status/F{alpha}_centered/_BLOB_EXCEED` 并跳过当前 PDB。
 
-本地最终验证为：
+实现只保存 `pdb_id`、`centered_role`、`source_blob_count` 和 `limit`。没有新增覆盖、恢复、自动删除、独立完成标记或重试状态机。tune/evaluate 只在原本清单读取位置识别该原因并输出说明。
 
-- `tests/inference` 与 `tests/datasets/test_stage1_dataset.py`：可读性重做后 28 项通过；删除的单项只覆盖已内联且由发布事务测试继续覆盖的 `selected` 字段包装。RTX 4060 CUDA smoke 仍覆盖 125 个真实 Conv3d 窗口。
-- Python `compileall`：通过。
-- `git diff --check`：通过。
-- CLI `--help`、OmegaConf 配置解析和 `stage1_v3.sh` Bash 语法：通过。
-- 一次合成 CUDA 利用率采样：19 个样本，GPU active ratio 0.6842，平均利用率 13.947%，P50 7%，P95 36%，墙钟 3.029 秒。该结果只证明采样工具和 CUDA 流水可执行，不替代真实 checkpoint 性能基准。
+### 配置与文档
 
-`08f30f2` 之前的端点完成过两轮全面检查，但该批准不自动覆盖本次可读性重做。新的工作区端点在代码、文档和测试冻结后，重新接受布局/Git/函数、注释与 Docstring、科学逻辑与用户契约三类独立审查；每类执行三轮全面核查，之后只复核已报告问题。
+`configs/inference/stage1_v3.yaml` 删除固定 `roles`、`blob_limit`、`forward` 和保存开关，增加通用 `alpha`、`objective_beta`、Gaussian 网格和 centered 共同并行参数；`stride_zyx` 从 `[50,50,50]` 改为 `[30,30,30]`。
 
-2026-08-20，主代理在暂停独立审查后重新逐名检查 `src/inference/` 的 48 个类、方法、顶层函数和局部回调。检查逐项记录在 Pocket Plus `talk/refactor/stage1_v3_inference.md` 的“主代理逐函数自查”表中，覆盖函数保留理由、冷端工具与主流程顺序、局部嵌套必要性、输入输出、数组形状、坐标、offsets、副作用和产物字段。检查期间没有新增包装层、哈希、`_valid*` 校验函数或 calibration 目录相等限制；冻结运行中两个先赋 `None` 再立即覆盖的状态和相应无效分支已经删除。此前提前启动后被中断的第三轮不计入三轮独立核查，真正的第三轮只在本次主代理自查与验证完成后重新开始。
+三份 Human MD Review 源 README 已按批注重写：
 
-本次主代理自查后的验证结果为：13 个正式推理 Python 文件通过现有 Black 格式检查且无需改写；`src/inference` 与 GPU 基准工具通过 `compileall`；`tests/inference` 与 `tests/datasets/test_stage1_dataset.py` 共 28 项通过；CLI 三个帮助入口、OmegaConf 配置解析和 `stage1_v3.sh` 的 Bash 语法通过；每个正式模块只有一条规定分隔线，源码没有中文标点、SHA/摘要字段或 `_valid*` 函数，`git diff --check` 没有空白错误。
+- Pocket Plus `训练与运行/sh/infer/README.md`
+- Pocket Plus `configs/inference/README.md`
+- Pocket Plus `src/inference/README.md`
 
-真正的第 3/3 轮在上述主代理自查和验证之后执行。布局/Git/函数审查补齐跨模块入口表并统一推荐阅读顺序后批准，确认 48 个代码对象、9 个必要局部回调和每个模块唯一分隔线保持不变。科学逻辑审查只发现 `save_dense48=false` 时仍解压完整概率图的冗余 I/O；`produce_centered_role` 已改为只读取 `origin_xyz` 与 `voxel_size_xyz` 并显式传入 `full_probability=None`，现有测试覆盖该分支，窄口径复核批准。注释与文档审查逐项要求补齐嵌套配置、offsets 切分对象、Gaussian 参数、评估动态键、benchmark 对照字段和 BOX 契约；全部原问题经过两次窄口径复核后批准。三类审查均未要求新增包装层、身份对象或防御性校验。
+AdaLigand `文档/规划文档/BOX-level数据契约.md` 的推理章节已整体替换为通用 F-alpha 当前契约；旧固定 F1/F3 字段和 calibration 身份规则不留在活动契约中。
 
-双线共同基点为 `3cbae636f444fb6630eb505d210d7ce0586b4f76`。实现分支 `codex/stage1-inference-v3` 的科学代码端点为 `bdecd9802fdef4dcc28401411b35f31a72e5a3cc`；学习线的科学代码等价节点为 `c62de259f48da4f04962d4b68658a76a6afbafbe`，两端 tree 均为 `226b56e7ed34b44545af6236afba4653caac32b9`。学习线随后只追加最终验证与 handoff 文档，当前 `Learn/stage1-inference-v3` 和 `Learn/CUMULATIVE` 均指向 `08f30f28439925b272a11e8e3d1682b5076229ba`；与实现端点的差异仅为五个不参与运行的 Markdown/CLAUDE 记忆文件，Python、YAML 和 Shell 均无差异。该提交是仓库按提交者时间形成的唯一最新提交。
+### tune 前固定体素数门槛
 
-## 当前状态与剩余边界
+2026-08-22，用户补充 `prefiltered_min_voxel`：`tune` 命令必须显式提供该整数，basic 与 Gaussian 在尝试任何评分或选择参数前共同固定该门槛。体素数不足的候选不从 PDB 事实中删除，而是在全部参数组合中保持未入选；真实 occurrence 因此仍可贡献 FN。
 
-上一轮累计学习端点为 `08f30f28439925b272a11e8e3d1682b5076229ba`。本次可读性重做的真实实现端点为 `b1294e898fdbac91951653e1ede7c3db5f75a2c4`。学习历史没有在 `08f30f2` 后追加补丁提交，而是从 `3cbae636f444fb6630eb505d210d7ce0586b4f76` 重新构造原有 8 个主题提交；新的 `Learn/stage1-inference-v3` 与 `Learn/CUMULATIVE` 均指向 `da4769991b50d3ae0a20a2f65188ef67d544c1a7`。实现端点和学习端点的 tree 都是 `db5575721a272ce682e5ce585720ede598a523bb`，`git diff --quiet` 返回 0。重建后的端点再次通过 Black、`compileall`、28 项回归、三个 CLI 帮助入口、OmegaConf 解析、Bash 语法和 `git diff --check`。最终 handoff 为 Pocket Plus `CLAUDE/memory/handoffs/2026-08-20-stage1-v3-inference-readability-rebuild.md`。`Learn/CUMULATIVE` 是本地分支按提交者时间形成的唯一最新提交；未推送或改写远端引用。正式 checkpoint smoke、真实 Dataset 的完整 F1/F3 生产和服务器 GPU 利用率基准尚未执行；它们需要可用的最终 checkpoint 和用户对服务器运行的明确授权。
+选择 JSON 分别保存固定 `prefiltered_min_voxel` 和搜索所得 `min_voxels`。两者互不限制：即使前者大于配置列表中的某些后者，也只会产生冗余参数尝试，不构成契约错误。centered 首次评分、score-only 与 evaluate 同时应用分数阈值和两个体素数门槛。
 
-本记录只在审查结论、Git 端点、真实 checkpoint 运行或正式任务提交等明确事件发生后更新，不记录轮询或逐命令流水账。
+同一次收口把用户已经在主工作树更新的推理 batch 配置融入原有配置历史：A800/H100 的完整图窗口 batch 为 16、centered batch 为 8；A100 对应值分别为 8 和 4。YAML 当前正式值按 A800/H100 写为 16 和 8，README 同时说明两类 GPU 的取值。
+
+## 当前验证证据
+
+改写前基线：
+
+```text
+python -m pytest tests/inference tests/datasets/test_stage1_dataset.py -q
+30 passed in 12.15s
+```
+
+五阶段核心代码、动态路径、分片、score-only 和 `_BLOB_EXCEED` 测试加入后的阶段性回归：
+
+```text
+python -m pytest tests/inference tests/datasets/test_stage1_dataset.py -q
+33 passed in 5.44s
+```
+
+主代理完成逐文件逐函数自查并补齐 Docstring、注释、测试端点和 centered Find 分支早返回后的当前回归：
+
+```text
+python -m pytest tests/inference/test_stage1_v3.py tests/datasets/test_stage1_dataset.py -q
+33 passed in 9.14s
+
+python -m pytest tests/inference/test_stage1_cuda.py -q
+2 passed in 7.68s
+```
+
+Windows RTX CUDA smoke 同时覆盖 probability 与 centered。新增 centered smoke 发现 `voxel_final` 在 NumPy 高级索引后已经是 `(K_source,C_voxel)`，旧代码再次转置会错误保存为 `(C_voxel,K_source)`；实现已删除该多余转置，并在 CPU 与 CUDA 测试中同时断言正式 shape。`src/inference` 已通过 `compileall`；OmegaConf 能解析新 YAML，读取到 `alpha=2.0` 与 `stride_zyx=[30,30,30]`；五个 CLI 子命令的 `--help` 均正常；MSYS2 Bash 对 `训练与运行/sh/infer/stage1_v3.sh` 的语法检查通过；Black 格式检查与两个仓库的 `git diff --check` 通过。
+
+第二轮独立审查发现 SciPy `cKDTree.query(distance_upper_bound=...)` 对上界采用严格小于，导致恰好 5 Å 的 Gaussian A 原子和恰好 10 Å 的 Find centered A 原子被排除。正式实现改为先查询最近距离，再分别显式应用 `distance <= 5.0` 与 `distance <= 10.0`；没有增加包装层或校验框架。两个端点都进入真实科学路径测试，修订后的当前回归为：
+
+```text
+python -m pytest tests/inference/test_stage1_v3.py tests/datasets/test_stage1_dataset.py -q
+34 passed in 3.44s
+
+python -m pytest tests/inference/test_stage1_cuda.py -q
+2 passed in 2.79s
+```
+
+`prefiltered_min_voxel` 与主工作树 batch 参数融入后的回归为：
+
+```text
+python -m pytest tests/inference/test_stage1_v3.py tests/datasets/test_stage1_dataset.py -q
+35 passed in 4.01s
+
+python -m pytest tests/inference/test_stage1_cuda.py -q
+2 passed in 3.40s
+```
+
+同一端点通过 `src/inference` 与 `tests/inference` 编译检查、五个 CLI 子命令帮助、OmegaConf 解析和 `git diff --check`。OmegaConf 实际读取 `window.batch_size=16`、`centered.batch_size=8`。当前 Windows 环境没有安装 Black，因此本次没有追加伪造的 Black 结果；修改函数已经由主代理按文件与调用顺序逐一检查职责、位置、嵌套、Docstring 和行内注释。
+
+## 独立审查结论
+
+布局/Git、注释/文档与逻辑三类独立审查都完成了三轮全面只读核查。第三轮之后，各审查者只复核自己已经报告的问题，不再扩大范围；三份窄口径复核最终均为 `APPROVED`。
+
+审查过程中修正的实质问题只有两项：centered `voxel_final` 的候选轴与通道轴曾被多余转置，以及 SciPy 最近邻上界曾漏掉恰好 5 Å/10 Å 的端点。其余修订是函数位置、嵌套、Docstring、字段名、shape/dtype/坐标、README 自包含性与验证记录对齐。正式代码没有增加 SHA、`_valid*`、身份框架或扩展 `_BLOB_EXCEED` 状态机。
+
+主代理自查逐项记录在 Pocket Plus `talk/refactor/stage1_v3_inference.md`。本次检查覆盖所有新增或修改的正式函数、局部线程回调、测试函数和测试内最小假对象；`centered.py:arrange_batch()` 使用 U-Net 早 `continue`，把 Find 专用 48³、A/P 和 auxiliary 整理从两层条件块改成顺序代码，没有增加顶层包装函数。
+
+## 计划与实现差异
+
+### 有益差异
+
+- 用户在原计划上补充来源 blob 总数严格大于 1000 的 centered 跳过规则；实现采用单一全局常量和单一原因标记，没有恢复状态机。
+- basic tune 直接使用全部 blobs，因此不需要为了 `fits_centered_box` 建立第二个候选筛选路径。
+- 主代理自查时补充端点两侧测试：1000 个来源 blob 继续生成空候选 centered，1001 个来源 blob 只写 `_BLOB_EXCEED`。
+- 第 1 轮逻辑审查要求补充 centered 真实 CUDA 证据；新增测试随即发现并修复 `voxel_final` 来源体素轴与通道轴颠倒问题。
+- 后续 `prefiltered_min_voxel` 没有裁剪候选 ragged 数组或建立适配层，只在既有校准事实增加一个布尔候选轴，并在三个既有 `selected` 写入位置并列应用固定预过滤与最终 `min_voxels`。
+
+### 中性差异
+
+- 上一版 `pipeline.py` 只承担单 PDB 发布；删除 `workflow.py` 后，`pipeline.py` 直接承担五个跨 PDB 阶段。科学核函数仍位于原有模块。
+
+### 有害差异
+
+当前阶段未发现。
+
+### 未完成范围
+
+- 重建 Pocket Plus 与 AdaLigand 学习线，验证实现端点与学习端点等价，并快进两个 `Learn/CUMULATIVE`。
+- 写最终 CLAUDE handoff；不在本任务启动服务器正式推理。
+
+本记录只在实现冻结、审查结论、Git 端点或正式运行等明确事件后更新，不保存逐命令流水账。
