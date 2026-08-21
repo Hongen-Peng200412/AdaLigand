@@ -1,6 +1,6 @@
 # AdaLigand BOX 级数据契约
 
-本文定义 AdaLigand Stage1 训练预定位、完整图概率、F1/F3 阈值校准、两类连通区域、F1 basic、F3 centered 和评估事实的磁盘契约。本文面向产物的生产者与消费者；只看本文，读者应能确定正式文件、字段、形状、坐标、空值、索引目标、完成状态和跨文件对齐关系。
+本文定义 AdaLigand Stage1 训练预定位、完整图概率、通用 F-alpha 阈值与连通区域、centered 特征和评估事实的磁盘契约。本文面向产物的生产者与消费者；只看本文，读者应能确定正式文件、字段、形状、坐标、空值、索引目标、完成状态和跨文件对齐关系。
 
 Pocket Plus 仓库的 `src/inference/README.md` 覆盖相同产物，并额外说明模块职责、生产命令和并发边界。两份文档不得对同一文件给出不同定义。
 
@@ -8,15 +8,15 @@ Pocket Plus 仓库的 `src/inference/README.md` 覆盖相同产物，并额外�
 
 ### 1.1 三个身份轴
 
-- Stage1 模型来源：对应命令参数 `--producer`，只允许 `Find_0`、`Find_1`、`Find_2`、`unet_c1`。
-- 数据划分：对应命令参数 `--split`，正式推理只允许 `calibration`、`validation`、`train`。
+- Stage1 模型来源：对应命令参数 `--producer`；正式目录名由调用者显式提供，例如 `Find_0`、`unet_c1` 或 `unet_base`，CLI 不维护名称白名单。
+- 数据划分：对应命令参数 `--split`，常用值为 `calibration`、`validation` 和 `train`。
 - PDB 身份：对应 `pdb_id`，正式值为小写且非空；同一清单不得出现重复身份。
 
-三个 Find 模型来源使用体素模态 V、点模态 P 和原子模态 A；`unet_c1` 只使用体素模态 V。本文保留目录术语 `centered`，表示为一个来源组件解析合法 80³ BOX 并在该 BOX 中重新执行模型。
+`Find_*` 模型来源使用体素模态 V、点模态 P 和原子模态 A；`unet_*` 只保存体素模态 V。本文保留目录术语 `centered`，表示为一个来源组件解析合法 80³ BOX 并在该 BOX 中重新执行模型。
 
-“blob”表示在一个冻结概率阈值上得到的 26 邻域连通体素集合。“centered 条目”表示 centered NPZ 第一维中的一个 80³ BOX。F1 basic 使用 micro-F1 语义阈值，F3 centered 使用 micro-F3 语义阈值。
+“blob”表示在一个冻结概率阈值上得到的 26 邻域连通体素集合。“centered 候选”表示 centered NPZ 第一维中的一个 80³ BOX。每个正浮点 alpha 都可以独立产生 `F{alpha}_blobs.npz` 与 `F{alpha}_centered.npz`；alpha=2.0 的路径标签为 `F2`，alpha=0.5 的路径标签为 `F0p5`。
 
-`hardmask` 是受体占据位置的 BOX 级布尔掩码；值为 `True` 的体素是受体原子所在位置。四个模型来源的配体概率都不乘 hardmask，也不在完整图融合后把受体位置置零。
+`hardmask` 是受体占据位置的 BOX 级布尔掩码；值为 `True` 的体素是受体原子所在位置。所有当前 producer 的配体概率都不乘 hardmask，也不在完整图融合后把受体位置置零。
 
 ### 1.2 文件格式与发布
 
@@ -24,7 +24,7 @@ Pocket Plus 仓库的 `src/inference/README.md` 覆盖相同产物，并额外�
 - NPZ 不得包含 `object` dtype，必须能由 `numpy.load(path, allow_pickle=False)` 读取。
 - 正式 JSON 和 NPZ 先写同目录临时文件，写入成功后再原子替换正式路径；大型 NPZ 不做重复解压重读。
 - NPZ 字段集合是精确集合；缺少字段或出现未声明字段都属于契约不一致。本文明确允许整组缺席的 Find P/A 字段除外。
-- 文件存在不代表角色完成。PDB 级消费者还必须检查角色完成标记和异常状态。
+- `_COMPLETE` 只供当前生产阶段默认跳过和外部任务编排使用。五个显式命令由调用者按阶段顺序启动；读取前一阶段 NPZ 时不重复检查其完成标记。
 
 字段名中的 `offsets` 表示变长表边界数组。第 `i` 个对象对应半开区间 `[offsets[i],offsets[i+1])`；每个具体 offsets 切分哪些值表，会在相应文件字段表中逐一写明。
 
@@ -34,7 +34,7 @@ Pocket Plus 仓库的 `src/inference/README.md` 覆盖相同产物，并额外�
 | --- | --- |
 | `D,H,W` | 完整图 Z、Y、X 三轴长度 |
 | `N_occ` | 当前 PDB 的真实配体 occurrence 数；occurrence 指一个真实配体实例 |
-| `N_blob` | 当前 F1 或 F3 阈值下的全部 26 邻域连通区域数 |
+| `N_blob` | 当前 F-alpha 阈值下的全部 26 邻域连通区域数 |
 | `N_entry` | 当前 centered NPZ 的 80³ BOX 条目数 |
 | `N_threshold` | 评估使用的双向覆盖阈值数 |
 | `N_topk` | 评估使用的 top-K 设置数 |
@@ -270,453 +270,290 @@ DataLoader 的正式口径是 `prefetch_factor=4`、`pin_memory=true`、`persist
 
 ## 4. Stage1 V3 正式输出目录与状态
 
-### 4.1 固定寻址
+### 4.1 固定目录与动态 F-alpha 文件名
+
+producer 级 calibration 目录：
 
 ```text
-<stage1_outputs>/{producer}/{split}/
-├── semantic_threshold_scan.npz          # 仅 split=calibration
-├── stage1_v3.json                       # 仅 split=calibration
-├── stage1_v3.metrics.json               # 仅 split=calibration
-├── _COMPLETE                            # 仅 split=calibration
-├── evaluation/
-│   ├── F1_basic.jsonl
-│   ├── F1_basic.metrics.json
-│   ├── F3_centered.jsonl
-│   └── F3_centered.metrics.json
-└── {pdb_id}/
-    ├── probability/
-    │   ├── probability_map.npz
-    │   └── geometry.json
-    ├── blobs/
-    │   ├── F1_blobs.npz
-    │   └── F3_blobs.npz
-    ├── centered/
-    │   ├── F1_basic.npz
-    │   └── F3_centered.npz
-    ├── evaluation/
-    │   ├── F1_basic.npz
-    │   └── F3_centered.npz
-    └── status/
-        ├── probability/
-        │   ├── _COMPLETE
-        │   └── performance.json
-        ├── F1_blobs/_COMPLETE
-        ├── F3_blobs/_COMPLETE
-        ├── F1_basic/
-        │   ├── _COMPLETE
-        │   └── performance.json
-        └── F3_centered/
-            ├── _COMPLETE
-            ├── _BLOB_EXCEED
-            └── performance.json
+<output_root>/<producer>/calibration/
+├── F{alpha}_semantic.json
+├── F{alpha}_semantic_scan.npz
+├── F{alpha}_basic.json
+└── F{alpha}_gaussian.json
 ```
 
-`producer` 精确为 `unet_c1`、`Find_0`、`Find_1` 或 `Find_2`。`split` 精确为 `calibration`、`validation` 或 `train`。F1 basic 与 F3 centered 是同一 producer 的两种正式使用方式，不是固定到某个模型的分支。
+四个文件相互独立。一个推理版本可以只拟合语义阈值、只调整 basic、只调整 Gaussian，或逐步补齐；这些文件不保存 checkpoint、resolved config、代码摘要或哈希。
 
-### 4.2 完成标记与超量事实
+逐 PDB 目录：
 
-PDB 角色的 `_COMPLETE` 是 UTF-8 JSON，精确包含：
+```text
+<output_root>/<producer>/<split>/<pdb_id>/
+├── probability/
+│   ├── probability_map.npz
+│   └── geometry.json
+├── blobs/F{alpha}_blobs.npz
+├── centered/F{alpha}_centered.npz
+├── evaluation/<evaluation-name>.npz
+└── status/
+    ├── probability/
+    │   ├── performance.json
+    │   └── _COMPLETE
+    ├── F{alpha}_blobs/_COMPLETE
+    └── F{alpha}_centered/
+        ├── performance.json
+        ├── _COMPLETE
+        └── _BLOB_EXCEED
+```
 
-- `output_role: str`：对应 `probability`、`F1_blobs`、`F3_blobs`、`F1_basic` 或 `F3_centered`。
-- `completed_at_utc: str`：带 UTC 偏移的 ISO 8601 时间。
+`F{alpha}` 使用 Python float 的最短可往返十进制：整数不保留 `.0`，小数点改为 `p`。例如 2.0、0.5、1.5 分别写成 `F2`、`F0p5`、`F1p5`；不同 Python float 不因六位格式化而碰撞。同一 PDB 目录可以共同复用 probability，并同时保存多个 alpha 的 blobs 与 centered。
 
-概率与 blob 完成标记在相应 NPZ 已经原子替换后建立。calibration 搜索阶段可发布不带完成标记的临时候选 centered；最终 `min_voxels` 冻结后必须重新生成正式候选集合，并在第一次正式压缩前写入冻结 `score` 与 `selected`。validation/train 同样在 centered 第一次正式压缩前完成评分。正式 NPZ 原子替换后才建立 centered 完成标记，不允许只改一维字段后再次完整解压和压缩大型 F3 文件。
+数据划分级评估目录为 `<output_root>/<producer>/<split>/evaluation/`。每个评估名称同时保存 JSONL 和 metrics JSON；名称中的 `artifact` 为 `blobs` 或 `centered`，`score_mode` 为 `basic` 或 `gaussian`。
 
-`status/F3_centered/_BLOB_EXCEED` 只在满足 `fits_centered_box` 且达到当前 `min_voxels` 的 F3 blob 数严格大于显式 `blob_limit` 时存在。字段精确为：
+### 4.2 `_COMPLETE`
 
-- `pdb_id: str`：当前小写 PDB 标识。
-- `centered_role: str`：固定为 `F3_centered`。
-- `eligible_blob_count: int`：满足 BOX 包络和当前 `min_voxels` 的候选数。
-- `limit: int`：当前配置的 `blob_limit`。
+每个 PDB 角色完成标记是 UTF-8 JSON：
 
-该文件只记录计算量事实，不是终态；生产者仍继续生成 F3 centered，不允许静默跳过 PDB。
+| 字段 | 类型与含义 |
+| --- | --- |
+| `output_role` | 字符串，对应 `probability`、动态 `F{alpha}_blobs` 或动态 `F{alpha}_centered` |
+| `completed_at_utc` | 带时区 ISO 8601 字符串，表示正式 NPZ 已原子替换后的发布时间 |
 
-calibration 的 `_COMPLETE` 是 UTF-8 JSON，字段精确为：
+默认生产命令遇到当前角色 `_COMPLETE` 就跳过该 PDB。`--overwrite` 只撤销并重跑当前阶段，不删除同一 PDB 的 probability、其他 alpha 或评估文件。完成标记不保存生产身份，程序不比较 checkpoint、配置、模型代码或摘要。
 
-- `checkpoint_path: str`：当前 calibration 使用的 checkpoint 规范化绝对路径。
-- `result_scope: str`：固定为 `calibration_fitted`。
+### 4.3 `_BLOB_EXCEED`
 
-完整语义扫描、冻结参数和指标都发布后才建立该文件。
+centered 阶段读取来源 blobs 后，立即检查 `blob_index` 第一维长度。长度严格大于全局常量 1000 时，不构造 Dataset 请求、不进入 GPU，也不写 centered NPZ 或 centered `_COMPLETE`；只写 `status/F{alpha}_centered/_BLOB_EXCEED`：
 
-每次 calibration 重跑开始时必须先撤销旧 `_COMPLETE`。validation/train 同时读取 `--calibration` 显式指定的 `stage1_v3.json` 和同目录 `_COMPLETE`，要求两者的 `checkpoint_path` 与当前命令相同，并要求完成标记的 `result_scope="calibration_fitted"`；只有 JSON 而没有完成标记时不得消费冻结参数。calibration 可以来自另一输出目录，程序不比较 calibration 目录与当前 `output_root`。PDB 角色完成标记不保存 checkpoint 路径，因此正式命令总是为当前运行重新计算概率图，不跨运行复用旧 probability `_COMPLETE`。
+| 字段 | 类型与含义 |
+| --- | --- |
+| `pdb_id` | 字符串，当前小写 PDB 标识 |
+| `centered_role` | 字符串，例如 `F2_centered` |
+| `source_blob_count` | 整数，来源 blobs 文件的总连通区域数 |
+| `limit` | 整数，固定为 1000 |
 
-## 5. 完整图概率与 blobs
+该文件只解释本次 centered 缺失原因，不拥有覆盖、恢复、自动清理或独立完成状态。tune/evaluate 在原本读取完整 PDB 清单时，可以识别“centered 缺失且 `_BLOB_EXCEED` 存在”，在标准输出说明原因并跳过该 PDB；不得另建复杂跳过系统。
+
+## 5. 完整图 probability 与动态 blobs
 
 ### 5.1 `probability/probability_map.npz`
 
-字段集合精确为：
-
 | 字段 | dtype 与形状 | 含义 |
 | --- | --- | --- |
-| `probability_map` | `float32 (D,H,W)` | 完整图配体概率；不乘受体 hardmask |
-| `origin_xyz` | `float32 (3,)` | 完整图网格角点的世界 XYZ 坐标，单位 Å |
+| `probability_map` | `float32 (D,H,W)` | 完整图 ZYX 配体概率，不乘受体 hardmask |
+| `origin_xyz` | `float32 (3,)` | 完整网格角点的世界 XYZ 坐标，单位 Å |
 | `voxel_size_xyz` | `float32 (3,)` | 世界 XYZ 体素尺寸，单位 Å/voxel |
 
-完整图使用无 padding 80³ 滑窗。每轴起点从 0 开始，末窗口强制落在 `axis_length-80`，确保覆盖边界。窗口重叠区使用 float32 Gaussian 权重按固定窗口顺序融合。stride 必须由配置或命令显式传入，Python 不设默认值；当前推荐配置为 ZYX `[50,50,50]`。Gaussian `sigma=0.5` 使用每轴归一化到 `[-1,1]` 的坐标。
+`probability/geometry.json` 精确字段为：`full_shape_zyx` 是长度 3 的整数列表；`origin_xyz` 与 `voxel_size_xyz` 是长度 3 的浮点数列表；`window_shape_zyx` 是固定 `[80,80,80]` 的整数列表；`stride_zyx` 是长度 3 的显式整数列表；`gaussian_sigma` 是浮点数；`window_count` 是整数。`status/probability/performance.json` 的 `wall_seconds`、`materialize_wait_seconds` 与 `fusion_wait_seconds` 均为浮点秒数；性能字段不得混入科学 NPZ。
 
-`probability/geometry.json` 字段精确为：
-
-- `full_shape_zyx: int[3]`：完整图 Z/Y/X 轴长。
-- `origin_xyz: float[3]`：完整图网格角点的世界 XYZ 坐标，单位 Å。
-- `voxel_size_xyz: float[3]`：世界 XYZ 体素尺寸，单位 Å/voxel。
-- `window_shape_zyx: int[3]`：固定为 `[80,80,80]`。
-- `stride_zyx: int[3]`：当前无 padding 滑窗的显式 ZYX 步长。
-- `gaussian_sigma: float`：每轴归一化到 `[-1,1]` 坐标后的 Gaussian 标准差。
-- `window_count: int`：当前 PDB 实际执行的窗口数。
-
-`status/probability/performance.json` 字段精确为：
-
-- `wall_seconds: float`：完整图推理总墙钟秒数。
-- `materialize_wait_seconds: float`：等待 CPU 请求物化的累计秒数。
-- `fusion_wait_seconds: float`：等待 CPU 融合线程的累计秒数。
-
-性能字段不得混入科学 NPZ。
-
-### 5.2 `blobs/F1_blobs.npz` 与 `blobs/F3_blobs.npz`
-
-两份文件字段相同，差别只在来源语义阈值。F1 阈值最大化 calibration 全集的语义 micro-F1；F3 阈值最大化语义 micro-F3。
+### 5.2 `blobs/F{alpha}_blobs.npz`
 
 | 字段 | dtype 与形状 | 含义 |
 | --- | --- | --- |
-| `blob_index` | `int32 (N_blob,)` | 当前文件内从 0 开始的连续 blob 编号 |
-| `voxel_offsets` | `int64 (N_blob+1,)` | 以半开区间切分 `voxel_index_global_zyx` 与 `source_probability`；首值 0，末值 L_voxel |
-| `voxel_index_global_zyx` | `int32 (L_voxel,3)` | 完整图离散 ZYX 体素索引 |
-| `source_probability` | `float32 (L_voxel,)` | 同一来源体素在完整概率图中的概率 |
-| `source_probability_mean` | `float32 (N_blob,)` | 每个 blob 的来源概率均值 |
+| `blob_index` | `int32 (N_blob,)` | 当前文件内从 0 开始的稳定连续 blob 编号 |
+| `voxel_offsets` | `int64 (N_blob+1,)` | 半开区间同步切分 `voxel_index_global_zyx` 与 `source_probability`；首值 0，末值 L_voxel |
+| `voxel_index_global_zyx` | `int32 (L_voxel,3)` | 完整图 ZYX 体素索引 |
+| `source_probability` | `float32 (L_voxel,)` | 与体素索引逐项对齐的完整图概率 |
+| `source_probability_mean` | `float32 (N_blob,)` | 每个 blob 的正式平均概率和第一排序键 |
 | `voxel_count` | `int32 (N_blob,)` | 每个 blob 的体素数 |
-| `fits_centered_box` | `bool (N_blob,)` | blob 包围盒是否存在一个合法 80³ BOX 可完整容纳 |
-| `centered_box_start_zyx` | `int32 (N_blob,3)` | 合法 BOX 起点；不可容纳时三个分量均为 -1 |
-| `source_threshold_value` | `float32 (1,)` | 当前 F1 或 F3 冻结语义阈值 |
+| `fits_centered_box` | `bool (N_blob,)` | blob 包围盒是否能由完整图内合法 80³ BOX 容纳 |
+| `centered_box_start_zyx` | `int32 (N_blob,3)` | 可容纳时为选定 80³ BOX 的完整图 ZYX 起点；不可容纳时三个值均为 -1 |
+| `source_threshold_value` | `float32 (1,)` | 当前 F-alpha 使用的包含端点概率阈值 |
 
-连通区域使用 26 邻域，保存阈值下的全部 blob，不在本阶段应用 `min_voxels`。排序键依次为来源概率均值降序和最小完整图 C-order 线性索引升序。
+连通区域使用 26 邻域。区域先按归档后的 float32 平均概率降序，再按区域最小完整图 C-order 线性索引升序。blobs 阶段保存阈值下全部区域，不应用 `min_voxels`，也不删除 `fits_centered_box=false` 的区域。
 
-## 6. centered 共同字段
+## 6. 动态 F-alpha centered
 
-`F1_basic.npz` 与 `F3_centered.npz` 的共同字段集合如下。
+### 6.1 候选集合与选择边界
 
-### 6.1 条目身份、几何和选择
+正常 centered 命令必须显式提供 `forward_min_voxels`。来源 blob 进入模型前向的条件为：
+
+$$
+fits\_centered\_box = True
+\quad\land\quad
+voxel\_count \ge forward\_min\_voxels
+$$
+
+选择参数 JSON 中的 `prefiltered_min_voxel` 与 `min_voxels` 只参与 `selected`，不能删除已前向候选，也不能改变 offsets。前者由 tune 命令在任何参数尝试前固定，后者从配置的搜索列表中选出；两者互不限制。所有 producer 都执行完整 forward 并保存 `voxel_final`。`unet_*` 保存共同字段；`Find_*` 另外保存 auxiliary、A/P 与三张 48³ 稠密数组。alpha 不决定字段集合。
+
+### 6.2 共同字段
 
 | 字段 | dtype 与形状 | 含义 |
 | --- | --- | --- |
-| `centered_box_index` | `int32 (N_entry,)` | 当前 NPZ 内从 0 开始的连续 centered 编号 |
-| `source_blob_index` | `int32 (N_entry,)` | 索引同一角色 blobs 文件的 `blob_index` |
+| `centered_box_index` | `int32 (N_entry,)` | 当前文件内从 0 开始的连续 centered 编号 |
+| `source_blob_index` | `int32 (N_entry,)` | 指向同 alpha blobs 文件 `blob_index` 第一维 |
 | `box_start_zyx` | `int32 (N_entry,3)` | 80³ BOX 在完整图中的 ZYX 起点 |
-| `box_shape_zyx` | `uint8 (N_entry,3)` | 每项均为 `[80,80,80]` |
-| `box_origin_world` | `float32 (N_entry,3)` | BOX 网格角点的世界 XYZ 坐标，单位 Å |
+| `box_shape_zyx` | `uint8 (N_entry,3)` | 每项固定为 `(80,80,80)` |
+| `box_origin_world` | `float32 (N_entry,3)` | BOX 角点世界 XYZ 坐标，单位 Å |
 | `voxel_size_world` | `float32 (N_entry,3)` | 世界 XYZ 体素尺寸，单位 Å/voxel |
 | `source_probability_mean` | `float32 (N_entry,)` | 来源 blob 的完整图平均概率 |
-| `source_threshold_value` | `float32 (N_entry,)` | 来源 F1 或 F3 语义阈值 |
-| `score` | `float32 (N_entry,)` | 当前角色冻结后的最终候选分数 |
-| `selected` | `bool (N_entry,)` | 同时达到冻结分数阈值与冻结 `min_voxels` |
+| `source_threshold_value` | `float32 (N_entry,)` | 来源 blobs 文件的语义概率阈值 |
+| `voxel_offsets` | `int64 (N_entry+1,)` | 同步切分 `voxel_index_local_zyx`、`source_probability`、`centered_probability` 和 `voxel_final`；首值 0，末值 L_voxel |
+| `voxel_index_local_zyx` | `int16 (L_voxel,3)` | 来源 blob 体素在 80³ BOX 内的 ZYX 索引 |
+| `source_probability` | `float32 (L_voxel,)` | 与来源局部体素逐项对齐的完整图概率 |
+| `centered_probability` | `float32 (L_voxel,)` | 同一体素的 centered 重算概率 |
+| `voxel_final` | `float16 (L_voxel,C_voxel)` | 与来源局部体素逐项对齐的最终 V 学习特征 |
+| `score` | `float32 (N_entry,)`，条件字段 | 只在提供选择参数或执行 score-only 后存在 |
+| `selected` | `bool (N_entry,)`，条件字段 | 只与 `score` 同时存在；True 表示同时达到分数阈值、固定 `prefiltered_min_voxel` 和最终 `min_voxels`，三个门槛均包含端点 |
 
-### 6.2 来源 blob 体素值表
+未评分 centered 不含 `score/selected`。score-only 只能增加或替换这两个字段；`centered_box_index`、`source_blob_index`、几何、概率、特征、offsets 和候选顺序必须逐元素保持。
 
-| 字段 | dtype 与形状 | 含义 |
-| --- | --- | --- |
-| `voxel_offsets` | `int64 (N_entry+1,)` | 以半开区间切分 `voxel_index_local_zyx`、`source_probability`、`centered_probability` 和 F3 的 `voxel_final`；首值 0，末值 L_voxel |
-| `voxel_index_local_zyx` | `int16 (L_voxel,3)` | 来源 blob 体素在当前 80³ BOX 中的局部 ZYX 索引 |
-| `source_probability` | `float32 (L_voxel,)` | 来源完整图概率 |
-| `centered_probability` | `float32 (L_voxel,)` | centered 80³ 前向在相同来源体素位置的重算概率 |
-
-`F1_basic.npz` 的字段集合精确为 6.1 与 6.2 的字段。它执行 voxel-only centered 前向，不保存辅助受体概率、V 学习特征、A/P 表或 48³ 稠密数组。`unet_c1` 和三个 Find producer 都生成 F1 basic。
-
-## 7. F3 centered 扩展字段
-
-所有 producer 的 `F3_centered.npz` 在第 6 节共同字段上增加本节字段。
-
-### 7.1 辅助受体体素与 V 特征
+### 6.3 Find 扩展字段
 
 | 字段 | dtype 与形状 | 含义 |
 | --- | --- | --- |
-| `voxel_aux_offsets` | `int64 (N_entry+1,)` | 以半开区间切分 `voxel_aux_index_local_zyx` 与 `voxel_aux_probability`；首值 0，末值 L_aux |
-| `voxel_aux_index_local_zyx` | `int16 (L_aux,3)` | 当前 BOX hardmask 为真的局部 ZYX 体素 |
-| `voxel_aux_probability` | `float32 (L_aux,)` | 完整 wrapper 的受体辅助预测概率 |
-| `voxel_final` | `float16 (L_voxel,C_voxel)` | 来源 blob 体素处的最终 V 学习特征；由 `voxel_offsets` 切分 |
+| `voxel_aux_offsets` | `int64 (N_entry+1,)` | 同步切分 `voxel_aux_index_local_zyx` 与 `voxel_aux_probability`；首值 0，末值 L_aux |
+| `voxel_aux_index_local_zyx` | `int16 (L_aux,3)` | hardmask 内辅助受体体素的 BOX-local ZYX 索引 |
+| `voxel_aux_probability` | `float32 (L_aux,)` | 与辅助受体体素逐项对齐的独立概率，不改变配体概率 |
+| `v_centroid_local_zyx` | `float32 (N_entry,3)` | 来源 blob 的 BOX-local ZYX 整数体素下标算术平均，单位 voxel |
+| `crop_start_local_zyx` | `int16 (N_entry,3)` | 48³ 裁块在 80³ BOX 内的 ZYX 起点 |
+| `crop_center_offset_zyx` | `float32 (N_entry,3)` | 来源 blob 质心相对 48³ 裁块中心的 ZYX 偏移，单位 voxel |
+| `crop_clipped_axis_mask` | `bool (N_entry,3)` | True 表示对应轴的裁块起点受 80³ 边界限制 |
+| `experimental_density_48` | `float32 (N_entry,48,48,48)` | 实验密度裁块，后三轴按 ZYX 排列 |
+| `simulated_density_48` | `float32 (N_entry,48,48,48)` | 模拟密度裁块，后三轴按 ZYX 排列 |
+| `source_probability_48` | `float32 (N_entry,48,48,48)` | 完整图概率裁块，后三轴按 ZYX 排列 |
+| `A_offsets` | `int64 (N_entry+1,)` | 同步切分 `A_global_index`、`A_coord_local_xyz`、`A_coord_centered_world`、`A_probability` 与 `A_feat_L0/L1/L2/L3`；首值 0，末值 N_A |
+| `A_global_index` | `int64 (N_A,)` | 指向 `receptor_tokens.npz` 第一维的原子编号 |
+| `A_coord_local_xyz` | `float32 (N_A,3)` | A 原子的 BOX-local XYZ 体素坐标 |
+| `A_coord_centered_world` | `float32 (N_A,3)` | A 原子相对 80³ BOX 世界中心的 XYZ 位移，单位 Å |
+| `A_probability` | `float32 (N_A,)` | A 原子配体概率 |
+| `A_feat_L0` | `float32 (N_A,50)` | 49 维 receptor token 与同原子 `is_backbone` 拼接结果 |
+| `A_feat_L1/L2/L3` | `float16 (N_A,C_A*)` | 三层 A 学习特征，与 A 原子轴逐项对齐 |
+| `P_offsets` | `int64 (N_entry+1,)` | 同步切分 `P_coord_local_xyz`、`P_probability` 与 `P_feat_L2/L3`；首值 0，末值 N_P |
+| `P_coord_local_xyz` | `float32 (N_P,3)` | P 点的 BOX-local XYZ 体素坐标 |
+| `P_probability` | `float32 (N_P,)` | P 点配体概率 |
+| `P_feat_L2/L3` | `float16 (N_P,C_P*)` | 两层 P 学习特征，与 P 点轴逐项对齐 |
 
-辅助受体预测是独立输出，不参与配体概率 hardmask。
+A 表只保留核心 80³ BOX 内且到来源 blob 最近体素中心不超过 10 Å 的原子。Gaussian 评分固定只使用 5 Å 内 A 原子。学习特征使用 float16；概率、几何、密度和 `A_feat_L0` 使用 float32。
 
-### 7.2 V-centered 48³ 稠密数组
+### 6.4 centered 性能
 
-| 字段 | dtype 与形状 | 含义 |
-| --- | --- | --- |
-| `v_centroid_local_zyx` | `float32 (N_entry,3)` | 来源 blob 的局部整数 ZYX 体素下标算术平均，单位 voxel |
-| `crop_start_local_zyx` | `int16 (N_entry,3)` | 48³ 裁块在 80³ BOX 中的局部 ZYX 起点 |
-| `crop_center_offset_zyx` | `float32 (N_entry,3)` | blob 中心相对 48³ 裁块中心的 ZYX 偏移，单位 voxel |
-| `crop_clipped_axis_mask` | `bool (N_entry,3)` | 请求起点是否在相应轴被限制到 `[0,32]` |
-| `experimental_density_48` | `float32 (N_entry,48,48,48)` | 实验密度，后三轴按 ZYX 排列 |
-| `simulated_density_48` | `float32 (N_entry,48,48,48)` | 模拟密度，后三轴按 ZYX 排列 |
-| `source_probability_48` | `float32 (N_entry,48,48,48)` | 完整图来源概率，后三轴按 ZYX 排列 |
+`status/F{alpha}_centered/performance.json` 精确包含 `wall_seconds`、`materialize_wait_seconds`、`cpu_arrange_wait_seconds` 三个浮点秒数，以及 `batch_count`、`entry_count` 两个整数。
 
-三张稠密数组不使用 float16；它们保持 float32。48³ 起点按来源 blob 中心计算，再逐轴限制到 `[0,32]`，不得通过空间 padding 伪造。
+## 7. calibration 参数
 
-### 7.3 Find A 原子表
+### 7.1 `F{alpha}_semantic.json` 与扫描 NPZ
 
-只有 `Find_0`、`Find_1` 和 `Find_2` 出现以下整组字段；`unet_c1` 整组缺席。
+JSON 精确字段：
 
-| 字段 | dtype 与形状 | 含义 |
-| --- | --- | --- |
-| `A_offsets` | `int64 (N_entry+1,)` | 以半开区间切分 `A_global_index`、`A_coord_local_xyz`、`A_coord_centered_world`、`A_probability`、`A_feat_L0`、`A_feat_L1`、`A_feat_L2` 和 `A_feat_L3`；首值 0，末值 L_A |
-| `A_global_index` | `int64 (L_A,)` | 索引 `receptor_tokens.npz` 的原子第一维 |
-| `A_coord_local_xyz` | `float32 (L_A,3)` | BOX-local 连续 voxel XYZ 坐标 |
-| `A_coord_centered_world` | `float32 (L_A,3)` | 相对 80³ BOX 世界中心的 XYZ 坐标，单位 Å |
-| `A_probability` | `float32 (L_A,)` | 受体原子结合概率 |
-| `A_feat_L0` | `float32 (L_A,50)` | 49 维基础特征与同一原子 `is_backbone` 的拼接 |
-| `A_feat_L1` | `float16 (L_A,C_A1)` | 第 1 个命名 A 学习层特征 |
-| `A_feat_L2` | `float16 (L_A,C_A2)` | 第 2 个命名 A 学习层特征 |
-| `A_feat_L3` | `float16 (L_A,C_A3)` | interaction 前的 A 学习特征 |
+| 字段 | 类型与含义 |
+| --- | --- |
+| `alpha` | 浮点数，当前语义 F-alpha 参数 |
+| `denominator` | 整数，概率阈值网格分母 |
+| `positive_voxel_count` | 整数，calibration 全集真实配体体素数 |
+| `negative_voxel_count` | 整数，calibration 全集真实背景体素数 |
+| `threshold_grid_index` | 整数，首个达到最大 micro F-alpha 的网格编号 |
+| `threshold_value` | 浮点数，`threshold_grid_index/denominator` |
+| `micro_f_beta` | 浮点数，获胜阈值的 micro F-alpha |
+| `tp/fp/fn` | 整数，获胜阈值的跨 PDB 体素计数 |
 
-A 表只保留落在核心 80³ BOX 内且到来源 blob 最近体素中心不超过 10 Å 的原子。
+扫描 NPZ 精确包含 `denominator` int32 标量、`alpha` float64 标量、`threshold_grid_index` int32 `(denominator+1,)`、`f_beta_curve` float64 `(denominator+1,)` 和同形 int64 `tp/fp/fn`。概率先量化为 `floor(clip(p,0,1)*denominator)`；`np.argmax` 在并列时选择最低网格编号。
 
-### 7.4 Find P 点表
-
-| 字段 | dtype 与形状 | 含义 |
-| --- | --- | --- |
-| `P_offsets` | `int64 (N_entry+1,)` | 以半开区间切分 `P_coord_local_xyz`、`P_probability`、`P_feat_L2` 和 `P_feat_L3`；首值 0，末值 L_P |
-| `P_coord_local_xyz` | `float32 (L_P,3)` | BOX-local 连续 voxel XYZ 坐标 |
-| `P_probability` | `float32 (L_P,)` | P 点配体概率 |
-| `P_feat_L2` | `float16 (L_P,C_P2)` | density/class/interface normalization 后的 P 特征 |
-| `P_feat_L3` | `float16 (L_P,C_P3)` | interaction 前的 P 特征 |
-
-### 7.5 centered 性能 JSON
-
-`status/F1_basic/performance.json` 与 `status/F3_centered/performance.json` 字段相同：
-
-- `wall_seconds: float`：当前角色 centered 推理总墙钟秒数。
-- `materialize_wait_seconds: float`：等待 CPU 请求物化的累计秒数。
-- `cpu_arrange_wait_seconds: float`：等待 CPU 整理完成的累计秒数。
-- `batch_count: int`：实际执行的 centered batch 数。
-- `entry_count: int`：实际进入 centered 推理的候选数。
-
-## 8. 校准参数与版本目录
-
-### 8.1 语义阈值扫描
-
-`calibration/semantic_threshold_scan.npz` 的字段集合精确为：
-
-| 字段 | dtype 与形状 | 含义 |
-| --- | --- | --- |
-| `denominator` | `int32` 标量 | 阈值网格分母，当前为 32768 |
-| `beta_values` | `float64 (2,)` | 精确为 `[1.0,3.0]` |
-| `threshold_grid_index` | `int32 (denominator+1,)` | `0..denominator` |
-| `f_beta_curve` | `float64 (2,denominator+1)` | calibration 全集的语义 micro-F1 与 micro-F3 |
-| `tp` | `int64 (denominator+1,)` | 每个阈值的 micro TP |
-| `fp` | `int64 (denominator+1,)` | 每个阈值的 micro FP |
-| `fn` | `int64 (denominator+1,)` | 每个阈值的 micro FN |
-
-概率按 `floor(clip(p,0,1) * denominator)` 量化。并列最大值取最小网格下标，即最低阈值。
-
-### 8.2 `calibration/stage1_v3.json`
-
-顶层与嵌套共同字段精确为：
-
-- `checkpoint_path: str`：当前命令使用的 checkpoint 规范化绝对路径。正式代码不计算 checkpoint、resolved config、推理配置或代码摘要，也不建立额外身份对象。
-- `semantic.denominator: int`：语义阈值网格分母。
-- `semantic.positive_voxel_count: int`：calibration 全集真实配体体素数。
-- `semantic.negative_voxel_count: int`：calibration 全集真实背景体素数。
-- `semantic.thresholds.F1.grid_index: int`：micro-F1 首个最大值的整数网格编号。
-- `semantic.thresholds.F1.value: float`：F1 阈值，等于 `grid_index/denominator`。
-- `semantic.thresholds.F1.micro_f_beta: float`：获胜阈值的 micro-F1。
-- `semantic.thresholds.F1.tp: int`：获胜 F1 阈值的跨 PDB TP。
-- `semantic.thresholds.F1.fp: int`：获胜 F1 阈值的跨 PDB FP。
-- `semantic.thresholds.F1.fn: int`：获胜 F1 阈值的跨 PDB FN。
-- `semantic.thresholds.F3.grid_index: int`：micro-F3 首个最大值的整数网格编号。
-- `semantic.thresholds.F3.value: float`：F3 阈值，等于 `grid_index/denominator`。
-- `semantic.thresholds.F3.micro_f_beta: float`：获胜阈值的 micro-F3。
-- `semantic.thresholds.F3.tp: int`：获胜 F3 阈值的跨 PDB TP。
-- `semantic.thresholds.F3.fp: int`：获胜 F3 阈值的跨 PDB FP。
-- `semantic.thresholds.F3.fn: int`：获胜 F3 阈值的跨 PDB FN。
-- `roles.F1_basic.source_threshold: float`：F1 blobs 使用的完整图概率阈值。
-- `roles.F1_basic.selection.objective: float`：F1 basic 三项 micro-F1 目标之和。
-- `roles.F1_basic.selection.objective_beta: float`：固定为 1.0。
-- `roles.F1_basic.selection.score_mode: str`：固定为 `source_mean`。
-- `roles.F1_basic.selection.score_parameters: object`：空对象。
-- `roles.F1_basic.selection.score_threshold: float`：包含端点的来源均值分数下限。
-- `roles.F1_basic.selection.min_voxels: int`：包含端点的来源 blob 最小体素数。
-- `roles.F1_basic.selection.stages: object`：包含 `score_threshold` 与 `min_voxels` 两个阶段，子字段在下文展开。
-- `roles.F3_centered.source_threshold: float`：F3 blobs 使用的完整图概率阈值。
-- `roles.F3_centered.selection.objective: float`：F3 centered 三项 micro-F2 目标之和。
-- `roles.F3_centered.selection.objective_beta: float`：固定为 2.0。
-- `roles.F3_centered.selection.score_mode: str`：U-Net 为 `source_mean`，Find 为 `find_gaussian`。
-- `roles.F3_centered.selection.score_parameters: object`：U-Net 为空对象，Find 子字段在下文展开。
-- `roles.F3_centered.selection.score_threshold: float`：包含端点的最终分数下限。
-- `roles.F3_centered.selection.min_voxels: int`：包含端点的来源 blob 最小体素数。
-- `roles.F3_centered.selection.stages: object`：U-Net 使用 `score_threshold` 与 `min_voxels`，Find 使用 `coarse`、`refined` 与 `min_voxels`；子字段在下文展开。
-
-同一 checkpoint 采用不同 F3/F2 目标、阈值范围、模型代码来源或其他科学配置时，调用者使用不同的 `output_root` 版本目录区分本次产物。目录名由调用者显式决定，程序不解析目录名，也不自动生成版本标识。`run` 的 calibration 来源由 `--calibration` 显式指定，可以来自另一输出目录；程序只要求 calibration JSON、同目录完成标记和当前命令的 `checkpoint_path` 直接相等。
-
-`score_mode="source_mean"` 时的子字段精确为：
-
-- `score_parameters: object`：空对象。
-- `stages.score_threshold.objective: float`：实际来源均值阈值扫描的最优目标值。
-- `stages.score_threshold.score_threshold: float`：实际来源均值中冻结的分数阈值。
-- `stages.min_voxels.objective: float`：最小体素数阶段的最优目标值。
-- `stages.min_voxels.min_voxels: int`：最终冻结的最小体素数。
-
-`score_mode="find_gaussian"` 时的子字段精确为：
-
-- `score_parameters.tau_angstrom: float`：第二阶段冻结的 Gaussian 距离参数，单位 Å。
-- `score_parameters.lambda_positive: float`：第二阶段冻结的正项系数。
-- `score_parameters.lambda_negative: float`：第二阶段冻结的负项系数。
-- `stages.coarse.objective: float`：粗网格最优目标值。
-- `stages.coarse.tau_angstrom: float`：粗网格最优距离参数。
-- `stages.coarse.lambda_positive: float`：粗网格最优正项系数。
-- `stages.coarse.lambda_negative: float`：粗网格最优负项系数。
-- `stages.coarse.score_threshold: float`：粗网格最优分数阈值。
-- `stages.refined.objective: float`：细网格最优目标值。
-- `stages.refined.tau_angstrom: float`：沿用粗网格最优距离参数。
-- `stages.refined.lambda_positive: float`：细网格最优正项系数。
-- `stages.refined.lambda_negative: float`：细网格最优负项系数。
-- `stages.refined.score_threshold: float`：细网格最优分数阈值。
-- `stages.min_voxels.objective: float`：最小体素数阶段的最优目标值。
-- `stages.min_voxels.min_voxels: int`：最终冻结的最小体素数。
-
-F1 basic 与 U-Net F3 使用 `score_mode="source_mean"`。它们先扫描实际出现的来源平均概率阈值，再冻结阈值并扫描 `min_voxels=8..40`。Find F3 使用：
+每个阈值的指标为：
 
 $$
-score = source\_probability\_mean + \lambda_{positive} G_{positive} - \lambda_{negative} G_{negative}
+F_{\alpha}=\frac{(1+\alpha^2)TP}{(1+\alpha^2)TP+\alpha^2 FN+FP}
 $$
 
-$G_{positive}$ 与 $G_{negative}$ 分别对 5 Å 内 A 原子累加 $\exp(-d^2/(2\tau^2))p$ 与 $\exp(-d^2/(2\tau^2))(1-p)$，不归一化。搜索顺序固定为：
+当 alpha 大于 1 时，漏检 FN 的权重高于误检 FP，因此相对偏重召回。
 
-1. 5 个 tau、5 个正 lambda、5 个负 lambda 和 4 个分数下限，共 500 组粗网格。
-2. 固定第一阶段 tau，扫描两个 lambda 的 5×5 乘数和分数下限的 15 个乘数，共 375 组。
-3. 冻结 Gaussian 参数，扫描 `min_voxels=8..40`。
+### 7.2 `F{alpha}_basic.json` 与 `F{alpha}_gaussian.json`
 
-F1 basic 最大化 semantic、coverage@0.3 和 one-to-one@0.3 三个 micro-F1 之和。F3 centered 最大化对应三个 micro-F2 之和。
+| 字段 | 类型与含义 |
+| --- | --- |
+| `alpha` | 浮点数，文件标签对应的语义 F-alpha 参数 |
+| `objective` | 浮点数，最终 semantic、coverage@0.3 与 one-to-one@0.3 三项 micro F-beta 之和 |
+| `objective_beta` | 浮点数，上述三项目标共同使用的 beta；与 alpha 独立 |
+| `score_mode` | 字符串，`basic` 或 `gaussian` |
+| `score_parameters` | JSON 对象；basic 为空对象，Gaussian 含三个下述浮点字段 |
+| `score_threshold` | 浮点数，包含端点的候选分数下限 |
+| `prefiltered_min_voxel` | 整数，tune 开始前固定的来源 blob 体素数下限；小于该值的候选在全部参数组合中保持未入选 |
+| `min_voxels` | 整数，包含端点的选择来源体素数下限 |
+| `stages` | JSON 对象，保存实际搜索阶段的最优参数和目标值 |
 
-### 8.3 `calibration/stage1_v3.metrics.json`
+Gaussian `score_parameters` 精确包含 `tau_angstrom`、`lambda_positive` 和 `lambda_negative`。basic 分数为 `source_probability_mean`。Gaussian 分数为：
 
-顶层字段精确为：
+$$
+s = \bar{p}_{blob} + \lambda_{+}\sum_i w_i p_i - \lambda_{-}\sum_i w_i(1-p_i),
+\qquad
+w_i = \exp\left(-\frac{d_i^2}{2\tau^2}\right)
+$$
 
-- `checkpoint_path: str`：当前 calibration 使用的 checkpoint 规范化绝对路径。
-- `roles.F1_basic: object`：第 9.2 节定义的 F1 basic 跨 PDB 指标映射。
-- `roles.F3_centered: object`：第 9.2 节定义的 F3 centered 跨 PDB 指标映射。
+$d_i$ 是 A 原子到同候选来源 blob 最近体素中心的世界距离，单位 Å；仅 $d_i\le 5$ Å 的原子参与求和。basic 调参事实包含全部 blobs，包括 `fits_centered_box=false` 的区域；Gaussian 调参事实使用已经完成 forward 的 centered 候选。两种模式都先应用显式 `prefiltered_min_voxel`：候选及其所属 PDB 不被删除，但体素数不足的候选在所有参数组合中固定为未入选，因此真实 occurrence 仍可贡献 FN。
 
-## 9. 评估事实与汇总
+basic 按预过滤合格候选实际出现的 float32 来源平均概率降序扫描，只在目标值严格提升时替换阈值；非空候选的最佳目标仍为 0 时，保留高于最高分的空选择阈值。basic 的 `stages.score_threshold` 含 `objective` 与 `score_threshold`，`stages.min_voxels` 含 `objective` 与 `min_voxels`。Gaussian 的 `stages.coarse` 与 `stages.refined` 都含 `objective`、`tau_angstrom`、`lambda_positive`、`lambda_negative` 和 `score_threshold`；`stages.min_voxels` 同样只含 `objective` 与 `min_voxels`。最终 `min_voxels` 仍扫描完整配置列表，不要求大于或等于 `prefiltered_min_voxel`；score-only 与 evaluate 同时应用两个独立门槛。
 
-### 9.1 每 PDB 评估 NPZ
+## 8. 评估事实与汇总
 
-`evaluation/F1_basic.npz` 与 `evaluation/F3_centered.npz` 字段相同：
+### 8.1 每 PDB 评估 NPZ
+
+`evaluate` 命令必须显式提供 `evaluation_name`，并在两种候选范围中选择一种：
+
+- 参数过滤：提供选择 JSON，按 basic 或 Gaussian 参数重算 `score`，同时应用 `score_threshold`、`prefiltered_min_voxel` 和 `min_voxels`，只有 `selected=true` 的候选进入正式指标。
+- 全候选：不执行 basic 或 Gaussian 二次打分，以 `source_probability_mean` 排序，并把当前 blobs 或 centered 产物中全部候选的 `selected` 设为 True。blobs 模式纳入 `F{alpha}_blobs.npz` 的全部连通区域；centered 模式只纳入已经写入 `F{alpha}_centered.npz` 的候选，不补回未通过 `forward_min_voxels`、80³ 容纳条件或 `_BLOB_EXCEED` 的 blobs。
+
+显式名称直接决定 `evaluation/<evaluation-name>.npz`。不同评分参数或全候选对照使用不同名称，即可在同一 PDB 目录并存；程序不从参数内容生成摘要或身份标识。
 
 | 字段 | dtype 与形状 | 含义 |
 | --- | --- | --- |
-| `coverage_thresholds` | `float32 (N_threshold,)` | 当前精确为 `[0.3,0.5,0.6]` |
-| `topk_values` | `int32 (N_topk,)` | 当前精确为 `[3,4,5]` |
-| `occurrence_id` | `int32 (N_occ,)` | 真实配体 occurrence 标识 |
-| `source_blob_index` | `int32 (N_entry,)` | 按 score 稳定降序后的来源 blob 编号 |
-| `candidate_score` | `float32 (N_entry,)` | 同一排序下的分数 |
-| `candidate_selected` | `bool (N_entry,)` | 同一排序下的最终选择标志 |
-| `intersections` | `int64 (N_entry,N_occ)` | 候选与 occurrence 的体素交集数 |
-| `pred_sizes` | `int64 (N_entry,)` | 候选体素数 |
-| `gt_sizes` | `int64 (N_occ,)` | occurrence 体素数 |
-| `candidate_semantic_tp` | `int64 (N_entry,)` | 每个候选与真实并集的交集数 |
-| `semantic_tp` | `int64` 标量 | selected 候选并集的 TP |
-| `semantic_fp` | `int64` 标量 | selected 候选并集的 FP |
-| `semantic_fn` | `int64` 标量 | selected 候选并集的 FN |
-| `coverage_pred_hit_mask` | `bool (N_threshold,N_entry)` | 每个候选是否存在双向覆盖达标的 occurrence |
-| `coverage_gt_hit_mask` | `bool (N_threshold,N_occ)` | 是否被至少一个 selected 候选双向覆盖 |
-| `one_to_one_match_offsets` | `int64 (N_threshold+1,)` | 以半开区间同时切分 `one_to_one_match_pred_index` 与 `one_to_one_match_gt_index`；首值 0，末值 L_match |
-| `one_to_one_match_pred_index` | `int32 (L_match,)` | score 排序后的候选轴下标 |
-| `one_to_one_match_gt_index` | `int32 (L_match,)` | `occurrence_id` 轴下标 |
-| `topk_winning_candidate_rank` | `int32 (N_topk,N_threshold)` | 已选候选序列中从 0 开始的首个获胜名次，不是完整候选轴下标；未命中为 -1 |
-| `topk_winning_occurrence_index` | `int32 (N_topk,N_threshold)` | 对应 `occurrence_id` 轴下标；未命中为 -1 |
+| `coverage_thresholds` | `float32 (N_threshold,)` | 双向覆盖阈值轴 |
+| `topk_values` | `int32 (N_topk,)` | top-K 数量轴 |
+| `occurrence_id` | `int32 (N_occ,)` | 真实 ligand occurrence 标识轴 |
+| `source_blob_index` | `int32 (N_pred,)` | 按分数稳定降序的来源 blob 编号 |
+| `candidate_score` | `float32 (N_pred,)` | 与候选轴对齐；参数过滤模式保存重算分数，全候选模式保存 `source_probability_mean` |
+| `candidate_selected` | `bool (N_pred,)` | 与候选轴对齐；参数过滤模式表示是否达到三个门槛，全候选模式全部为 True |
+| `intersections` | `int64 (N_pred,N_occ)` | 每对候选与 occurrence 的体素交集数 |
+| `pred_sizes` | `int64 (N_pred,)` | 每个候选的来源体素数 |
+| `gt_sizes` | `int64 (N_occ,)` | 每个 occurrence 的体素数 |
+| `candidate_semantic_tp` | `int64 (N_pred,)` | 每个候选与真实 occurrence 并集的体素交集数 |
+| `semantic_tp/fp/fn` | `int64` 标量 | 已选候选体素并集的语义计数 |
+| `coverage_pred_hit_mask` | `bool (N_threshold,N_pred)` | 每个完整候选是否双向覆盖至少一个 occurrence，与 selected 无关 |
+| `coverage_gt_hit_mask` | `bool (N_threshold,N_occ)` | 每个 occurrence 是否被至少一个已选候选双向覆盖 |
+| `one_to_one_match_offsets` | `int64 (N_threshold+1,)` | 按阈值同步切分 `one_to_one_match_pred_index` 与 `one_to_one_match_gt_index`；首值 0，末值 L_match |
+| `one_to_one_match_pred_index` | `int32 (L_match,)` | 指向分数排序后完整候选轴 |
+| `one_to_one_match_gt_index` | `int32 (L_match,)` | 与前项逐项对齐的 occurrence 轴下标 |
+| `topk_winning_candidate_rank` | `int32 (N_topk,N_threshold)` | 已选候选序列中首个获胜名次；未命中为 -1 |
+| `topk_winning_occurrence_index` | `int32 (N_topk,N_threshold)` | 与获胜名次对齐的 occurrence 轴下标；未命中为 -1 |
 
-双向覆盖要求 `intersection/prediction >= threshold` 且 `intersection/occurrence >= threshold`。one-to-one 使用 selected 候选上的最大二分匹配。top-K 只在 selected 候选的 score 顺序内取前 K。
+### 8.2 数据划分汇总
 
-### 9.2 数据划分汇总
+`evaluation/<evaluation-name>.jsonl` 每个已评估 PDB 保存 `pdb_id` 加指标映射；`evaluation/<evaluation-name>.metrics.json` 保存相同公式的跨 PDB 汇总。两者与逐 PDB NPZ 使用同一个显式名称。固定键是 `pdb_count`、`semantic_tp`、`semantic_fp`、`semantic_fn`、`semantic_micro_f1`、`semantic_micro_f2`、`semantic_macro_f1`、`semantic_macro_f2` 与 `topk_eligible_pdb_count`。每个覆盖阈值标签 `{t}` 生成 `coverage_micro_precision_{t}`、`coverage_micro_recall_{t}`、`coverage_micro_f1_{t}`、`coverage_micro_f2_{t}`、`coverage_macro_f1_{t}`、`coverage_macro_f2_{t}`，以及同样六个 `one_to_one_*_{t}` 键。每个 top-K 值 `{k}` 与阈值标签 `{t}` 生成 `top{k}_success_count_{t}` 和 `top{k}_success_ratio_{t}`。阈值标签把小数点改为 `p`，例如 0.3 写成 `0p3`；任一分母为零时保存 0.0。
 
-`{producer}/{split}/evaluation/{role}.jsonl` 每行包含 `pdb_id` 与该 PDB 的完整汇总指标。`{role}.metrics.json` 保存跨 PDB 汇总。
+blobs 评估使用完整图稀疏坐标，centered 评估使用 `box_start_zyx + voxel_index_local_zyx` 恢复完整图坐标。参数过滤模式的有效组合是 blobs+basic、centered+basic 和 Find centered+Gaussian；Gaussian 需要 centered A 原子字段，不能用于 blobs。全候选模式可用于 blobs 或 centered。所有组合使用相同交集和指标公式。
 
-汇总固定字段精确为：
+## 9. 正式命令、分片与并发
 
-- `pdb_count: int`：参与汇总的 PDB 数。
-- `semantic_tp: int`：全部 PDB 已选候选体素并集与真实体素并集的交集数。
-- `semantic_fp: int`：全部 PDB 已选候选体素并集落在真实体素并集外的体素数。
-- `semantic_fn: int`：全部 PDB 真实体素并集未被已选候选覆盖的体素数。
-- `semantic_micro_f1: float`：先汇总 TP、FP、FN 后计算的语义 F1。
-- `semantic_micro_f2: float`：先汇总 TP、FP、FN 后计算的语义 F2。
-- `semantic_macro_f1: float`：逐 PDB 语义 F1 的算术平均。
-- `semantic_macro_f2: float`：逐 PDB 语义 F2 的算术平均。
-- `topk_eligible_pdb_count: int`：至少含一个真实 occurrence 的 PDB 数，作为 top-K 成功率分母。
+唯一 shell 入口是 Pocket Plus `训练与运行/sh/infer/stage1_v3.sh`。正式子命令为 `probability`、`blobs`、`centered`、`tune` 和 `evaluate`。PDB 清单是顶层字符串列表 JSON。evaluate 必须显式提供 `--evaluation-name`，并在 `--selection-parameters` 与 `--all-candidates` 之间二选一。
 
-对每个 coverage 阈值 `<t>`，动态字段精确为：
+probability、显式阈值 blobs 与 centered 提供分片时，程序以固定 seed 3407 打乱完整列表，再取 `[shard_index::shard_count]`；`shard_index` 从 0 开始。相同 JSON 和两个分片参数必须得到相同子序列。语义拟合、tune 与 evaluate 不分片。
 
-- `coverage_micro_precision_<t>: float`：全部已选候选中的多对多覆盖命中比例。
-- `coverage_micro_recall_<t>: float`：全部 occurrence 中的多对多覆盖命中比例。
-- `coverage_micro_f1_<t>: float`：由全局 coverage precision 和 recall 计算的 F1。
-- `coverage_micro_f2_<t>: float`：由全局 coverage precision 和 recall 计算的 F2。
-- `coverage_macro_f1_<t>: float`：逐 PDB coverage F1 的算术平均。
-- `coverage_macro_f2_<t>: float`：逐 PDB coverage F2 的算术平均。
-- `one_to_one_micro_precision_<t>: float`：全部最大一对一匹配数除以已选候选数。
-- `one_to_one_micro_recall_<t>: float`：全部最大一对一匹配数除以 occurrence 数。
-- `one_to_one_micro_f1_<t>: float`：由全局 one-to-one precision 和 recall 计算的 F1。
-- `one_to_one_micro_f2_<t>: float`：由全局 one-to-one precision 和 recall 计算的 F2。
-- `one_to_one_macro_f1_<t>: float`：逐 PDB one-to-one F1 的算术平均。
-- `one_to_one_macro_f2_<t>: float`：逐 PDB one-to-one F2 的算术平均。
-- `top<K>_success_count_<t>: int`：前 K 个已选候选至少覆盖一个 occurrence 的 PDB 数。
-- `top<K>_success_ratio_<t>: float`：前述数量除以 `topk_eligible_pdb_count`。
+完整图 `stride_zyx` 由 YAML 显式提供，Python 不设默认值；当前正式配置为 `[30,30,30]`。完整图内部重叠 CPU 请求物化、GPU 前向、异步 D2H 与有序融合。centered 内部重叠 CPU 请求物化、完整 GPU forward、异步 D2H 与 CPU 字段整理。跨 PDB 时，NPZ 打包和压缩与下一个 PDB 的 GPU 前向重叠；pending 队列限制尚未发布的大数组数量。
 
-阈值后缀把小数点替换为 `p`，例如 0.3 写成 `0p3`。JSONL 每项另外包含 `pdb_id`，其余键与仅汇总该 PDB 时的上述字段相同。
+## 10. 跨文件对齐与冷读验收
 
-任一分母为零时对应值定义为 0。macro 先在每个 PDB 内按相同零分母规则计算，再对 PDB 等权平均。
+### 10.1 跨文件对齐
 
-## 10. 正式生产入口与并发边界
+- probability 到 blobs：`voxel_index_global_zyx` 直接索引 `probability_map`；`source_probability` 等于这些位置的 probability。
+- blobs 到 centered：`source_blob_index` 指向同 alpha blobs 的 `blob_index`；`voxel_offsets` 分段对应同一来源 blob。
+- centered 局部坐标到完整图：`global_zyx = box_start_zyx + voxel_index_local_zyx`。
+- Find A 身份：`A_global_index` 指向 `receptor_tokens.npz` 原子轴；`A_feat_L0` 前 49 维来自同原子 `feat`，最后一维来自 `is_backbone`。
+- centered 到选择：`score/selected` 与 `centered_box_index` 第一维逐项对齐；score-only 不改变其他字段。
+- 候选到评估：评估 `source_blob_index` 先按 score 稳定降序；`one_to_one_match_pred_index` 指向该排序后的完整候选轴，`topk_winning_candidate_rank` 保存已选候选序列中的获胜名次。
 
-唯一 shell 入口是 Pocket Plus 的 `训练与运行/sh/infer/stage1_v3.sh`。它只固定项目环境和 `configs/inference/stage1_v3.yaml`，以下值必须由命令显式提供：
+### 10.2 冷读验收
 
-- 子命令 `calibrate` 或 `run`
-- checkpoint 与训练 run 的 resolved config
-- producer、模型代码来源、PDB 清单、数据划分和输出根目录
-- `run` 使用的 calibration JSON
+1. 任意 alpha 的 probability、blobs、centered 路径和字段能由本文唯一确定。
+2. `F2`、`F0p5`、`F1p5` 标签规则没有歧义。
+3. `forward_min_voxels`、固定 `prefiltered_min_voxel` 与搜索所得 `min_voxels` 的职责分离；后两者只共同决定 `selected`，不改变前向候选集合，也互不限制。
+4. 未评分 centered 不含 `score/selected`；score-only 只改变这两个字段。
+5. `unet_*` 与 `Find_*` 的 centered 字段组可以由 producer 前缀确定。
+6. 来源 blob 数大于 1000 时只有 `_BLOB_EXCEED`，没有 centered `_COMPLETE` 或额外状态机。
+7. basic tune 事实包含 `fits_centered_box=false` 的 blobs，Gaussian tune 事实只使用已前向 centered；两种模式在参数搜索前应用同一个显式 `prefiltered_min_voxel`。
+8. 语义、basic、Gaussian calibration 文件互相独立且不含 checkpoint 或哈希。
+9. probability、blobs、centered 的 `_COMPLETE` 只控制同阶段默认跳过；`--overwrite` 不扩散到其他阶段。
+10. 分片使用固定 seed 3407 和 `[index::count]`，语义拟合、tune、evaluate 使用完整清单。
 
-`calibrate` 只允许 `split=calibration`。`run` 只允许 `split=validation` 或 `train`。正式依赖顺序为：
+## 11. 契约边界
 
-1. 使用当前 V3 Dataset 从完整 NPY/mmap 资产物化无 padding 80³ 滑窗。
-2. GPU 生成当前 PDB 概率后，CPU 并行压缩概率并提取 F1/F3 blobs；GPU 开始下一 PDB。
-3. 语义 calibration 冻结 F1/F3 阈值。
-4. centered 阶段由 CPU 提前物化 batch，唯一主线程拥有 GPU，异步 D2H 后由 CPU 整理；前一 PDB 的 concatenate 与 NPZ 压缩和下一 PDB GPU 前向重叠。
-5. calibration 冻结 score 与 min_voxels，发布评估事实、checkpoint 路径和冻结参数。
-6. validation/train 使用 `--calibration` 显式指定且 checkpoint 路径相同的冻结参数；calibration 目录可以不同于当前输出目录。
+本文负责定义训练预定位池、Stage1 推理产物路径、字段、shape、dtype、坐标、offsets、选择语义和完成状态。本文不负责定义网络结构、训练 loss、Slurm 资源或 Matcher batch 装配。
 
-`pending_probability_pdbs` 与 `pending_centered_pdbs` 是尚未发布的大数组上限，防止 train 清单把全部 PDB 常驻内存。推理物化线程共享同一 Dataset 与 mmap LRU；锁只保护 OrderedDict 和字节计数更新，不包围实际裁块或密度通道计算。
-
-## 11. 跨文件对齐
-
-### 11.1 完整图到 blobs
-
-blob 的 `voxel_index_global_zyx` 直接索引 `probability_map`。第 i 个 blob 的值表切片由 `voxel_offsets[i:i+2]` 决定；`source_probability` 必须等于同一完整图坐标处的概率。
-
-### 11.2 blobs 到 centered
-
-`source_blob_index[j]` 索引同一角色 blobs 的 `blob_index`。`box_start_zyx[j] + voxel_index_local_zyx` 必须重建该来源 blob 的完整图 ZYX 坐标。`source_probability` 必须保持来源概率，`centered_probability` 是重算值，两者不得互相覆盖。
-
-### 11.3 centered 到评估
-
-评估 NPZ 的候选轴按 `score` 稳定降序重新排列；`source_blob_index`、`candidate_score`、`candidate_selected`、交集矩阵第一轴和全部候选侧事实使用同一顺序。`occurrence_id`、交集矩阵第二轴、`one_to_one_match_gt_index` 和 `topk_winning_occurrence_index` 使用同一 occurrence 轴顺序。
-
-### 11.4 Find A 身份
-
-`A_global_index` 索引 `receptor_tokens.npz` 第一维。`A_feat_L0[:,0:49]` 等于对应 `feat`，`A_feat_L0[:,49]` 等于对应 `is_backbone` 转成的 float32。该拼接只发生在模型输入与 centered 构造边界，不改写上游 receptor NPZ。
-
-## 12. 冷读验收
-
-一个正式 Stage1 V3 producer 至少满足：
-
-1. calibration 四个文件齐全，`_COMPLETE.checkpoint_path` 与 `stage1_v3.json.checkpoint_path` 相同，且 `result_scope="calibration_fitted"`。
-2. 概率 NPZ 字段精确为三项，有限且形状与 `geometry.json` 一致。
-3. F1/F3 blobs 各自字段齐全，offsets 单调、首值 0、末值等于值表长度；blob 阶段没有应用 min_voxels。
-4. F1 basic 只含第 6 节字段；F3 含第 6、7.1、7.2 节字段，Find 另含 7.3、7.4，U-Net 不含 A/P。
-5. 所有 offsets/value 表逐项对齐；学习特征为 float16，概率、几何、原始密度和 `A_feat_L0` 为 float32。
-6. completed centered 的候选集合已经应用最终 `min_voxels`，`score` 与 `selected` 在第一次正式压缩前使用 calibration 冻结参数写入。
-7. 配体概率未乘 hardmask；F3 辅助受体字段不改变该规则。
-8. 评估 NPZ 能独立还原候选/occurrence 交集、覆盖命中、一对一匹配下标、已选候选序列中从 0 开始的 top-K 获胜名次和 occurrence 轴下标。
-9. `_BLOB_EXCEED` 只记录严格超量事实，存在时仍有正常 F3 centered 产物。
-10. validation/train 的 calibration JSON、同目录完成标记和当前命令使用相同 checkpoint 路径；当前结果由显式 `output_root` 版本目录区分，不要求 calibration 位于该目录。
-
-## 13. 契约边界
-
-- 本文负责定义 Stage1 V3 训练预定位、推理产物、字段、dtype、shape、坐标、offsets、完成标记和跨文件身份对齐。
-- Pocket Plus `src/inference/README.md` 负责说明模块职责、并发实现和程序入口，但不得改变本文字段。
-- Stage1 网络结构、训练损失和 checkpoint 选择由对应训练计划与代码负责。
-- Matcher 首先消费 `F3_centered.npz`；F1 basic 是所有 producer 共用的便捷模式。Matcher 的标签构造、batch 装配和模型逻辑由独立 Matcher 仓库负责。
-- 旧组件森林、CLG、Fα 系列、Li、Selector、Selected 和 PDB 租约不再属于活动契约；需要考察时只通过 Git 历史读取。
+Matcher 消费调用者选定的 `F{alpha}_centered.npz`。Matcher 可以自行决定是否使用 `selected`，但必须按 `centered_box_index`、`source_blob_index` 和 offsets 读取候选。基础便捷推理可以直接消费 `F{alpha}_blobs.npz`，不要求先生成 centered。
