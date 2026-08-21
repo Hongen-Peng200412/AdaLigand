@@ -43,6 +43,12 @@
 | 2026-08-20 00:21--00:22 新最佳检查 | 本机私网 SSH 路由在一次 60 分钟睡眠结束时暂时超时；30 分钟命令睡眠后重新连接成功，Job 始终为 `RUNNING`。H100 快照利用率 98%，显存 80,454/81,559 MiB；33 个训练相关 Python 进程存活，a4 错误切片为空。 | W&B `hqumqkex` 前进到 `trainer/global_step=11,624`。最新验证配体体素 PRAUC 为 `0.551052`；`TOP_epoch_00_score_0.5511.ckpt` 与 `last.ckpt` 已于 2026-08-19 23:15 发布，成为当前新最高 TOP。SSH 路由超时没有改变训练进程、checkpoint 或锁。 |
 | 2026-08-20 04:26 validation 检查 | Job 继续为 `RUNNING`，W&B `hqumqkex` 前进到 `trainer/global_step=12,653`。本轮 validation 配体体素 PRAUC 为 `0.538107`，低于当前最高分 0.5511；训练与四项结构验证指标均为有限值，a4 错误切片为空。 | `TOP_epoch_00_score_0.5381.ckpt` 与 `last.ckpt` 已于 03:39 发布；`BEST.ckpt` 仍与 `TOP_epoch_00_score_0.5511.ckpt` 相同，锁状态保持只有 `after_lock_346737`。 |
 | 2026-08-20 08:30 validation 检查 | Job 继续为 `RUNNING`，W&B `hqumqkex` 前进到 `trainer/global_step=13,685`。本轮 validation 配体体素 PRAUC 为 `0.546674`，仍低于当前最高分 0.5511；训练与四项结构验证指标均为有限值，H100 和 33 个训练相关 Python 进程保持活动，a4 错误切片为空。 | `TOP_epoch_00_score_0.5467.ckpt` 与 `last.ckpt` 已于 08:03 发布；`BEST.ckpt` 仍与 `TOP_epoch_00_score_0.5511.ckpt` 相同，锁状态保持只有 `after_lock_346737`。 |
+| 2026-08-20 13:25 validation 检查 | Job 继续为 `RUNNING`，W&B `hqumqkex` 前进到 `trainer/global_step=14,960`。本轮 validation 配体体素 PRAUC 为 `0.534306`，仍低于当前最高分 0.5511；训练与验证损失均为有限值，H100 利用率 100%，35 个训练相关 Python 进程保持活动，a4 错误切片为空。 | `TOP_epoch_00_score_0.5343.ckpt` 与 `last.ckpt` 已于 12:27 发布；`BEST.ckpt` 仍与 `TOP_epoch_00_score_0.5511.ckpt` 相同，锁状态保持只有 `after_lock_346737`。 |
+| 2026-08-20 17:29 新最佳检查 | Job 继续为 `RUNNING`，W&B `hqumqkex` 前进到 `trainer/global_step=15,986`。16:52 完成的 validation 配体体素 PRAUC 为 `0.555503`，高于此前最高分 0.5511；受体、蛋白主链和核酸主链 PRAUC 分别为 `0.613929`、`0.136529` 和 `0.162392`。H100 利用率 100%，训练与验证损失有限，a4 错误切片为空。 | `TOP_epoch_00_score_0.5555.ckpt` 与 `last.ckpt` 已发布。`BEST.ckpt` 仍对应 0.5511；只读核查确认冻结回调会让该别名在运行中落后一轮，并在下一次 validation 或训练结束时刷新，因此不干预训练，后续复核别名。 |
+| 2026-08-20 21:35 validation 与最佳别名检查 | Job 继续为 `RUNNING`，W&B `hqumqkex` 前进到 `trainer/global_step=17,024`。21:17 完成的 validation 配体体素 PRAUC 为 `0.554266`，未超过当前最高分 0.5555；训练与验证损失有限，H100 与 35 个训练相关 Python 进程保持活动，a4 错误切片为空。 | `TOP_epoch_00_score_0.5543.ckpt` 与 `last.ckpt` 已发布；`BEST.ckpt` 已刷新为 0.5555，并与 `TOP_epoch_00_score_0.5555.ckpt` 的 SHA-256 和逐字节比较完全一致。冻结回调的一轮延迟已经正常闭合。 |
+| 2026-08-21 02:11 新最佳检查 | Job 继续为 `RUNNING`，W&B `hqumqkex` 前进到 `trainer/global_step=18,224`。01:38 完成的 validation 配体体素 PRAUC 为 `0.559395`，比此前最高分 0.555503 提高约 `0.003893`，超过调度器绝对改善阈值 `0.003`；受体、蛋白主链和核酸主链 PRAUC 分别为 `0.616418`、`0.147074` 和 `0.186542`。训练与验证损失有限，a4 错误切片为空。 | `TOP_epoch_00_score_0.5594.ckpt` 与 `last.ckpt` 已发布。`BEST.ckpt` 当前仍对应 0.5555，符合冻结回调的一轮延迟语义；下一次 validation 后复核刷新。 |
+| 2026-08-21 06:16 新最佳检查 | Job 继续为 `RUNNING`，W&B `hqumqkex` 前进到 `trainer/global_step=19,277`。05:59 完成的 validation 配体体素 PRAUC 为 `0.569573`，比此前最高分 0.559395 提高约 `0.010178`；受体、蛋白主链和核酸主链 PRAUC 分别为 `0.631303`、`0.166307` 和 `0.221338`。训练与验证损失有限，H100 利用率 93%，a4 错误切片为空。 | `TOP_epoch_00_score_0.5696.ckpt` 与 `last.ckpt` 已发布。`BEST.ckpt` 已刷新为 0.5594，并与对应 TOP 的 SHA-256 和逐字节比较一致；新 0.5696 TOP 等待下一次 validation 刷新别名。 |
+| 2026-08-21 10:53 新最佳检查 | Job 继续为 `RUNNING`，W&B `hqumqkex` 前进到 `trainer/global_step=20,471`。10:22 完成的 validation 配体体素 PRAUC 为 `0.576397`，比此前最高分 0.569573 提高约 `0.006824`，再次超过调度器绝对改善阈值 `0.003`；受体、蛋白主链和核酸主链 PRAUC 分别为 `0.631880`、`0.149219` 和 `0.179529`。训练与验证损失有限，a4 错误切片为空。 | `TOP_epoch_00_score_0.5764.ckpt` 与 `last.ckpt` 已发布。`BEST.ckpt` 已刷新为 0.5696，并与对应 TOP 的 SHA-256 和逐字节比较一致；新 0.5764 TOP 等待下一次 validation 刷新别名。 |
 
 ## 当前训练契约证据
 
@@ -55,8 +61,8 @@
 | 配体距离损失 | `0.3` | frozen `config.yaml` |
 | 数据加载参数 | `prefetch_factor=4`、`persistent_workers=false` | frozen `config.yaml` 与正式实现 |
 | 优化与验证 | batch 8；全局 batch 48；每 epoch 40 次 validation；调度器绝对改善阈值 `0.003` | 第 4 次 `config.yaml` |
-| 当前进度 | W&B `hqumqkex`；`trainer/global_step=13,685`、`epoch=0`；最新验证配体体素 PRAUC `0.546674` | 2026-08-20 08:30 的 `wandb-summary.json` |
-| 当前 checkpoint | `BEST.ckpt`、`last.ckpt`；最高 TOP 为 `TOP_epoch_00_score_0.5511.ckpt` | 2026-08-20 00:22 的服务器文件清单 |
+| 当前进度 | W&B `hqumqkex`；`trainer/global_step=20,471`、`epoch=0`；最新验证配体体素 PRAUC `0.576397`，当前最高分同为 `0.576397` | 2026-08-21 10:53 的 `wandb-summary.json` |
+| 当前 checkpoint | 最高 TOP 为 `TOP_epoch_00_score_0.5764.ckpt`；`BEST.ckpt` 暂时对应 0.5696，等待下一次 validation 刷新 | 2026-08-21 10:53 的服务器文件清单、SHA-256、逐字节比较与冻结回调语义 |
 
 ## 后续监视规则
 
