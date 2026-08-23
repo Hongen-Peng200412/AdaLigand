@@ -67,6 +67,12 @@ AdaLigand `文档/规划文档/BOX-level数据契约.md` 的推理章节已整�
 
 选择 JSON 分别保存固定 `prefiltered_min_voxel` 和搜索所得 `min_voxels`。两者互不限制：即使前者大于配置列表中的某些后者，也只会产生冗余参数尝试，不构成契约错误。centered 首次评分、score-only 与 evaluate 同时应用分数阈值和两个体素数门槛。
 
+### 显式评估变体
+
+2026-08-23，用户要求同一候选产物能够同时保留未经过二次打分的对照评估和一组或多组参数过滤评估。`evaluate` 因此增加必填 `evaluation_name`，并要求 `--selection-parameters` 与 `--all-candidates` 二选一。
+
+参数过滤路径沿用既有 basic/Gaussian 重打分和三个选择门槛。全候选路径不调用评分函数，直接使用 `source_probability_mean` 排序并把当前 blobs 或 centered 产物中的全部候选设为已选。该改动没有增加评分产物副本、身份校验或摘要；每 PDB NPZ、数据划分 JSONL 和 metrics JSON 只以用户给出的名称区分并存结果。
+
 同一次收口把用户已经在主工作树更新的推理 batch 配置融入原有配置历史：A800/H100 的完整图窗口 batch 为 16、centered batch 为 8；A100 对应值分别为 8 和 4。YAML 当前正式值按 A800/H100 写为 16 和 8，README 同时说明两类 GPU 的取值。
 
 ## 当前验证证据
@@ -118,6 +124,18 @@ python -m pytest tests/inference/test_stage1_cuda.py -q
 ```
 
 同一端点通过 `src/inference` 与 `tests/inference` 编译检查、五个 CLI 子命令帮助、OmegaConf 解析和 `git diff --check`。OmegaConf 实际读取 `window.batch_size=16`、`centered.batch_size=8`。当前 Windows 环境没有安装 Black，因此本次没有追加伪造的 Black 结果；修改函数已经由主代理按文件与调用顺序逐一检查职责、位置、嵌套、Docstring 和行内注释。
+
+显式评估名称与全候选模式加入后的 2026-08-23 回归为：
+
+```text
+python -m pytest tests/inference/test_stage1_v3.py tests/datasets/test_stage1_dataset.py -q
+37 passed in 4.78s
+
+python -m pytest tests/inference/test_stage1_cuda.py -q
+2 passed in 3.45s
+```
+
+同一端点再次通过 `src/inference` 与 `tests/inference` 编译检查、evaluate CLI 帮助和两个仓库的 `git diff --check`。帮助文本明确显示 `--evaluation-name` 必填，并要求 `--selection-parameters` 与 `--all-candidates` 二选一。主代理按文件顺序复核了本轮涉及的类、正式函数、测试函数和两个测试回调，没有新增包装函数或评分身份机制。
 
 ## 独立审查结论
 

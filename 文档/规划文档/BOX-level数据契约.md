@@ -293,9 +293,7 @@ producer 级 calibration 目录：
 │   └── geometry.json
 ├── blobs/F{alpha}_blobs.npz
 ├── centered/F{alpha}_centered.npz
-├── evaluation/F{alpha}_blobs_basic.npz
-├── evaluation/F{alpha}_centered_basic.npz
-├── evaluation/F{alpha}_centered_gaussian.npz
+├── evaluation/<evaluation-name>.npz
 └── status/
     ├── probability/
     │   ├── performance.json
@@ -488,14 +486,21 @@ basic 按预过滤合格候选实际出现的 float32 来源平均概率降序�
 
 ### 8.1 每 PDB 评估 NPZ
 
+`evaluate` 命令必须显式提供 `evaluation_name`，并在两种候选范围中选择一种：
+
+- 参数过滤：提供选择 JSON，按 basic 或 Gaussian 参数重算 `score`，同时应用 `score_threshold`、`prefiltered_min_voxel` 和 `min_voxels`，只有 `selected=true` 的候选进入正式指标。
+- 全候选：不执行 basic 或 Gaussian 二次打分，以 `source_probability_mean` 排序，并把当前 blobs 或 centered 产物中全部候选的 `selected` 设为 True。blobs 模式纳入 `F{alpha}_blobs.npz` 的全部连通区域；centered 模式只纳入已经写入 `F{alpha}_centered.npz` 的候选，不补回未通过 `forward_min_voxels`、80³ 容纳条件或 `_BLOB_EXCEED` 的 blobs。
+
+显式名称直接决定 `evaluation/<evaluation-name>.npz`。不同评分参数或全候选对照使用不同名称，即可在同一 PDB 目录并存；程序不从参数内容生成摘要或身份标识。
+
 | 字段 | dtype 与形状 | 含义 |
 | --- | --- | --- |
 | `coverage_thresholds` | `float32 (N_threshold,)` | 双向覆盖阈值轴 |
 | `topk_values` | `int32 (N_topk,)` | top-K 数量轴 |
 | `occurrence_id` | `int32 (N_occ,)` | 真实 ligand occurrence 标识轴 |
 | `source_blob_index` | `int32 (N_pred,)` | 按分数稳定降序的来源 blob 编号 |
-| `candidate_score` | `float32 (N_pred,)` | 与候选轴对齐的最终分数 |
-| `candidate_selected` | `bool (N_pred,)` | 与候选轴对齐；True 表示达到分数和最小体素数下限，False 表示未达到 |
+| `candidate_score` | `float32 (N_pred,)` | 与候选轴对齐；参数过滤模式保存重算分数，全候选模式保存 `source_probability_mean` |
+| `candidate_selected` | `bool (N_pred,)` | 与候选轴对齐；参数过滤模式表示是否达到三个门槛，全候选模式全部为 True |
 | `intersections` | `int64 (N_pred,N_occ)` | 每对候选与 occurrence 的体素交集数 |
 | `pred_sizes` | `int64 (N_pred,)` | 每个候选的来源体素数 |
 | `gt_sizes` | `int64 (N_occ,)` | 每个 occurrence 的体素数 |
@@ -511,13 +516,13 @@ basic 按预过滤合格候选实际出现的 float32 来源平均概率降序�
 
 ### 8.2 数据划分汇总
 
-JSONL 每个已评估 PDB 保存 `pdb_id` 加指标映射；metrics JSON 保存相同公式的跨 PDB 汇总。固定键是 `pdb_count`、`semantic_tp`、`semantic_fp`、`semantic_fn`、`semantic_micro_f1`、`semantic_micro_f2`、`semantic_macro_f1`、`semantic_macro_f2` 与 `topk_eligible_pdb_count`。每个覆盖阈值标签 `{t}` 生成 `coverage_micro_precision_{t}`、`coverage_micro_recall_{t}`、`coverage_micro_f1_{t}`、`coverage_micro_f2_{t}`、`coverage_macro_f1_{t}`、`coverage_macro_f2_{t}`，以及同样六个 `one_to_one_*_{t}` 键。每个 top-K 值 `{k}` 与阈值标签 `{t}` 生成 `top{k}_success_count_{t}` 和 `top{k}_success_ratio_{t}`。阈值标签把小数点改为 `p`，例如 0.3 写成 `0p3`；任一分母为零时保存 0.0。
+`evaluation/<evaluation-name>.jsonl` 每个已评估 PDB 保存 `pdb_id` 加指标映射；`evaluation/<evaluation-name>.metrics.json` 保存相同公式的跨 PDB 汇总。两者与逐 PDB NPZ 使用同一个显式名称。固定键是 `pdb_count`、`semantic_tp`、`semantic_fp`、`semantic_fn`、`semantic_micro_f1`、`semantic_micro_f2`、`semantic_macro_f1`、`semantic_macro_f2` 与 `topk_eligible_pdb_count`。每个覆盖阈值标签 `{t}` 生成 `coverage_micro_precision_{t}`、`coverage_micro_recall_{t}`、`coverage_micro_f1_{t}`、`coverage_micro_f2_{t}`、`coverage_macro_f1_{t}`、`coverage_macro_f2_{t}`，以及同样六个 `one_to_one_*_{t}` 键。每个 top-K 值 `{k}` 与阈值标签 `{t}` 生成 `top{k}_success_count_{t}` 和 `top{k}_success_ratio_{t}`。阈值标签把小数点改为 `p`，例如 0.3 写成 `0p3`；任一分母为零时保存 0.0。
 
-blobs 评估使用完整图稀疏坐标，centered 评估使用 `box_start_zyx + voxel_index_local_zyx` 恢复完整图坐标。有效组合是 blobs+basic、centered+basic 和 Find centered+Gaussian；Gaussian 需要 centered A 原子字段，不能用于 blobs。三种组合使用相同交集和指标公式。
+blobs 评估使用完整图稀疏坐标，centered 评估使用 `box_start_zyx + voxel_index_local_zyx` 恢复完整图坐标。参数过滤模式的有效组合是 blobs+basic、centered+basic 和 Find centered+Gaussian；Gaussian 需要 centered A 原子字段，不能用于 blobs。全候选模式可用于 blobs 或 centered。所有组合使用相同交集和指标公式。
 
 ## 9. 正式命令、分片与并发
 
-唯一 shell 入口是 Pocket Plus `训练与运行/sh/infer/stage1_v3.sh`。正式子命令为 `probability`、`blobs`、`centered`、`tune` 和 `evaluate`。PDB 清单是顶层字符串列表 JSON。
+唯一 shell 入口是 Pocket Plus `训练与运行/sh/infer/stage1_v3.sh`。正式子命令为 `probability`、`blobs`、`centered`、`tune` 和 `evaluate`。PDB 清单是顶层字符串列表 JSON。evaluate 必须显式提供 `--evaluation-name`，并在 `--selection-parameters` 与 `--all-candidates` 之间二选一。
 
 probability、显式阈值 blobs 与 centered 提供分片时，程序以固定 seed 3407 打乱完整列表，再取 `[shard_index::shard_count]`；`shard_index` 从 0 开始。相同 JSON 和两个分片参数必须得到相同子序列。语义拟合、tune 与 evaluate 不分片。
 
