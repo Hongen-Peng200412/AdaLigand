@@ -96,6 +96,8 @@ bash -n 训练与运行/sh/infer/stage1_v3.sh
 | 2026-08-24 03:34 | 隔离代码部署完成 | 对已验证的隔离任务根执行删除式同步，删除旧快照中的 1,748 个文件和 223 个目录。最终保留 458 个 Pocket Plus `4e5325d` 文件与 1 个 runner 兼容脚本；反向 `rsync` 差异为 0，四个关键文件 SHA-256 与本地一致。共享 `/home/penghongen/My_Project/Pocket_Plus` 未修改。 |
 | 2026-08-24 03:35 | 正式根与输入冻结 | 建立 `inputs/`、`artifacts/`、`monitoring/` 与 `feedback/`。`production_contract.json` 记录 checkpoint、训练配置、两份清单、代码、参数与资源身份；六个 inputs 文件均设为只读。 |
 | 2026-08-24 03:35--03:36 | Linux 与 H100 smoke | 在 Job `346737` allocation 内用 `srun --overlap` 执行；44 项 CPU 回归、配置解析、编译、Shell 语法和 2 项真实 H100 CUDA smoke 全部通过。`try_lock` 与 `after_lock` 未改变，尚未触发 a5。 |
+| 2026-08-24 03:39 | a5 正式启动 | 动态命令 SHA-256 为 `be15872dd24b431569f15fe71536d4cbbc76d1ac803a220651ddf3ca5e69a8d8`；只删除 `try_lock_346737`。runner 建立 release `Pocket_Plus_38edc6467116` 与 launch `tmp_stage1_mainchain_job346737_20260824T033950_a5`，`after_lock` 保持不变。 |
+| 2026-08-24 03:41--03:47 | 首项产物验收 | `6bgi` 与 `6dqn` 已完成；首个 `6bgi` 的概率 NPZ、几何、性能与完成标记逐项通过。H100 快照利用率 98%、显存 43,924 MiB、功耗 344.75 W，a5 进入稳定计算。 |
 
 ## 部署与服务器 smoke 命令
 
@@ -132,7 +134,44 @@ pytest -q tests/inference/test_stage1_cuda.py
 
 ### Job 346737 attempt a5：calibration probability
 
-状态：待隔离部署与服务器 smoke 通过后启动。
+开始时间：2026-08-24 03:39:50+08:00。
+
+- Slurm Job：`346737`，`hnode02`，1×NVIDIA H100 PCIe，16 CPU。
+- release：`Pocket_Plus_38edc6467116`；内容 SHA-256 `38edc6467116c76b42aeb2382cc3627912b9298e175e949054b1b0128f0081da`；manifest SHA-256 `25dfdb4cfc101c80a6d7afa009742a6043e897f160ecf81aca5c49e082c9586a`。
+- launch：`tmp_stage1_mainchain_job346737_20260824T033950_a5`；`launch.json` SHA-256 `dc4fd1b76a1f72ba486c91d44afa6e24814dd1633e32c6ef10b334af101d67b3`。
+- 动态命令与 launch 冻结副本 SHA-256：`be15872dd24b431569f15fe71536d4cbbc76d1ac803a220651ddf3ca5e69a8d8`。
+- allocation 输出：`/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/feedback/allocations/346737/out` 与 `err`。
+- 阶段日志：`monitoring/tmp_stage1_mainchain_job346737_20260824T033950_a5_stage.log`。
+
+触发命令先逐项核对动态命令哈希、`try_lock`、`after_lock` 和无 `kill_lock`，再只删除：
+
+```bash
+rm -f -- /storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/feedback/allocations/try_lock_346737
+```
+
+正式科学命令为：
+
+```bash
+bash "${TASK_PROJECT_ROOT}/训练与运行/sh/infer/stage1_v3.sh" probability \
+  --producer unet_c1 \
+  --checkpoint /storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/runtime/mainchain_official_346737/logs/AdaLigand_Stage1-unet_c1-mainchain/unet_c1_mainchain____tmp_stage1_mainchain_job346737_20260818T035126_a4_formal/checkpoints/TOP_epoch_00_score_0.6030.ckpt \
+  --resolved-config /storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/runtime/mainchain_official_346737/logs/AdaLigand_Stage1-unet_c1-mainchain/unet_c1_mainchain____tmp_stage1_mainchain_job346737_20260818T035126_a4_formal/config.yaml \
+  --model-code-source training_snapshot \
+  --pdb-json /storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950/inputs/calibration.json \
+  --split calibration \
+  --output-root /storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950/artifacts
+```
+
+启动后发现 a5 的 GPU 采样循环没有把数据行重定向到预建 CSV；时间戳、利用率、显存与功耗样本仍每 15 秒进入 allocation `out`，推理与科学产物不受影响。a5 完成后从本次 launch 起始时间回填 `monitoring/*_gpu.csv`；a6 动态命令直接修正重定向。该问题不触发 a5 重试。
+
+首个完成项 `6bgi` 的正式审计结果：
+
+- `probability_map.npz` 精确包含 `probability_map`、`origin_xyz`、`voxel_size_xyz`。
+- 概率为 float32 `(262,262,262)`，与 `exp.npy` 和 `ligand_area.npz:grid_shape_zyx` 一致；全部有限，最小值 `2.9331204e-11`，最大值 `1.0`，均值约 `0.000300645`。
+- `origin_xyz=[0,0,0]`，`voxel_size_xyz=[0.9966412,0.9966412,0.9966412]`，与数据根几何逐元素相同。
+- `geometry.json` 记录 80³ 窗口、`stride_zyx=[30,30,30]` 和 512 个窗口。
+- `performance.json` 的墙钟、物化等待和融合等待分别约为 `68.563`、`0.625` 和 `0.615` 秒，均为有限非负值。
+- `_COMPLETE` 的角色为 `probability`，发布时间为 `2026-08-23T19:41:31.386615+00:00`。
 
 ### Job 346737 attempt a6：validation probability
 
