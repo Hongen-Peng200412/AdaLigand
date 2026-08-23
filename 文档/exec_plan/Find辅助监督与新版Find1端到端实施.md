@@ -82,7 +82,12 @@
 - [x] (2026-08-02 17:34+08:00) 完成第三次两作业五小时检查。Job `321540` 与 `321107` 仍为 `RUNNING`，冻结发布目录、唯一运行标记、配置文件哈希、学习率、`warmup_ratio=0.005`、全局批量 48、五项损失权重和各自唯一的 `after_lock` 没有漂移。Find_1 到达 `global_step=23171`，训练总损失 `0.292095`；最新验证总损失降至 `0.292820`，配体区域 PR-AUC 为 `0.660276`，并保存新的 `TOP_epoch_00_score_0.2928.ckpt` 与 `last.ckpt`。`unet_c1` 到达 `global_step=29060`，训练总损失 `0.175191`；最新验证总损失为 `0.195387`，配体区域 PR-AUC 为 `0.568288`，并保存新的 `TOP_epoch_00_score_0.1954.ckpt` 与 `last.ckpt`。两项启用损失和指标均为有限值，W&B、训练进程和 GPU 持续活动，当前没有训练错误或显存不足；heartbeat 保持每 5 小时检查。
 - [x] (2026-08-20 23:36+08:00) 用户从共享任务根提交 Job `350185`：`Find_1.sh`、单张 H100、24 CPU、固定 `hnode01`、启用 `after_hold` 且不设置 `pre_lock`。该 Job 在优先级队列中等待，不影响节点上既有任务。
 - [x] (2026-08-21 09:21--09:58+08:00) Job `350185` 获得 `hnode01` 的单张 H100 并进入稳定训练。冻结命令确认 `train.devices=1`、batch 6、全局 batch 48、梯度累积 8、24 workers、每 epoch 40 次 validation、学习率 `5e-5`；W&B `mpvawjsb` 从 `global_step=2` 连续推进到至少 38，训练总损失保持有限，H100 计算与显存占用稳定，当前运行错误扫描没有 Traceback、显存不足、NCCL 或 worker 崩溃。此时 `hnode01` 的三张 H100 分别由 Job `346003`、`348312_4` 和 `350185` 占用，H100 待调度队列为空，已经到达“双卡转换授权门”。
-- [ ] 等待用户明确授权双卡转换；授权前持续复核 Job `350185`、Job `346003` 与 H100 待调度队列，不提交双卡任务，也不取消任何现有 Job。授权后仍须先复核条件；条件成立时先提交 `Find_1.sh`、双张 H100、48 CPU、固定 `hnode01`、启用 `after_hold` 且不设置 `pre_lock` 的新任务，再立即取消 Job `350185` 与 `346003`。
+- [x] (2026-08-22 09:17--09:49+08:00) H100 分区既有待调度任务清空后，从服务器共享 Pocket_Plus 根目录提交 Job `351295`：`Find_1.sh`、双张 H100、64 CPU、固定 `hnode01`、启用 `after_hold` 且不设置 `pre_lock`。二次检查确认待调度队列中只有新 Job 后，按用户授权取消 Job `346003` 与 `350185`；他人的 Job `350573` 未被操作。旧任务回收一度使 `hnode01` 因 `Kill task failed` 进入 `MIXED+DRAIN`，节点随后由管理员恢复为可调度状态，Job `351295` 于 09:30:26 在原定节点启动。
+- [x] (2026-08-22 09:49+08:00) Job `351295` 启动验收通过。发布副本为 `Pocket_Plus_fdb8a30fa196`，launch 为 `Find_1_job351295_20260822T093108_a1`，运行目录为 `Find_1-CPC1____Find_1_job351295_20260822T093108_a1_CPC1`；最终配置确认单节点、`devices=2`、64 CPU、每 rank 30 workers、batch 6、梯度累积 4、全局 batch 48、`gradient_clip_val=1000`、`val_per_epoch=40`、学习率 `1.0e-4` 和调度器绝对改善阈值 `0.003`。两个 NCCL rank 均已建立，W&B `yyz7c55e` 到达 `trainer/global_step=5`，训练总损失及各分项均为有限值，两张 H100 持续计算，未见显存不足、NCCL、DataLoader 或非有限值错误。后续按多段 300 秒命令进行低耗监视，只在验证、checkpoint、故障恢复或退出等明确事件时合并记录。
+- [x] (2026-08-22 15:18+08:00) Job `351295` 完成第一次正式 validation，并在验证后继续训练。W&B `yyz7c55e` 到达 `global_step=1128`；验证总损失为 `0.403396`，配体体素、受体、蛋白主链和核酸主链 PR-AUC 分别为 `0.531660`、`0.576420`、`0.249253` 和 `0.012209`。`TOP_epoch_00_score_0.5317.ckpt` 与 `last.ckpt` 已完整落盘，大小分别为 1,466,222,905 和 1,466,223,097 字节；两张 H100 继续计算，启用损失和正式选择指标均为有限值，错误扫描没有显存不足、NCCL、DataLoader 或训练异常。`refined/unrefined` 面板的 `NaN` 继续属于未启用稀疏精修路径的既知语义，不参与损失、调度器或 checkpoint 选择。
+- [x] (2026-08-22 21:05--23:54+08:00) Job `351295` 完成第二次正式 validation 并继续训练。W&B `yyz7c55e` 到达 `global_step=2864`；验证总损失降至 `0.372919`，配体体素、受体、蛋白主链和核酸主链 PR-AUC 分别为 `0.556626`、`0.610118`、`0.957787` 和 `0.000127`。`TOP_epoch_00_score_0.5566.ckpt` 与新的 `last.ckpt` 已落盘；`BEST.ckpt` 已刷新为上一最高分 `0.5317`，符合冻结回调的一轮延迟语义。Job 仍为 `RUNNING`，当前错误扫描为空。
+- [x] (2026-08-23 03:00--04:00+08:00) Job `351295` 完成第三次正式 validation 并继续训练。W&B `yyz7c55e` 到达 `global_step=3590`；验证总损失降至 `0.327019`，配体体素、受体、蛋白主链和核酸主链 PR-AUC 分别为 `0.565112`、`0.647742`、`0.980424` 和 `0.838008`。`TOP_epoch_00_score_0.5651.ckpt` 与新的 `last.ckpt` 已落盘；`BEST.ckpt` 已刷新为上一最高分 `0.5566`。Job 仍为 `RUNNING`，当前错误扫描为空。
+- [x] (2026-08-23 08:57--10:09+08:00) Job `351295` 完成第四次正式 validation。W&B `yyz7c55e` 到达 `global_step=4781`；验证总损失为 `0.347850`，配体体素、受体、蛋白主链和核酸主链 PR-AUC 分别为 `0.526410`、`0.617275`、`0.990466` 和 `0.980735`。本次未超过当前最高 `0.565112`，但新的 TOP 与 `last.ckpt` 已落盘，`BEST.ckpt` 已刷新为当前最高的 `TOP_epoch_00_score_0.5651.ckpt`。Job 继续运行，当前错误扫描为空。
 - [x] 形成两个仓库的实现端点与学习端点，验证允许差异后推进各自 `Learn/CUMULATIVE`。
 - [ ] 完成新版 Find_1 CPC1 与新版 `unet_c1` 正式训练的后续 heartbeat 监控；两者结束后只记录最终可用产物，不启动 CPC2。
 - [ ] 收口映射索引、README、ExecPlan、`CLAUDE/memory/`、运行证据和 heartbeat。
@@ -152,6 +157,8 @@
   Evidence: 当前 Find_1 没有启用 `ligand_sparse_refine_loss`，因此不会生成 `ligand_refine_target_C`，对应诊断缓冲区按既有定义把未启用面板记为 `NaN`。这些面板不参与损失、学习率调度、BEST checkpoint 选择或本次新增监督；smoke 的 `val_loss/global/total=0.76348`，蛋白主链宏平均 PR-AUC 为 `0.00133`。正式完整验证仍需确认核酸主链 PR-AUC 能在出现正类后记录。
 - Observation: Find_1 两卡 smoke 和正式 CPC1 的单卡显存峰值接近 H100 容量上限。
   Evidence: smoke 峰值约为 80.98 GiB 与 81.56 GiB；14:28 的正式 CPC1 采样为 80.78 GiB 与 80.84 GiB，尚未发生显存不足。若后续样本触发显存不足，先按既定顺序把 density-cube 的 `hidden_channels` 从 64 调到 48，再考虑减小批量。
+- Observation: 取消 Job `346003` 与 `350185` 时，Slurm 一度把 `hnode01` 标记为 `MIXED+DRAIN`，原因是 `Kill task failed`；此时新提交的 Job `351295` 显示 `ReqNodeNotAvail`。
+  Evidence: 2026-08-22 09:19--09:30 的 `sinfo` 与 `scontrol show node hnode01` 显示 95 个 CPU 处于不可分配状态，节点原因由 `root` 写为 `Kill task failed`。没有改投节点、取消新任务或操作他人 Job；管理员恢复节点后，`hnode01` 变为 `MIXED` 且原因清空，Job `351295` 随即在原定节点取得两张 H100。该事件没有改变训练数据、模型或优化参数。
 - Observation: 第一版 `unet_c1` 对齐配置已经构造三个新增输出头，但 Dataset 最初只在 `Find_1` 名称下返回蛋白、核酸与反距离目标。
   Evidence: 新增真实 `unet_c1` Dataset 测试首先复现缺少 `protein_mainchain_target`，随后把固定辅助标签返回范围精确扩展到 `Find_1` 与 `unet_c1`；34 项专项测试和 Linux 全套测试通过。
 
@@ -181,6 +188,9 @@
 - Decision: 2026-08-21 的新版 Find_1 先以单张 H100 在 `hnode01` 自行排队并验证稳定；即使节点已经没有 H100 待调度任务，也只有在用户再次明确授权后，才可先提交双卡任务并取消 Job `350185` 与 `346003`。等待授权期间只读复核节点和训练状态。
   Rationale: 先证明正式入口和新数据链可以稳定训练，同时把终止已有训练、拼接两张 H100 的资源变更保留为独立授权动作。
   Date/Author: 2026-08-21，用户与 Codex。
+- Decision: 2026-08-22 的双卡转换以“H100 分区没有既有待调度任务”为触发条件；先提交固定 `hnode01` 的双卡 Job，二次确认除新 Job 外仍无其他 H100 待调度任务后，再取消 Job `346003` 与 `350185`。新训练采用 64 CPU、每 rank 30 workers 和学习率 `1.0e-4`。
+  Rationale: 先让双卡请求进入调度队列，再释放两张已占用 H100，可减少资源被其他新请求抢占的窗口；二次队列检查保护其他待调度作业，固定最终参数则保证冻结发布和运行配置可核验。
+  Date/Author: 2026-08-22，用户与 Codex。
 - Decision: 训练运行目录保存完整 `src/`、解析后的配置和来源清单。checkpoint 推理优先使用相邻快照；缺少快照时默认报错，只有显式选择才允许当前工作区代码。
   Rationale: 模型、Dataset、wrapper 与推理代码共同决定 checkpoint 的可复现行为。
   Date/Author: 2026-07-23，用户与 Codex。
@@ -415,3 +425,13 @@ Revision note 2026-08-02 02:40+08:00：记录监控范围收窄后的第一次�
 Revision note 2026-08-02 07:42+08:00：记录第二次两作业五小时检查；Find_1 与 `unet_c1` 分别推进到 `global_step=22088` 与 `27620`，两项运行身份、配置、损失、指标、W&B、GPU、checkpoint 和锁继续符合契约。`unet_c1` 摘要暂缓刷新，但主进程、W&B 二进制事件文件、内部日志和 H100 计算持续活动，没有停滞证据。
 
 Revision note 2026-08-02 17:38+08:00：记录第三次两作业五小时检查；Find_1 与 `unet_c1` 分别推进到 `global_step=23171` 与 `29060`，完成新一轮验证并各自保存新的 TOP 与 last checkpoint。两项运行身份、配置、损失、指标、W&B、GPU 和锁继续符合契约。
+
+Revision note 2026-08-22 09:49+08:00：记录 Job `350185` 的单卡预验证、H100 队列触发、Job `351295` 的双卡提交、旧任务取消、`hnode01` 短暂 `MIXED+DRAIN` 后恢复，以及新版 Find_1 以学习率 `1.0e-4` 完成双 rank 启动验收并推进到 `global_step=5` 的证据。
+
+Revision note 2026-08-22 15:18+08:00：记录 Job `351295` 的第一次正式 validation、四项主要 PR-AUC、首个 TOP 与 last checkpoint，以及验证后两卡继续训练且当前错误扫描为空的证据。
+
+Revision note 2026-08-22 23:54+08:00：记录第二次正式 validation、配体体素 PR-AUC 提高到 `0.556626`、新 TOP/last checkpoint，以及 `BEST.ckpt` 刷新为上一最高分的证据。
+
+Revision note 2026-08-23 04:00+08:00：记录第三次正式 validation、配体体素 PR-AUC 提高到 `0.565112`、新 TOP/last checkpoint，以及 `BEST.ckpt` 刷新为上一最高分的证据。
+
+Revision note 2026-08-23 10:09+08:00：记录第四次正式 validation、未产生新最高分的结果、新 TOP/last checkpoint，以及 `BEST.ckpt` 已刷新到当前最高 `0.5651` 的证据。
