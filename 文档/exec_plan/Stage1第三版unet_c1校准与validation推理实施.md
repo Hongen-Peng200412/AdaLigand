@@ -93,6 +93,38 @@ bash -n 训练与运行/sh/infer/stage1_v3.sh
 | 2026-08-24 03:13 | 并行代码与双线历史冻结 | Pocket Plus 实现端点 `5476a33`、学习与累计端点 `4e5325d`，tree `ca21a939`；44 项相关回归与重复并发测试通过。 |
 | 2026-08-24 03:16 | 部署前只读资源核验 | Job `346737` 在 `hnode02` 为 `RUNNING`，16 CPU、1×H100；GPU 显存 1 MiB、利用率 0%、功耗 45.49 W。`try_lock_346737` 与 `after_lock_346737` 均存在，未发现 `kill_lock`；正式产物根尚不存在。 |
 | 2026-08-24 03:28 | AdaLigand 日志隔离 | 主工作区存在另一项 Find1 监视的 3 个修改与 1 个新 handoff。为避免混入，本文从 `70a4ffe` 建立独立工作树分支 `codex/unet-c1-calibration-inference-log`；原改动保持原样。 |
+| 2026-08-24 03:34 | 隔离代码部署完成 | 对已验证的隔离任务根执行删除式同步，删除旧快照中的 1,748 个文件和 223 个目录。最终保留 458 个 Pocket Plus `4e5325d` 文件与 1 个 runner 兼容脚本；反向 `rsync` 差异为 0，四个关键文件 SHA-256 与本地一致。共享 `/home/penghongen/My_Project/Pocket_Plus` 未修改。 |
+| 2026-08-24 03:35 | 正式根与输入冻结 | 建立 `inputs/`、`artifacts/`、`monitoring/` 与 `feedback/`。`production_contract.json` 记录 checkpoint、训练配置、两份清单、代码、参数与资源身份；六个 inputs 文件均设为只读。 |
+| 2026-08-24 03:35--03:36 | Linux 与 H100 smoke | 在 Job `346737` allocation 内用 `srun --overlap` 执行；44 项 CPU 回归、配置解析、编译、Shell 语法和 2 项真实 H100 CUDA smoke 全部通过。`try_lock` 与 `after_lock` 未改变，尚未触发 a5。 |
+
+## 部署与服务器 smoke 命令
+
+删除式部署只在已经解析并精确核对的隔离任务根内执行。同步源是远端暂存目录 `/storage/penghongen/tmp/stage1_v3_inference_deploy_4e5325d`；同步命令保留固定 `TASK_PATH` 兼容文件：
+
+```bash
+rsync -a --delete \
+  --exclude='训练与运行/sh/tmp_stage1_mainchain.sh' \
+  /storage/penghongen/tmp/stage1_v3_inference_deploy_4e5325d/ \
+  /storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/task_root/Pocket_Plus/
+```
+
+服务器验证由以下命令启动：
+
+```bash
+srun --jobid=346737 --overlap --nodes=1 --ntasks=1 --cpus-per-task=16 bash -lc '
+source "$HOME/anaconda3/etc/profile.d/conda.sh"
+conda activate Pocket_Plus_centos7_cu121_allgpu
+cd /storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/task_root/Pocket_Plus
+export PYTHONPATH="$PWD:${PYTHONPATH:-}"
+pytest -q tests/inference tests/datasets/test_stage1_dataset.py
+python -m compileall -q src tests
+python -c "from omegaconf import OmegaConf; c=OmegaConf.load(\"configs/inference/stage1_v3.yaml\"); assert (c.blob_workers,c.window.workers,c.window.prefetch_batches,c.window.pending_fusion_batches,c.window.batch_size,c.calibration.workers)==(16,12,12,8,16,16)"
+bash -n 训练与运行/sh/infer/stage1_v3.sh
+pytest -q tests/inference/test_stage1_cuda.py
+'
+```
+
+实际结果为 `44 passed in 11.17s` 与 `2 passed in 3.35s`，设备为 NVIDIA H100 PCIe 80 GB。
 
 ## 正式启动记录
 
@@ -147,4 +179,3 @@ Job `346737` 的固定 `TASK_PATH` 是隔离任务根中的 `训练与运行/sh/
 ## 计划与实现差异
 
 当前唯一执行层差异是 Job `346737` 的 allocation runner 要求原固定 `TASK_PATH` 在 release 中存在，因此部署树必须保留一份不参与正式命令的临时训练脚本。该兼容文件不进入 Pocket Plus Git，不改变推理代码或科学产物；其内容、SHA-256 和用途均在本文冻结。其余代码实现和正式参数与批准计划一致。
-
