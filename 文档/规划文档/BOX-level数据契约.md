@@ -373,7 +373,7 @@ fits\_centered\_box = True
 voxel\_count \ge forward\_min\_voxels
 $$
 
-选择参数 JSON 中的 `prefiltered_min_voxel` 与 `min_voxels` 只参与 `selected`，不能删除已前向候选，也不能改变 offsets。前者由 tune 命令在任何参数尝试前固定，后者从配置的搜索列表中选出；两者互不限制。所有 producer 都执行完整 forward 并保存 `voxel_final`。`unet_*` 保存共同字段；`Find_*` 另外保存 auxiliary、A/P 与三张 48³ 稠密数组。alpha 不决定字段集合。
+选择参数 JSON 中的 `prefiltered_min_voxel` 与 `min_voxels` 只参与 `selected`，不能删除已前向候选，也不能改变 offsets。前者由 tune 命令在任何参数尝试前固定，后者从配置的搜索列表中选出；两者互不限制。所有 producer 都执行完整 forward，并保存 `voxel_final`、auxiliary、V-centered 48³ 几何、实验密度裁块、模拟密度裁块与完整图概率裁块；`Find_*` 另外保存 A/P 表。alpha 不决定字段集合。
 
 ### 6.2 共同字段
 
@@ -392,15 +392,6 @@ $$
 | `source_probability` | `float32 (L_voxel,)` | 与来源局部体素逐项对齐的完整图概率 |
 | `centered_probability` | `float32 (L_voxel,)` | 同一体素的 centered 重算概率 |
 | `voxel_final` | `float16 (L_voxel,C_voxel)` | 与来源局部体素逐项对齐的最终 V 学习特征 |
-| `score` | `float32 (N_entry,)`，条件字段 | 只在提供选择参数或执行 score-only 后存在 |
-| `selected` | `bool (N_entry,)`，条件字段 | 只与 `score` 同时存在；True 表示同时达到分数阈值、固定 `prefiltered_min_voxel` 和最终 `min_voxels`，三个门槛均包含端点 |
-
-未评分 centered 不含 `score/selected`。score-only 只能增加或替换这两个字段；`centered_box_index`、`source_blob_index`、几何、概率、特征、offsets 和候选顺序必须逐元素保持。
-
-### 6.3 Find 扩展字段
-
-| 字段 | dtype 与形状 | 含义 |
-| --- | --- | --- |
 | `voxel_aux_offsets` | `int64 (N_entry+1,)` | 同步切分 `voxel_aux_index_local_zyx` 与 `voxel_aux_probability`；首值 0，末值 L_aux |
 | `voxel_aux_index_local_zyx` | `int16 (L_aux,3)` | hardmask 内辅助受体体素的 BOX-local ZYX 索引 |
 | `voxel_aux_probability` | `float32 (L_aux,)` | 与辅助受体体素逐项对齐的独立概率，不改变配体概率 |
@@ -411,6 +402,15 @@ $$
 | `experimental_density_48` | `float32 (N_entry,48,48,48)` | 实验密度裁块，后三轴按 ZYX 排列 |
 | `simulated_density_48` | `float32 (N_entry,48,48,48)` | 模拟密度裁块，后三轴按 ZYX 排列 |
 | `source_probability_48` | `float32 (N_entry,48,48,48)` | 完整图概率裁块，后三轴按 ZYX 排列 |
+| `score` | `float32 (N_entry,)`，条件字段 | 只在提供选择参数或执行 score-only 后存在 |
+| `selected` | `bool (N_entry,)`，条件字段 | 只与 `score` 同时存在；True 表示同时达到分数阈值、固定 `prefiltered_min_voxel` 和最终 `min_voxels`，三个门槛均包含端点 |
+
+未评分 centered 不含 `score/selected`。score-only 只能增加或替换这两个字段；`centered_box_index`、`source_blob_index`、几何、概率、特征、offsets 和候选顺序必须逐元素保持。
+
+### 6.3 Find A/P 扩展字段
+
+| 字段 | dtype 与形状 | 含义 |
+| --- | --- | --- |
 | `A_offsets` | `int64 (N_entry+1,)` | 同步切分 `A_global_index`、`A_coord_local_xyz`、`A_coord_centered_world`、`A_probability` 与 `A_feat_L0/L1/L2/L3`；首值 0，末值 N_A |
 | `A_global_index` | `int64 (N_A,)` | 指向 `receptor_tokens.npz` 第一维的原子编号 |
 | `A_coord_local_xyz` | `float32 (N_A,3)` | A 原子的 BOX-local XYZ 体素坐标 |
