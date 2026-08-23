@@ -1,6 +1,6 @@
 # Stage1 第三版训练启动与监视记录
 
-本文记录 Stage1 第三版训练 I/O 实现完成后，Job `346737` 的一次正式接管、启动和阶段性监视。本文是运行历史，不改写当前训练契约；训练入口、数据字段和损失定义仍以 `文档/规划文档/Stage1第三版训练IO实施计划.md`、`文档/规划文档/BOX-level数据契约.md` 以及 Pocket_Plus 的正式入口为准。
+本文记录 Stage1 第三版训练 I/O 实现完成后，Job `346737` 的一次正式接管、启动、阶段性监视和完成验收。本文是运行历史，不改写当前训练契约；训练入口、数据字段和损失定义仍以 `文档/规划文档/Stage1第三版训练IO实施计划.md`、`文档/规划文档/BOX-level数据契约.md` 以及 Pocket_Plus 的正式入口为准。
 
 ## 记录范围
 
@@ -49,6 +49,8 @@
 | 2026-08-21 02:11 新最佳检查 | Job 继续为 `RUNNING`，W&B `hqumqkex` 前进到 `trainer/global_step=18,224`。01:38 完成的 validation 配体体素 PRAUC 为 `0.559395`，比此前最高分 0.555503 提高约 `0.003893`，超过调度器绝对改善阈值 `0.003`；受体、蛋白主链和核酸主链 PRAUC 分别为 `0.616418`、`0.147074` 和 `0.186542`。训练与验证损失有限，a4 错误切片为空。 | `TOP_epoch_00_score_0.5594.ckpt` 与 `last.ckpt` 已发布。`BEST.ckpt` 当前仍对应 0.5555，符合冻结回调的一轮延迟语义；下一次 validation 后复核刷新。 |
 | 2026-08-21 06:16 新最佳检查 | Job 继续为 `RUNNING`，W&B `hqumqkex` 前进到 `trainer/global_step=19,277`。05:59 完成的 validation 配体体素 PRAUC 为 `0.569573`，比此前最高分 0.559395 提高约 `0.010178`；受体、蛋白主链和核酸主链 PRAUC 分别为 `0.631303`、`0.166307` 和 `0.221338`。训练与验证损失有限，H100 利用率 93%，a4 错误切片为空。 | `TOP_epoch_00_score_0.5696.ckpt` 与 `last.ckpt` 已发布。`BEST.ckpt` 已刷新为 0.5594，并与对应 TOP 的 SHA-256 和逐字节比较一致；新 0.5696 TOP 等待下一次 validation 刷新别名。 |
 | 2026-08-21 10:53 新最佳检查 | Job 继续为 `RUNNING`，W&B `hqumqkex` 前进到 `trainer/global_step=20,471`。10:22 完成的 validation 配体体素 PRAUC 为 `0.576397`，比此前最高分 0.569573 提高约 `0.006824`，再次超过调度器绝对改善阈值 `0.003`；受体、蛋白主链和核酸主链 PRAUC 分别为 `0.631880`、`0.149219` 和 `0.179529`。训练与验证损失有限，a4 错误切片为空。 | `TOP_epoch_00_score_0.5764.ckpt` 与 `last.ckpt` 已发布。`BEST.ckpt` 已刷新为 0.5696，并与对应 TOP 的 SHA-256 和逐字节比较一致；新 0.5764 TOP 等待下一次 validation 刷新别名。 |
+| 2026-08-23 19:52 正常结束、2026-08-24 02:04--02:06 最终验收 | 冻结配置中的 `stop_after_lr_reductions=3` 被正常触发；runner 明确记录“实际 LR 衰减 3 次”“实验结束，结果已保存”“mainchain 正式训练完成”和“第 4 次执行成功”。W&B `hqumqkex` 完成最终同步，摘要为 `trainer/global_step=34,992`、`epoch=0`；最终配体体素、受体、蛋白主链和核酸主链 PRAUC 分别为 `0.602950`、`0.667168`、`0.181585` 和 `0.241873`，全部验证损失有限。a4 错误切片为空。 | `BEST.ckpt` 内部 callback 记录 `best_model_score=0.602950275`、最佳路径为 `TOP_epoch_00_score_0.6030.ckpt`，checkpoint 的 `global_step=34,993`。目录保留 10 个 TOP、`BEST.ckpt` 和 `last.ckpt`，无 `.tmp`/`.part`；三份最终文件均为 499,668,966 字节且 SHA-256 同为 `341c3aa1f383b3920964980bb410bd69f0c0e10e2169f417cce0cf1cf34feed6`。训练进程为 0，GPU 显存仅 1 MiB。 |
+| 2026-08-24 资源保留确认 | 训练主体已经正常完成，但 Job `346737` 按 `--after_hold` 继续占有 allocation；根目录 `try_lock_346737` 和 Job 专属 `after_lock_346737` 均存在。用户明确要求暂时不要释放资源。 | 不删除任何锁，不执行 `scancel`，不触发 `run_cmd_346737.sh` 再次运行。Slurm 的 `RUNNING` 只表示 allocation 仍被保留，不表示训练进程仍在运行。 |
 
 ## 当前训练契约证据
 
@@ -61,19 +63,21 @@
 | 配体距离损失 | `0.3` | frozen `config.yaml` |
 | 数据加载参数 | `prefetch_factor=4`、`persistent_workers=false` | frozen `config.yaml` 与正式实现 |
 | 优化与验证 | batch 8；全局 batch 48；每 epoch 40 次 validation；调度器绝对改善阈值 `0.003` | 第 4 次 `config.yaml` |
-| 当前进度 | W&B `hqumqkex`；`trainer/global_step=20,471`、`epoch=0`；最新验证配体体素 PRAUC `0.576397`，当前最高分同为 `0.576397` | 2026-08-21 10:53 的 `wandb-summary.json` |
-| 当前 checkpoint | 最高 TOP 为 `TOP_epoch_00_score_0.5764.ckpt`；`BEST.ckpt` 暂时对应 0.5696，等待下一次 validation 刷新 | 2026-08-21 10:53 的服务器文件清单、SHA-256、逐字节比较与冻结回调语义 |
+| 完成状态 | a4 已按 3 次实际学习率衰减的冻结停止条件正常结束；W&B `hqumqkex` 最终摘要为 `trainer/global_step=34,992`、`epoch=0` | runner 完成输出、W&B 最终同步与 2026-08-24 只读验收 |
+| 最终指标 | 配体体素 PRAUC `0.602950`；受体 PRAUC `0.667168`；蛋白主链宏平均 PRAUC `0.181585`；核酸主链宏平均 PRAUC `0.241873` | 最终 `wandb-summary.json` 与 checkpoint callback 状态 |
+| 最终 checkpoint | `BEST.ckpt`、`TOP_epoch_00_score_0.6030.ckpt` 与 `last.ckpt` 内容一致；SHA-256 均为 `341c3aa1f383b3920964980bb410bd69f0c0e10e2169f417cce0cf1cf34feed6` | 文件大小、SHA-256、逐字节比较与 checkpoint 内部 callback 状态 |
+| allocation 状态 | Job `346737` 仍按 `--after_hold` 保留；训练进程为 0；`try_lock_346737` 与 `after_lock_346737` 保留 | Slurm、节点进程/GPU 与锁文件只读检查；用户要求暂不释放资源 |
 
-## 后续监视规则
+## 完成与资源保留
 
-Job `346737` 的 a4 已稳定运行约 48 小时。后续使用命令执行 1 小时自然睡眠；睡眠期间不发送消息，醒来后只检查同一 Job 的 Slurm 状态、锁、训练进程、GPU、W&B/checkpoint 和 a4 新错误。没有明确事件时不追加记录、不创建 heartbeat、不修改 `run_cmd_346737.sh`，也不删除 `after_lock_346737`。
+Job `346737` 的 a4 训练、W&B 同步、最佳 checkpoint 和停止原因已经完成联合验收。本记录的持续训练监视阶段到此结束，不再为已退出的训练进程安排自然睡眠检查，也不创建 heartbeat。
 
-明确事件包括：训练退出或失败、checkpoint/BEST 产生、epoch 或验证阶段发生可确认变化、GPU/进程异常、锁状态变化，或用户要求接管/释放。下一次有明确事件时，将把本次之后的观测与本文合并补记。
+allocation 仍由用户保留。后续若用户授权释放，应单独确认 `try_lock_346737`、`after_lock_346737` 和 runner 状态，再按项目资源控制流程操作；本次完成验收不包含释放授权。
 
 ## 计划与实现差异
 
 - 有益差异：用户授权后使用 Job 专属任务根和独立输出根启动正式入口，保留 allocation 的 `after_lock`，避免把运行证据混入共享默认目录。
 - 中性差异：既有临时脚本的两次尝试被保留在历史 launch 中；正式第 3 次执行改用统一 `unet_c1.sh`，不改变模型、损失或数据契约。
 - 有益差异：用户后续把冻结验证从 `0:5:5` 收窄为 `0:1:1`，并把 CPC1/CPC2 的绝对改善阈值统一为 `0.003`；a4 从头训练，采用 batch 8、每 epoch 40 次 validation 和最新正式入口。
-- 有害差异：截至 2026-08-18 01:46:11 未发现。
+- 有害差异：最终验收未发现。a4 没有发生 CUDA OOM、共享内存错误、Traceback 或 RuntimeError，也没有改变冻结科学契约。
 - 未完成范围：本次仅启动并监视主链版 `unet_c1`；无主链双卡版本、Find 系列训练和新版推理程序不在本文范围内。
