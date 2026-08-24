@@ -33,7 +33,8 @@
 - 2026-08-24 22:09:01 +08:00，正式脚本发布 200 个 PDB、3,950 个 bias、5,000 个 context 和 0 个 center 请求。新 NPZ 精确包含 11 个契约字段，大小为 83,350 字节，SHA-256 为 `449856108558e38755dae3eb840bef856a00613ff8439b58a9de63311d5f7092`。
 - 75 个 PDB 的 bias 因 occurrence 上限少于 25，逐 PDB bias 范围为 5–25；全部 200 个 PDB 都有 25 个 context。字段 dtype、shape、候选索引范围和逐 PDB 计数均通过服务器核验。
 - 原 `validation_selection.npz`、manifest、config、summary 与 `_COMPLETE` 保持 2026-08-18 或更早的修改时间；本次没有改写 V3 几何池。没有操作任何 GPU Job。
-- 三轮独立审查、全量测试和 Git 双线端点尚待本记录后续回填。
+- 第一轮三类全面独立审查已完成。代码布局与 Git 审查要求补齐类分隔、五入口文档和配置覆盖；注释审查要求新代码统一 ASCII 标点、逐项字段说明和科学变量注释；逻辑审查确认采样与冻结算法正确，并指出活动资源说明仍残留 Find_1 的旧口径。整改后，正式 Find_1 说明统一为双卡 64 CPU、每 rank 30 workers，两个代码旁文档补齐 validation NPZ 的 11 字段表，五个入口的训练预算和配置测试保持一致。
+- 第一轮整改后的 Stage1 Dataset、配置、冻结脚本、推理兼容和模型边界回归为 94 项通过；Python 编译、五个 Shell 的 `bash -n` 与两个仓库的 `git diff --check` 均通过。剩余两轮全面审查、最终全量测试和 Git 双线端点尚待本记录后续回填。
 
 ## 计划与实现差异
 
