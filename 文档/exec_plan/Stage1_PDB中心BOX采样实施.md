@@ -26,15 +26,16 @@
 - `ops/stage1_data_preparation/freeze_validation_selection_pdb_centric.py` 复用生产请求类生成全部 validation epoch 0 请求，以 `SeedSequence(3407, spawn_key=(2,))` 的独立随机域无放回选择 150 个 PDB，并原子写入八类既有索引数组与三个采样参数标量。
 - `Find_0.sh`、`Find_1.sh`、`unet_base.sh`、`unet_c1.sh` 与 `unet_diff.sh` 已同步新的 epoch 与 validation 预算；既有 batch、学习率、worker 和其他科学参数保持不变。
 
-## 当前验证证据
+## 最终验证证据
 
-- 主代理逐文件逐函数检查职责、位置、调用关系、嵌套、Docstring 和科学变量注释后，Dataset、冻结脚本、训练配置与 Stage1 V3 推理兼容的主链回归为 72 项通过，Python 编译、五个 Shell 的 `bash -n` 与两个仓库的 `git diff --check` 均通过。
-- 自审发现按文件路径执行硬编码脚本时，项目根目录不会自动进入 Python 搜索路径。正式命令因此改为模块调用 `python -m ops.stage1_data_preparation.freeze_validation_selection_pdb_centric`；没有增加 CLI 参数或第二个入口。
+- 主代理按文件顺序逐一检查每个新增或修改函数的职责、位置、调用关系、嵌套、Docstring 和科学变量注释。自审发现按文件路径执行硬编码脚本时，项目根目录不会自动进入 Python 搜索路径，因此正式命令改为模块调用 `python -m ops.stage1_data_preparation.freeze_validation_selection_pdb_centric`；没有增加 CLI 参数或第二个入口。
+- 最终定向回归 50 项通过。除共同基点已经失效的 `tests/test_stage1_producers.py` 外，Windows 全量回归为 345 项通过、11 条 warning，耗时 140.68 秒。该遗留测试在共同基点 `8561d2790614a0d92f0ad88ebce241a9f1c77ba3` 上同样因不存在的 `src.artifacts` 包而在收集阶段失败，本轮没有扩大范围修复。
+- Python 编译检查、`submit_task.sh` 与五个训练 Shell 的 `bash -n`、两个仓库的 `git diff --check` 均通过。对 occurrence 数量 `O=1..1000` 的独立数学审计确认每个 PDB 分配总数为 25、任意两个 occurrence 的分配数之差不超过 1、单个 occurrence 不超过 cap 25，完整轮转周期内累计分配相等。
 - 最终 `25/0.5/25` 与 150 PDB 版本已用硬编码模块命令覆盖发布。文件包含 150 个 PDB、3,750 个 bias、3,750 个 context 和 0 个 center 请求，共 7,500 个验证 BOX；每个 PDB 恰好包含 25 个 bias 与 25 个 context。逐字段 dtype、shape、候选索引范围、PDB manifest 顺序和逐 PDB 计数均通过服务器核验。
-- 第三轮逻辑审查发现原 PDB 子集随机种子与第 3 个 manifest PDB 的 occurrence 排列随机状态碰撞。改用独立 `spawn_key` 后，最终冻结集合相对碰撞版本保留 116 个身份并替换 34 个身份；该中间版本未用于训练。
-- `validation_selection_pdb_centric.npz` 最终大小为 71,150 字节，SHA-256 为 `546ebd3a1f07b230af42911b6740f466c6af289c8bff91a387c4eb8b1d69dd8e`；重复执行正式命令后哈希不变。原 `validation_selection.npz`、manifest、config、summary 与 `_COMPLETE` 的修改时间和 SHA-256 均未变化；本轮未操作任何 GPU Job。
-- 第一轮三类全面独立审查已完成。代码布局与 Git 审查要求补齐类分隔、五入口文档和配置覆盖；注释审查要求新代码统一 ASCII 标点、逐项字段说明和科学变量注释；逻辑审查确认采样与冻结算法正确，并指出活动资源说明仍残留 Find_1 的旧口径。整改后，正式 Find_1 说明统一为双卡 64 CPU、每 rank 30 workers，两个代码旁文档补齐 validation NPZ 的 11 字段表，五个入口的训练预算和配置测试保持一致。
-- 第一轮整改后的 Stage1 Dataset、配置、冻结脚本、推理兼容和模型边界回归为 94 项通过；Python 编译、五个 Shell 的 `bash -n` 与两个仓库的 `git diff --check` 均通过。剩余两轮全面审查、最终全量测试和 Git 双线端点尚待本记录后续回填。
+- 第三轮逻辑审查发现原 PDB 子集随机种子与第 3 个 manifest PDB 的 occurrence 排列随机状态碰撞。验证 PDB 选择改用 `SeedSequence(3407, spawn_key=(2,))` 后，最终冻结集合相对碰撞版本保留 116 个身份并替换 34 个身份；该中间版本未用于训练。回归测试精确锁定 seed、spawn key、四 PDB 夹具选择结果和验证随机状态与 200 个 PDB 的 occurrence/candidate 随机状态互不相等。
+- `validation_selection_pdb_centric.npz` 最终大小为 71,150 字节，SHA-256 为 `546ebd3a1f07b230af42911b6740f466c6af289c8bff91a387c4eb8b1d69dd8e`；重复执行正式命令后哈希不变。原 `validation_selection.npz`、manifest、config、summary 与 `_COMPLETE` 的修改时间和 SHA-256 均未变化。
+- 代码布局与 Git、中文注释、科学逻辑三类独立审查各完成三轮全面核查。每轮意见均先整改再进入下一轮；第三轮后的三类窄口径复核全部为 `APPROVED`，没有继续扩大审查范围。正式 Find_1 说明统一为双卡 64 CPU、每 rank 30 workers；Find_0、unet_base、unet_c1 与 unet_diff 的资源说明和五个入口的训练预算均由配置测试锁定。
+- 本轮没有检查、提交、取消、重启或修改任何 GPU Job。Git 双线在两个实现分支的最终文档提交后统一收口。
 
 ## 计划与实现差异
 
