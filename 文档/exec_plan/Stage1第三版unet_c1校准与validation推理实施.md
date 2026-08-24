@@ -103,6 +103,9 @@ bash -n 训练与运行/sh/infer/stage1_v3.sh
 | 2026-08-24 08:09 | F1/F2 blobs 完成 | Job `353620/353621` 分别以 `COMPLETED 0:0` 结束，墙钟为 7 分 57 秒和 7 分 54 秒；两套 semantic、scan、100/100 blobs 和完成标记并存。每条 Job 读取约 17,978.6 MiB，确认该阶段由共享存储读取主导。 |
 | 2026-08-24 08:11--08:16 | F1/F2 basic 完成并全量验收 | Job `353646/353647` 分别在 17 秒和 20 秒内 `COMPLETED 0:0`。F1 得到 `score_threshold=0.9048807621, min_voxels=24`；F2 得到 `score_threshold=0.4806580544, min_voxels=15`。全量审计覆盖两套 semantic 扫描、200 份 blobs、完成标记和 basic JSON，全部通过。 |
 | 2026-08-24 08:03--08:18 | validation 首项验收 | 首个 `5irx` 的概率为 float32 `(234,234,234)`，全部有限且范围合法；shape、origin 和 voxel size 与 `exp.npy`、`exp.npz` 和 `ligand_area.npz` 完全一致。a6 的 GPU 采样连续处于 98--100%，`after_lock_346737` 保留。 |
+| 2026-08-24 17:25 | a6 正式完成 | a6 以退出码 0 完成，墙钟 33,784 秒；validation probability 达到 200/200。runner 自动恢复 `try_lock_346737`，`after_lock_346737` 保持不变，Job `346737` 继续保留资源。 |
+| 2026-08-24 17:36--17:47 | validation 全量审计 | 顺序读取 32,374,635,283 字节的 200 份 probability NPZ；9,073,709,336 个概率体素全部为 float32、有限且在 `[0,1]`，与 `exp.npy`、`exp.npz`、`ligand_area.npz` 的 shape 和几何逐项一致。第一次 GPU 时间解析失败后修复审计脚本并完整重跑，科学产物未修改。 |
+| 2026-08-24 17:48 | 全部产物最终验收 | calibration probability/F1 blobs/F2 blobs/validation probability 为 100/100/100/200，centered/evaluate 为 0，临时或 `_RUNNING` 路径为 0。四条 CPU Job 均 `COMPLETED 0:0`；346737 无推理进程、GPU 空闲，try/after lock 均存在。 |
 
 ## 部署与服务器 smoke 命令
 
@@ -191,7 +194,7 @@ bash "${TASK_PROJECT_ROOT}/训练与运行/sh/infer/stage1_v3.sh" probability \
 
 ### Job 346737 attempt a6：validation probability
 
-开始时间：2026-08-24 08:02:11+08:00。当前正在运行。
+开始时间：2026-08-24 08:02:11+08:00。结束时间：2026-08-24 17:25:15+08:00。退出码为 0，阶段墙钟为 33,784 秒。
 
 - Slurm Job：继续复用 `346737`，`hnode02`，1×NVIDIA H100 PCIe，16 CPU。
 - release：继续使用 `Pocket_Plus_38edc6467116`。
@@ -221,6 +224,27 @@ bash "${TASK_PROJECT_ROOT}/训练与运行/sh/infer/stage1_v3.sh" probability \
 - `geometry.json` 记录 80³ 窗口、`stride_zyx=[30,30,30]` 与 343 个窗口；墙钟、物化等待和融合等待分别约为 `46.612`、`0.680` 和 `0.261` 秒。
 - `_COMPLETE` 的角色为 `probability`；`monitoring/validation_first_probability_audit.json` SHA-256 为 `8651c82942b817750dba7260dd4eb7737e5f90a91ce44437fd31b4abe25d5f50`。
 - 首次只读审计对 `performance.json` 使用了旧路径 `probability/performance.json`，因此在未写文件的情况下以 `FileNotFoundError` 退出；按实际契约路径 `status/probability/performance.json` 重跑后通过，科学产物未修改。
+
+200 个 validation PDB 的最终审计结果：
+
+- 预期 PDB、实际目录、概率文件与完成标记集合逐项相同，均为 200；未发现临时文件、`_RUNNING`、额外目录或缺失目录。
+- 200 份 probability NPZ 共 32,374,635,283 字节、9,073,709,336 个 float32 概率体素；全部有限且位于 `[0,1]`，全局最小值约 `7.66054e-15`、最大值 `1.0`。
+- 每份 probability 的 shape、origin 与 voxel size 均与同 PDB 的 `exp.npy`、`exp.npz` 和 `ligand_area.npz` 逐元素相同；`geometry.json`、`performance.json` 与 `_COMPLETE` 字段全部通过。
+- 200 个 PDB 合计 253,241 个窗口。逐 PDB 墙钟合计约 33,724.72 秒，均值约 168.62 秒，中位数约 97.27 秒，最大值约 1,228.40 秒；吞吐约为每秒 7.509 个窗口。
+- 物化等待与融合等待分别占逐 PDB 墙钟总和的约 0.00622 和 0.00233，未显示 CPU 饥饿。
+- a6 GPU CSV 共 2,247 个样本，2,223 个活跃样本；全部样本平均利用率 98.283%，活跃样本平均 99.345%，峰值显存 43,930 MiB，活跃样本平均功耗约 342.31 W。采样平均间隔约 15.039 秒，最大间隔 16 秒。
+- `monitoring/validation_probability_audit.json` SHA-256 为 `31e81efdaf1ef30a42373a003b81e83c362daf9756ee25d1ef0a64dda7f2615d`。
+- `monitoring/tmp_stage1_mainchain_job346737_20260824T080211_a6_gpu.csv` 与对应 summary SHA-256 分别为 `a03d77cd5ed02c012bd087fa0e205e60fb060ea000a4917b403d8414a079068c` 和 `b0bbb69219610d6ef160d336f895217c741180887ad46b930302285e77f838cb`。
+
+最终全量审计通过 Job `346737` 的 allocation 内 CPU 执行；脚本经 SSH 标准输入传给 Python，不在服务器活动代码树创建临时实现：
+
+```powershell
+& "$env:USERPROFILE\.codex\tools\Invoke-ProjectSsh.ps1" `
+  -Command 'export AUDIT_SCRIPT_SHA256=aaa6153e8e53f2011978c863a0d9f5f00f4fc22b110385b211b2151d1b109d84; srun --overlap --jobid=346737 --nodes=1 --ntasks=1 --cpus-per-task=16 /home/penghongen/anaconda3/envs/Pocket_Plus_centos7_cu121_allgpu/bin/python -' `
+  -InputFile 'C:\Users\15919\Desktop\AdaLigand_unet_c1_calibration_log\.codex_validation_full_audit.py'
+```
+
+第一次审计使用脚本 SHA-256 `1196888a50f09ea268d1f6422efd461661370004d4e3ef0fc4288de3920df8f5`，已经完整读取 200 份科学文件，但最后用 `datetime.fromisoformat()` 解析 GPU CSV 的 `+0800` 时区时以 `ValueError` 退出。脚本改用显式 `%Y-%m-%dT%H:%M:%S%z` 后完整重跑；`execution_events.jsonl` 保留第一次 `audit_failed` 和第二次 `audit_finished`，没有掩盖重试。
 
 ### F1 semantic 与 blobs CPU16
 
@@ -336,6 +360,26 @@ bash "$task_root/训练与运行/submit_task.sh" \
 
 Job `353620/353621` 的 batch step 分别读取 17,978.56/17,978.57 MiB，只写 13.16/13.50 MiB；总 CPU 为 7 分 40 秒和 7 分 37 秒，接近单核墙钟，说明端到端时间由共享存储顺序读取约 18 GiB 主导，不属于“计算阶段长时间不足 8 核且非 I/O 饱和”的情形。basic 正式运行整体仅 17--20 秒：100 个输入文件加载为 1.295--1.328 秒，100 个 PDB 事实构造为 4.110--4.923 秒，串行实际阈值扫描为 0.068--0.084 秒，33 个最终 `min_voxels` 组合为 0.361--0.363 秒。由于并行阶段短于一次常规利用率采样，未伪造“持续 8 核”观测；代码层多线程、乱序与串行等价证据沿用冻结测试，正式端到端时间已消除原计划担心的调参瓶颈。
 
+## 最终产物清单
+
+正式根总占用约 44 GiB，其中 calibration 与 validation 分别约 14 GiB 和 31 GiB。科学产物如下：
+
+- `artifacts/unet_c1/calibration/<pdb_id>/probability/`：100 份完整图概率与完成标记。
+- `artifacts/unet_c1/calibration/<pdb_id>/blobs/F1_blobs.npz`：100 份；对应 100 个 `status/F1_blobs/_COMPLETE`。
+- `artifacts/unet_c1/calibration/<pdb_id>/blobs/F2_blobs.npz`：100 份；对应 100 个 `status/F2_blobs/_COMPLETE`。
+- `artifacts/unet_c1/calibration/F1_semantic.json`、`F1_semantic_scan.npz` 与 `F1_basic.json`。
+- `artifacts/unet_c1/calibration/F2_semantic.json`、`F2_semantic_scan.npz` 与 `F2_basic.json`。
+- `artifacts/unet_c1/validation/<pdb_id>/probability/`：200 份完整图概率与完成标记。
+
+本轮按范围没有生成 centered 或 evaluate。`monitoring/` 中四份主要审计文件的 SHA-256 为：
+
+| 审计文件 | SHA-256 |
+| --- | --- |
+| `calibration_probability_audit.json` | `2ed25d02d1a2f83c12882511cf06aae2a73f51b79f5af788df2f9fb3d8bd8eba` |
+| `calibration_semantic_blobs_basic_audit.json` | `88888d32f9d6d74e44b0d8b6c878cd5d18ad81e8be4b50b25c937ebdc1b133f4` |
+| `validation_first_probability_audit.json` | `8651c82942b817750dba7260dd4eb7737e5f90a91ce44437fd31b4abe25d5f50` |
+| `validation_probability_audit.json` | `31e81efdaf1ef30a42373a003b81e83c362daf9756ee25d1ef0a64dda7f2615d` |
+
 ## 部署边界
 
 Job `346737` 的固定 `TASK_PATH` 是隔离任务根中的 `训练与运行/sh/tmp_stage1_mainchain.sh`。allocation runner 在每次执行前仅用该路径建立 launch 身份，真正执行内容来自 `run_cmd_346737.sh`。当前 Pocket Plus Git tree 不包含该临时脚本，因此部署时必须保留这一份 allocation 兼容文件；其冻结 SHA-256 为 `9aab413aa85d9a420e958d741272fc311f36bfe8fcbf7a44ebf630f0851fec62`。除该文件外，隔离任务根将与 Pocket Plus `4e5325d` 的受控文件一致。正式 `run_cmd` 只调用新 `训练与运行/sh/infer/stage1_v3.sh`，不会调用临时训练脚本。
@@ -360,4 +404,11 @@ Job `346737` 的固定 `TASK_PATH` 是隔离任务根中的 `训练与运行/sh/
 
 ## 计划与实现差异
 
-当前唯一执行层差异是 Job `346737` 的 allocation runner 要求原固定 `TASK_PATH` 在 release 中存在，因此部署树必须保留一份不参与正式命令的临时训练脚本。该兼容文件不进入 Pocket Plus Git，不改变推理代码或科学产物；其内容、SHA-256 和用途均在本文冻结。其余代码实现和正式参数与批准计划一致。
+科学范围、模型身份、清单、F1/F2 参数、CPU/GPU 请求和产物目录均与批准计划一致。执行层发生四项不改变科学结果的修正：
+
+1. Job `346737` 的 allocation runner 要求原固定 `TASK_PATH` 在 release 中存在，因此部署树保留一份不参与正式命令的临时训练脚本。该兼容文件不进入 Pocket Plus Git。
+2. a5 GPU 采样行误入 allocation `out`，完成后按 launch 时间边界回填 CSV；a6 在动态命令中修正重定向。
+3. calibration 全量审计第一次受嵌套 shell 引号影响，validation 首项审计第一次使用旧性能文件路径；两次均未写科学目录，修正只读审计后通过。
+4. validation 全量审计第一次在完成 200 份科学读取后无法解析 `+0800` GPU 时间，改用显式格式后全量重跑通过；两次事件均保留在 `execution_events.jsonl`。
+
+这些修正没有改变 production code、checkpoint、输入清单、推理参数或任何已经发布的科学 NPZ/JSON。
