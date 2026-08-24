@@ -260,6 +260,8 @@ V3 候选池构建命令的 `--seed` 默认值是 3407。`config.json` 保存以
 
 V3 候选池的正式结果为 train 13,717/13,717 PDB、validation 200/200 PDB，两个集合的 `zero_context_pdb_count` 都为 0。2026-08-18 按历史 `0:1:1` 规则覆盖发布的 `validation_selection.npz` 有 3,305 个 bias、3,305 个 context 和 0 个 center 条目；该文件不再是活动验证入口。`_COMPLETE` 是 V3 候选池完整发布时最后创建的零字节文件，新 selection 不改变它。
 
+2026-08-24 正式发布的 `validation_selection_pdb_centric.npz` 覆盖 200 个 validation PDB，包含 3,950 个 bias、5,000 个 context 和 0 个 center 请求。75 个 PDB 因 occurrence 上限得到少于 25 个 bias；逐 PDB bias 数量为 5–25，每个 PDB 的 context 数量严格为 25。文件大小为 83,350 字节，SHA-256 为 `449856108558e38755dae3eb840bef856a00613ff8439b58a9de63311d5f7092`。原 `validation_selection.npz`、manifest、config、summary 与 `_COMPLETE` 的修改时间均未变化。
+
 ### 3.3 训练消费契约
 
 当前活动 Dataset 不提供请求比例截断参数。训练按 manifest 和三个 PDB 中心采样参数动态生成每个 epoch 的请求，不把训练选择落盘；验证完整展开 `validation_selection_pdb_centric.npz`，不重新抽样。原 `config.json::entry_ratio`、`validation_entry_ratio` 与 `validation_selection.npz` 只说明 V3 几何池的历史构建，不参与当前请求生成。

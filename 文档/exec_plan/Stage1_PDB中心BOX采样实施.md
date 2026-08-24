@@ -28,9 +28,12 @@
 
 ## 当前验证证据
 
-- Dataset、冻结脚本与训练配置的阶段性回归为 48 项通过。
-- 加入 Stage1 V3 推理兼容测试后的阶段性回归为 70 项通过。
-- 正式服务器 NPZ、全量测试、Shell 语法检查、三轮独立审查和 Git 双线端点尚待本记录后续回填。
+- 主代理逐文件逐函数检查职责、位置、调用关系、嵌套、Docstring 和科学变量注释后，Dataset、冻结脚本、训练配置与 Stage1 V3 推理兼容的主链回归为 72 项通过，Python 编译、五个 Shell 的 `bash -n` 与两个仓库的 `git diff --check` 均通过。
+- 自审发现按文件路径执行硬编码脚本时，项目根目录不会自动进入 Python 搜索路径。正式命令因此改为模块调用 `python -m ops.stage1_data_preparation.freeze_validation_selection_pdb_centric`；没有增加 CLI 参数或第二个入口。
+- 2026-08-24 22:09:01 +08:00，正式脚本发布 200 个 PDB、3,950 个 bias、5,000 个 context 和 0 个 center 请求。新 NPZ 精确包含 11 个契约字段，大小为 83,350 字节，SHA-256 为 `449856108558e38755dae3eb840bef856a00613ff8439b58a9de63311d5f7092`。
+- 75 个 PDB 的 bias 因 occurrence 上限少于 25，逐 PDB bias 范围为 5–25；全部 200 个 PDB 都有 25 个 context。字段 dtype、shape、候选索引范围和逐 PDB 计数均通过服务器核验。
+- 原 `validation_selection.npz`、manifest、config、summary 与 `_COMPLETE` 保持 2026-08-18 或更早的修改时间；本次没有改写 V3 几何池。没有操作任何 GPU Job。
+- 三轮独立审查、全量测试和 Git 双线端点尚待本记录后续回填。
 
 ## 计划与实现差异
 
