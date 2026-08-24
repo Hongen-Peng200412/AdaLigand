@@ -15,7 +15,7 @@ Stage1 活动训练请求已经从按整个候选池比例抽取改为按 PDB �
 - 四份活动 Dataset 配置、五个训练 Shell、训练预算和资源说明均已更新。Find_0 每个 epoch 验证 10 次；Find_1、unet_base、unet_c1 和 unet_diff 每个 epoch 验证 12 次；五个入口均为 70 epoch，`warmup_ratio=0.005`。
 - 最终定向回归 50 项通过；除共同基点已经失效的 `tests/test_stage1_producers.py` 外，Windows 全量回归为 345 项通过、11 条 warning。Python 编译、Shell 语法和两个仓库的 `git diff --check` 均通过。
 - 代码布局与 Git、中文注释、科学逻辑三类独立审查各完成三轮全面核查；第三轮后的三类窄口径复核均为 `APPROVED`。
-- Pocket_Plus 实现端点为 `01888bf6ae1a1aa0b936114ef0569c5fe54cbd5c`，学习/累计端点为 `752159b5ca2460227cebb429dcd7142b1b0c6292`，两端 tree 均为 `a538e6aae01ce24a45a740ca0193d465dcf9c5dc`。
+- Pocket_Plus 科学实现端点为 `01888bf6ae1a1aa0b936114ef0569c5fe54cbd5c`，学习端点为 `752159b5ca2460227cebb429dcd7142b1b0c6292`，两端 tree 均为 `a538e6aae01ce24a45a740ca0193d465dcf9c5dc`。最终安全同步后的文件字节哈希由独立文档小周期记录，当前累计端点为 `718f9347215d42b696415f8c4b5a51717084f36e`。
 - 本轮没有检查、提交、取消、重启或修改任何 GPU Job。
 
 ## Decisions
