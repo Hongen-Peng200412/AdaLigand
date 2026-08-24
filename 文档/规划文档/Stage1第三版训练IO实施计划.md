@@ -6,7 +6,7 @@
 
 - 正式完整图根为 `/storage/penghongen/AdaLigand/Ori_Data`，第三版准备根为 `/storage/penghongen/AdaLigand/Ori_Data/stage1_preparation_box_pool_3`。
 - split 要求首次 EMDB 发布时间 `< 2026-01-01`、`map_resolution < 4.0`、`cc_contour > 0.65`，并通过完整资产和三轴均不小于 80 的门禁。train、validation、calibration 分别为 13,717、200、100 个 PDB。
-- V3 逐 PDB BOX 候选池保持不变。活动训练使用 `pdb_foreground_box_num=25`、`pdb_foreground_fraction_target=0.5` 与 `pdb_occurrence_foreground_box_cap=25`；验证以 seed 3407 从原 200 个 validation PDB 中无放回选择 150 个身份，并冻结相同规则的 epoch 0 到 `validation_selection_pdb_centric.npz`。原 `validation_selection.npz` 与 `config.json::entry_ratio` 只保留历史构建含义。第二版数据目录保留，不读取、不改写、不删除。
+- V3 逐 PDB BOX 候选池保持不变。活动训练使用 `pdb_foreground_box_num=25`、`pdb_foreground_fraction_target=0.5` 与 `pdb_occurrence_foreground_box_cap=25`；验证以 `SeedSequence(3407, spawn_key=(2,))` 的独立随机域从原 200 个 validation PDB 中无放回选择 150 个身份，并冻结相同规则的 epoch 0 到 `validation_selection_pdb_centric.npz`。原 `validation_selection.npz` 与 `config.json::entry_ratio` 只保留历史构建含义。第二版数据目录保留，不读取、不改写、不删除。
 - 四个完整体数组已经迁移为同目录 `exp.npy`、`sim.npy`、`union_mask.npy` 和 `ligand_dist.npy`；NPZ 只保留小型元数据和逐 occurrence 稀疏字段。
 - 训练继续全局打散 BOX 请求，不按 PDB 分组加载。
 

@@ -260,7 +260,7 @@ V3 候选池构建命令的 `--seed` 默认值是 3407。`config.json` 保存以
 
 V3 候选池的正式结果为 train 13,717/13,717 PDB、validation 200/200 PDB，两个集合的 `zero_context_pdb_count` 都为 0。2026-08-18 按历史 `0:1:1` 规则覆盖发布的 `validation_selection.npz` 有 3,305 个 bias、3,305 个 context 和 0 个 center 条目；该文件不再是活动验证入口。`_COMPLETE` 是 V3 候选池完整发布时最后创建的零字节文件，新 selection 不改变它。
 
-2026-08-24 正式发布的 `validation_selection_pdb_centric.npz` 从原 200 个 validation PDB 中按 seed 3407 无放回冻结 150 个身份，包含 3,750 个 bias、3,750 个 context 和 0 个 center 请求。150 个 PDB 都恰好包含 25 个 bias 与 25 个 context，PDB 身份按原 validation manifest 顺序保存。文件大小为 71,150 字节，SHA-256 为 `364db41a70213ffb4be8fafe5f5f5e51d0449bb322840f7ae39fb7c35105c3ae`。原 `validation_selection.npz`、manifest、config、summary 与 `_COMPLETE` 的修改时间和 SHA-256 均未变化。
+2026-08-24 正式发布的 `validation_selection_pdb_centric.npz` 使用 `SeedSequence(3407, spawn_key=(2,))` 的独立随机域，从原 200 个 validation PDB 中无放回冻结 150 个身份，包含 3,750 个 bias、3,750 个 context 和 0 个 center 请求。150 个 PDB 都恰好包含 25 个 bias 与 25 个 context，PDB 身份按原 validation manifest 顺序保存。文件大小为 71,150 字节，SHA-256 为 `546ebd3a1f07b230af42911b6740f466c6af289c8bff91a387c4eb8b1d69dd8e`。原 `validation_selection.npz`、manifest、config、summary 与 `_COMPLETE` 的修改时间和 SHA-256 均未变化。
 
 ### 3.3 训练消费契约
 
