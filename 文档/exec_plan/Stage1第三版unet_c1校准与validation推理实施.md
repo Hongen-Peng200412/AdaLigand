@@ -106,6 +106,9 @@ bash -n 训练与运行/sh/infer/stage1_v3.sh
 | 2026-08-24 17:25 | a6 正式完成 | a6 以退出码 0 完成，墙钟 33,784 秒；validation probability 达到 200/200。runner 自动恢复 `try_lock_346737`，`after_lock_346737` 保持不变，Job `346737` 继续保留资源。 |
 | 2026-08-24 17:36--17:47 | validation 全量审计 | 顺序读取 32,374,635,283 字节的 200 份 probability NPZ；9,073,709,336 个概率体素全部为 float32、有限且在 `[0,1]`，与 `exp.npy`、`exp.npz`、`ligand_area.npz` 的 shape 和几何逐项一致。第一次 GPU 时间解析失败后修复审计脚本并完整重跑，科学产物未修改。 |
 | 2026-08-24 17:48 | 全部产物最终验收 | calibration probability/F1 blobs/F2 blobs/validation probability 为 100/100/100/200，centered/evaluate 为 0，临时或 `_RUNNING` 路径为 0。四条 CPU Job 均 `COMPLETED 0:0`；346737 无推理进程、GPU 空闲，try/after lock 均存在。 |
+| 2026-08-24 19:36--19:38 | 资源释放前身份审计 | 首次只读探测误把正式推理根的 `feedback/` 当作 Job `346737` 的控制根；目标 `out` 不存在，命令在写操作前停止。随后从训练记录和 `scontrol show job` 恢复唯一控制根 `/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/feedback`。正确探测确认 Job、用户、节点、16 CPU、1×H100、`try_lock`、`after_lock` 和 a6 动态命令哈希完全匹配；`kill_lock` 不存在，GPU 没有计算进程，利用率 0%、显存 1 MiB。 |
+| 2026-08-24 19:39--19:40 | 释放脚本无写入重试 | 初版脚本 SHA-256 为 `9c865b6ee3a68d6802483fa4ea656dfb5999a062135bc8b62aa2900750f7b3c2`。脚本经 SSH 标准输入执行时，其中的只读 `srun nvidia-smi` 消耗了后续标准输入；普通执行和跟踪执行都在 `rm` 之前结束。复核确认 Job、锁、动态命令与 `execution_events.jsonl` 均未变化。修正版把 `srun` 标准输入固定为 `/dev/null`，SHA-256 为 `cada16c98963fae442d3f6a0ddc052e6535e3cfa6843362008b36b70cf51de9d`。 |
+| 2026-08-24 19:40--19:42 | Job 346737 安全释放与验收 | 19:40:40 只删除精确的 `after_lock_346737`，没有创建或删除任何其他 Job 的锁，也没有执行 `scancel`。runner 于 19:41:11 自动清理本 Job 的 `try_lock`、`after_lock`、`kill_lock` 和 `run_cmd` 后退出；`sacct` 为 `COMPLETED 0:0`，总 allocation 墙钟 `7-00:26:02`。释放证据为 `monitoring/resource_release_346737.json`，SHA-256 `1a77ac2bff5d776c505dadae885533dc7a28266724792502deca4abf375f85c4`。 |
 
 ## 部署与服务器 smoke 命令
 
@@ -360,7 +363,7 @@ bash "$task_root/训练与运行/submit_task.sh" \
 
 Job `353620/353621` 的 batch step 分别读取 17,978.56/17,978.57 MiB，只写 13.16/13.50 MiB；总 CPU 为 7 分 40 秒和 7 分 37 秒，接近单核墙钟，说明端到端时间由共享存储顺序读取约 18 GiB 主导，不属于“计算阶段长时间不足 8 核且非 I/O 饱和”的情形。basic 正式运行整体仅 17--20 秒：100 个输入文件加载为 1.295--1.328 秒，100 个 PDB 事实构造为 4.110--4.923 秒，串行实际阈值扫描为 0.068--0.084 秒，33 个最终 `min_voxels` 组合为 0.361--0.363 秒。由于并行阶段短于一次常规利用率采样，未伪造“持续 8 核”观测；代码层多线程、乱序与串行等价证据沿用冻结测试，正式端到端时间已消除原计划担心的调参瓶颈。
 
-## 最终产物清单
+## 最终产物与证据目录
 
 正式根总占用约 44 GiB，其中 calibration 与 validation 分别约 14 GiB 和 31 GiB。科学产物如下：
 
@@ -379,6 +382,103 @@ Job `353620/353621` 的 batch step 分别读取 17,978.56/17,978.57 MiB，只写
 | `calibration_semantic_blobs_basic_audit.json` | `88888d32f9d6d74e44b0d8b6c878cd5d18ad81e8be4b50b25c937ebdc1b133f4` |
 | `validation_first_probability_audit.json` | `8651c82942b817750dba7260dd4eb7737e5f90a91ce44437fd31b4abe25d5f50` |
 | `validation_probability_audit.json` | `31e81efdaf1ef30a42373a003b81e83c362daf9756ee25d1ef0a64dda7f2615d` |
+
+### 训练运行与模型身份
+
+本轮推理使用的训练 run 根目录为：
+
+```text
+/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/runtime/mainchain_official_346737/logs/AdaLigand_Stage1-unet_c1-mainchain/unet_c1_mainchain____tmp_stage1_mainchain_job346737_20260818T035126_a4_formal
+```
+
+该目录中的可追溯产物包括：
+
+- `checkpoints/`：10 个 TOP checkpoint、`BEST.ckpt` 和 `last.ckpt`。正式推理读取 `checkpoints/TOP_epoch_00_score_0.6030.ckpt`；该文件与 `BEST.ckpt`、`last.ckpt` 均为 499,668,966 字节，SHA-256 均为 `341c3aa1f383b3920964980bb410bd69f0c0e10e2169f417cce0cf1cf34feed6`。
+- `config.yaml` 与 `train.yaml`：训练解析配置和启动配置；正式推理读取 `config.yaml`。
+- `src_snapshot/src/`：checkpoint 配套的 100 个模型代码文件；正式推理采用 `training_snapshot`。
+- `train.log`：a4 训练输出。
+- `wandb/run-20260818_035841-hqumqkex/`：W&B 运行 `hqumqkex` 的本地证据。
+
+训练 attempt a4 的 launch 目录为：
+
+```text
+/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/feedback/launches/346737/tmp_stage1_mainchain_job346737_20260818T035126_a4
+```
+
+### 推理冻结输入
+
+冻结输入根为：
+
+```text
+/storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950/inputs
+```
+
+该目录包含 `calibration.json`、`validation.json`、`stage1_v3.yaml`、`training_config.yaml`、`production_contract.json` 和 `checksums.sha256`。两份 PDB 清单分别固定 100 个 calibration PDB 和 200 个 validation PDB；`production_contract.json` 连接 checkpoint、训练配置、推理配置、模型代码、清单、数据根、Job 和参数身份。
+
+### 科学产物
+
+| 产物类别 | 完整目录或文件模板 | 完成数量与含义 |
+| --- | --- | --- |
+| calibration probability | `/storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950/artifacts/unet_c1/calibration/<pdb_id>/probability/` | 100/100；每个目录含完整图 `probability_map.npz`，对应完成状态位于同一 PDB 的 `status/probability/` |
+| calibration F1 blobs | `/storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950/artifacts/unet_c1/calibration/<pdb_id>/blobs/F1_blobs.npz` | 100/100；共 2,619 个 blob、576,101 个体素，对应 `status/F1_blobs/` |
+| calibration F2 blobs | `/storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950/artifacts/unet_c1/calibration/<pdb_id>/blobs/F2_blobs.npz` | 100/100；共 3,491 个 blob、798,418 个体素，对应 `status/F2_blobs/` |
+| calibration F1 全局参数 | `/storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950/artifacts/unet_c1/calibration/F1_semantic.json`、`F1_semantic_scan.npz`、`F1_basic.json` | semantic 阈值 `0.826629638671875`；basic 分数阈值 `0.9048807621002197`、`min_voxels=24` |
+| calibration F2 全局参数 | `/storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950/artifacts/unet_c1/calibration/F2_semantic.json`、`F2_semantic_scan.npz`、`F2_basic.json` | semantic 阈值 `0.301116943359375`；basic 分数阈值 `0.48065805435180664`、`min_voxels=15` |
+| validation probability | `/storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950/artifacts/unet_c1/validation/<pdb_id>/probability/` | 200/200；每个目录含完整图 `probability_map.npz`，对应完成状态位于同一 PDB 的 `status/probability/` |
+
+本轮没有 centered 或 evaluate 产物。正式科学产物总根为：
+
+```text
+/storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950/artifacts
+```
+
+### 监控、审计与执行证据
+
+监控根 `/storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950/monitoring` 保存：
+
+- `calibration_probability_audit.json`、`calibration_semantic_blobs_basic_audit.json`、`validation_first_probability_audit.json` 和 `validation_probability_audit.json`：四类科学验收证据。
+- `tmp_stage1_mainchain_job346737_20260824T033950_a5_gpu.csv`、对应 `gpu_summary.json` 和 `stage.log`：a5 calibration probability 的 GPU 与阶段记录。
+- `tmp_stage1_mainchain_job346737_20260824T080211_a6_gpu.csv`、对应 `gpu_summary.json` 和 `stage.log`：a6 validation probability 的 GPU 与阶段记录。
+- `stage_events.tsv`：a5/a6 阶段起止与退出码。
+- `resource_release_346737.json`：Job `346737` 释放协议、脚本哈希、Slurm 终态和控制文件清理证据。
+
+正式根的 `feedback/execution_events.jsonl` 保存推理阶段、审计重试、释放锁和释放终态事件。CPU Job `353620/353621/353646/353647` 的输出位于 `feedback/allocations/<job_id>/`，launch 位于 `feedback/launches/<job_id>/<launch_id>/`，共同 release 位于 `feedback/releases/Pocket_Plus_38edc6467116/Pocket_Plus/`。
+
+Job `346737` 的训练与 H100 推理控制证据没有迁入正式根，继续保存在：
+
+```text
+/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/feedback
+```
+
+其中 `allocations/346737/out` 与 `err` 保留完整 runner 输出和错误输出；`launches/346737/` 保存 a1--a6 六次 launch。正式推理对应 `tmp_stage1_mainchain_job346737_20260824T033950_a5/` 与 `tmp_stage1_mainchain_job346737_20260824T080211_a6/`。runner 完成资源释放后只清理活动锁与 `run_cmd_346737.sh`，没有删除这些历史 launch、release 或日志。
+
+## Job 346737 资源释放
+
+用户在科学产物最终验收后明确授权安全释放本任务资源。释放前同时满足：Job `346737` 属于用户 `penghongen`，运行于 `hnode02`，资源为 16 CPU 与 1×H100；`try_lock_346737` 和 `after_lock_346737` 是预期控制根中的普通文件；`kill_lock_346737` 不存在；`run_cmd_346737.sh` SHA-256 为 `eb986013b3ba221346445bc2c17ec1a5bdbae41b260c5a2b3069eed48e846919`；节点没有 GPU 计算进程。
+
+有效释放脚本的本地调用命令为：
+
+```powershell
+& "$env:USERPROFILE\.codex\tools\Invoke-ProjectSsh.ps1" `
+  -Command 'bash -s' `
+  -InputFile 'C:\Users\15919\Desktop\AdaLigand_unet_c1_calibration_log\.codex_release_346737.sh'
+```
+
+脚本在所有身份检查通过后执行的唯一资源控制命令为：
+
+```bash
+rm -- /storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/feedback/allocations/346737/after_lock_346737
+```
+
+初版释放脚本 SHA-256 为 `9c865b6ee3a68d6802483fa4ea656dfb5999a062135bc8b62aa2900750f7b3c2`。由于脚本经 SSH 标准输入运行，初版中的 `srun` 消耗了后续输入，普通执行和跟踪执行均在删除锁前结束；远端状态复核证明两次都没有写入。修正版给 `srun` 增加 `</dev/null`，SHA-256 为 `cada16c98963fae442d3f6a0ddc052e6535e3cfa6843362008b36b70cf51de9d`，于 2026-08-24 19:40:40+08:00 删除精确 `after_lock`。
+
+runner 于 2026-08-24 19:41:11+08:00 正常退出并输出 `Job 346737 已退出并清理活动锁与动态命令`。最终 `squeue` 为空；`sacct` 记录为：
+
+```text
+346737|stage1_v3_ablation_mainchain_r2|penghongen|COMPLETED|0:0|2026-08-17T19:15:09|2026-08-24T19:41:11|7-00:26:02|16|hnode02
+```
+
+最终复核确认本 Job 的 `try_lock`、`after_lock`、`kill_lock` 和 `run_cmd` 均不存在。没有执行 `scancel`，也没有读取后修改或删除任何其他 Job 的控制文件。证据写入脚本 SHA-256 为 `567b6b8e4f5bde1c02dfa8a11f5a7e70f3b5f5ac5e75f8331611e9fb7bac6588`；正式证据 `monitoring/resource_release_346737.json` SHA-256 为 `1a77ac2bff5d776c505dadae885533dc7a28266724792502deca4abf375f85c4`。
 
 ## 部署边界
 
@@ -400,7 +500,7 @@ Job `346737` 的固定 `TASK_PATH` 是隔离任务根中的 `训练与运行/sh/
 - 若 H100 显存不足，窗口 batch 按 `16 → 12 → 8` 调整；已经发布 `_COMPLETE` 的 PDB 默认复用。
 - 任何科学契约、性能修复、重试、release 或 launch 变化都必须写回本文和对应 handoff。
 - 稳定排队、正常计算或长时间 I/O 期间，不创建 heartbeat。每个 30–60 分钟检查周期由多个独立的 300 秒命令睡眠组成，以便 5 分钟内接收用户新指令。
-- validation 完成后保留 `try_lock_346737` 与 `after_lock_346737`；不删除 `after_lock`，不执行 `scancel`。
+- validation 完成后先按当时授权保留 `try_lock_346737` 与 `after_lock_346737`。用户于 2026-08-24 另行授权释放后，只删除本 Job 的精确 `after_lock`，由 runner 清理剩余活动控制文件并正常退出；全程没有执行 `scancel`。
 
 ## 计划与实现差异
 
@@ -410,5 +510,7 @@ Job `346737` 的固定 `TASK_PATH` 是隔离任务根中的 `训练与运行/sh/
 2. a5 GPU 采样行误入 allocation `out`，完成后按 launch 时间边界回填 CSV；a6 在动态命令中修正重定向。
 3. calibration 全量审计第一次受嵌套 shell 引号影响，validation 首项审计第一次使用旧性能文件路径；两次均未写科学目录，修正只读审计后通过。
 4. validation 全量审计第一次在完成 200 份科学读取后无法解析 `+0800` GPU 时间，改用显式格式后全量重跑通过；两次事件均保留在 `execution_events.jsonl`。
+5. 计划要求 validation 完成后继续保留 Job `346737`；该要求在最终验收时已经满足。用户随后给出新的明确释放授权，因此只按锁协议移除该 Job 的 `after_lock`，不构成科学范围变化。
+6. 初版释放脚本因 `srun` 继承 SSH 标准输入而在资源控制命令前结束；两次调用均未产生写入。修正版把 `srun` 标准输入固定为 `/dev/null` 后完成释放，并保留初版、修正版与证据脚本的 SHA-256。
 
 这些修正没有改变 production code、checkpoint、输入清单、推理参数或任何已经发布的科学 NPZ/JSON。

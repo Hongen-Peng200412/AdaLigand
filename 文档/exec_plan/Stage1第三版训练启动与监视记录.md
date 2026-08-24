@@ -7,7 +7,7 @@
 - 本文只覆盖 Job `346737`，不记录、不检查、不操作其他 Job。
 - 运行目标是单卡 H100、16 CPU、16 个 Dataset worker 的 `unet_c1` 主链辅助损失版本。
 - 本文覆盖一次性接管过程、正式执行启动证据和已经发生的稳定性检查；不把无事件的睡眠过程写成逐次流水账。
-- 服务器控制文件由 Job 专属目录管理；`after_lock_346737` 在本记录期间一直保留，表示 allocation 仍由用户持有。
+- 服务器控制文件由 Job 专属目录管理；`after_lock_346737` 在训练、训练后保留和后续推理复用期间持续存在。用户最终授权释放后只删除该锁，runner 已正常退出并清理本 Job 的活动控制文件。
 
 ## 依据与运行位置
 
@@ -17,8 +17,8 @@
 
 - Job 专属任务根：`/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/task_root/Pocket_Plus`。
 - Job 控制目录：`/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/feedback/allocations/346737`。
-- 当前重训 release：`/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/feedback/releases/Pocket_Plus_8139f528eebc/Pocket_Plus`。
-- 当前重训 launch：`/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/feedback/launches/346737/tmp_stage1_mainchain_job346737_20260818T035126_a4`。
+- 正式重训 release：`/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/feedback/releases/Pocket_Plus_8139f528eebc/Pocket_Plus`。
+- 正式重训 launch：`/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/feedback/launches/346737/tmp_stage1_mainchain_job346737_20260818T035126_a4`。
 - 正式输出目录：`/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/runtime/mainchain_official_346737`。
 
 ## 已发生事件
@@ -51,6 +51,38 @@
 | 2026-08-21 10:53 新最佳检查 | Job 继续为 `RUNNING`，W&B `hqumqkex` 前进到 `trainer/global_step=20,471`。10:22 完成的 validation 配体体素 PRAUC 为 `0.576397`，比此前最高分 0.569573 提高约 `0.006824`，再次超过调度器绝对改善阈值 `0.003`；受体、蛋白主链和核酸主链 PRAUC 分别为 `0.631880`、`0.149219` 和 `0.179529`。训练与验证损失有限，a4 错误切片为空。 | `TOP_epoch_00_score_0.5764.ckpt` 与 `last.ckpt` 已发布。`BEST.ckpt` 已刷新为 0.5696，并与对应 TOP 的 SHA-256 和逐字节比较一致；新 0.5764 TOP 等待下一次 validation 刷新别名。 |
 | 2026-08-23 19:52 正常结束、2026-08-24 02:04--02:06 最终验收 | 冻结配置中的 `stop_after_lr_reductions=3` 被正常触发；runner 明确记录“实际 LR 衰减 3 次”“实验结束，结果已保存”“mainchain 正式训练完成”和“第 4 次执行成功”。W&B `hqumqkex` 完成最终同步，摘要为 `trainer/global_step=34,992`、`epoch=0`；最终配体体素、受体、蛋白主链和核酸主链 PRAUC 分别为 `0.602950`、`0.667168`、`0.181585` 和 `0.241873`，全部验证损失有限。a4 错误切片为空。 | `BEST.ckpt` 内部 callback 记录 `best_model_score=0.602950275`、最佳路径为 `TOP_epoch_00_score_0.6030.ckpt`，checkpoint 的 `global_step=34,993`。目录保留 10 个 TOP、`BEST.ckpt` 和 `last.ckpt`，无 `.tmp`/`.part`；三份最终文件均为 499,668,966 字节且 SHA-256 同为 `341c3aa1f383b3920964980bb410bd69f0c0e10e2169f417cce0cf1cf34feed6`。训练进程为 0，GPU 显存仅 1 MiB。 |
 | 2026-08-24 资源保留确认 | 训练主体已经正常完成，但 Job `346737` 按 `--after_hold` 继续占有 allocation；根目录 `try_lock_346737` 和 Job 专属 `after_lock_346737` 均存在。用户明确要求暂时不要释放资源。 | 不删除任何锁，不执行 `scancel`，不触发 `run_cmd_346737.sh` 再次运行。Slurm 的 `RUNNING` 只表示 allocation 仍被保留，不表示训练进程仍在运行。 |
+| 2026-08-24 19:36--19:42 资源释放 | 用户在后续 calibration/validation 推理与全部产物验收完成后明确授权释放本任务资源。操作前重新核对 Job `346737`、用户、`hnode02`、16 CPU、1×H100、`try_lock`、`after_lock`、无 `kill_lock`、a6 动态命令哈希和空闲 GPU；随后只删除本 Job 的精确 `after_lock_346737`，没有执行 `scancel`。 | runner 于 19:41:11 自动清理本 Job 的 `try_lock`、`after_lock`、`kill_lock` 和动态命令并退出。`sacct` 为 `COMPLETED 0:0`，allocation 墙钟 `7-00:26:02`。释放证据位于推理正式根 `monitoring/resource_release_346737.json`，SHA-256 为 `1a77ac2bff5d776c505dadae885533dc7a28266724792502deca4abf375f85c4`；其他 Job 未操作。 |
+
+## 训练产物与后续推理目录
+
+正式 a4 训练 run 根目录为：
+
+```text
+/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/runtime/mainchain_official_346737/logs/AdaLigand_Stage1-unet_c1-mainchain/unet_c1_mainchain____tmp_stage1_mainchain_job346737_20260818T035126_a4_formal
+```
+
+该目录保存：
+
+- `checkpoints/`：10 个 TOP checkpoint、`BEST.ckpt` 和 `last.ckpt`；正式推理使用 `TOP_epoch_00_score_0.6030.ckpt`。
+- `config.yaml`、`train.yaml` 与 `train.log`：训练解析配置、启动配置和运行输出。
+- `src_snapshot/src/`：checkpoint 配套模型代码，后续推理采用 `training_snapshot`。
+- `wandb/run-20260818_035841-hqumqkex/`：W&B 运行 `hqumqkex` 的本地证据。
+
+a4 launch 位于：
+
+```text
+/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/feedback/launches/346737/tmp_stage1_mainchain_job346737_20260818T035126_a4
+```
+
+allocation 的保留日志位于 `/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/feedback/allocations/346737/out` 与 `err`。资源释放后 runner 只清理活动锁和 `run_cmd_346737.sh`；`out`、`err`、a1--a6 launch、release、训练 run 和 checkpoint 均继续保留。
+
+正式 checkpoint 随后用于 calibration/validation 推理。全部推理产物、冻结输入、监控、审计、CPU Job 和释放证据的根目录为：
+
+```text
+/storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950
+```
+
+各类科学产物的逐项目录和数量见 `文档/exec_plan/Stage1第三版unet_c1校准与validation推理实施.md`。
 
 ## 当前训练契约证据
 
@@ -66,13 +98,13 @@
 | 完成状态 | a4 已按 3 次实际学习率衰减的冻结停止条件正常结束；W&B `hqumqkex` 最终摘要为 `trainer/global_step=34,992`、`epoch=0` | runner 完成输出、W&B 最终同步与 2026-08-24 只读验收 |
 | 最终指标 | 配体体素 PRAUC `0.602950`；受体 PRAUC `0.667168`；蛋白主链宏平均 PRAUC `0.181585`；核酸主链宏平均 PRAUC `0.241873` | 最终 `wandb-summary.json` 与 checkpoint callback 状态 |
 | 最终 checkpoint | `BEST.ckpt`、`TOP_epoch_00_score_0.6030.ckpt` 与 `last.ckpt` 内容一致；SHA-256 均为 `341c3aa1f383b3920964980bb410bd69f0c0e10e2169f417cce0cf1cf34feed6` | 文件大小、SHA-256、逐字节比较与 checkpoint 内部 callback 状态 |
-| allocation 状态 | Job `346737` 仍按 `--after_hold` 保留；训练进程为 0；`try_lock_346737` 与 `after_lock_346737` 保留 | Slurm、节点进程/GPU 与锁文件只读检查；用户要求暂不释放资源 |
+| allocation 状态 | Job `346737` 已于 2026-08-24 19:41:11+08:00 正常释放；Slurm 为 `COMPLETED 0:0`；本 Job 的四类活动控制文件均已清理 | 用户释放授权、runner 退出输出、`squeue`、`sacct` 与 `monitoring/resource_release_346737.json` |
 
-## 完成与资源保留
+## 完成与资源释放
 
 Job `346737` 的 a4 训练、W&B 同步、最佳 checkpoint 和停止原因已经完成联合验收。本记录的持续训练监视阶段到此结束，不再为已退出的训练进程安排自然睡眠检查，也不创建 heartbeat。
 
-allocation 仍由用户保留。后续若用户授权释放，应单独确认 `try_lock_346737`、`after_lock_346737` 和 runner 状态，再按项目资源控制流程操作；本次完成验收不包含释放授权。
+allocation 曾按用户要求在训练结束后继续保留，并被同一 Job 的 calibration/validation 推理复用。用户在推理产物最终验收后另行授权释放；2026-08-24 19:40:40+08:00 只删除精确 `after_lock_346737`，runner 于 19:41:11 正常退出。最终 `squeue` 中没有 Job `346737`，`sacct` 为 `COMPLETED 0:0`，`try_lock`、`after_lock`、`kill_lock` 与动态命令均不存在。没有执行 `scancel`，没有操作其他 Job。
 
 ## 计划与实现差异
 
