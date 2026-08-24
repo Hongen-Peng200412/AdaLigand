@@ -27,7 +27,7 @@
 - `unet_c1/no_mainchain` 使用双卡 H100、总计 32 CPU/32 workers，保留三个结构头，把 protein/nucleic 权重设为 `0.0/0.0`，distance 保持 `0.3`；双卡配置使用 `ddp_find_unused_parameters=true` 处理两个零权重头。
 - `Find_0/CPC1` 与 `Find_1/CPC1` 只启动 CPC1，不自动串联 CPC2。双卡 Find_0 每个 rank 使用 16 workers；双卡 Find_1 申请 64 CPU，每个 rank 使用 30 workers。
 - 正式入口为 `训练与运行/sh/Find_0.sh`、`Find_1.sh`、`unet_base.sh`、`unet_c1.sh`、`unet_diff.sh` 和薄包装 `unet_c1_no_mainchain.sh`。旧 `train_2/`、`train_3/` 副本从活动树删除。
-- 当前 PDB 中心采样入口统一使用 `max_epochs=70` 和 `warmup_ratio=0.005`。Find_0 每个 epoch 执行 10 次完整 validation；Find_1 与三个 U-Net 入口每个 epoch 执行 12 次。该组合使相邻验证之间的训练 BOX 数接近 cap 为 5 时的上一版实施稿；每次活动 validation 固定读取 150 个 PDB 的 7,500 个 BOX。Stage1 CPC1 与 CPC2 的 `ReduceLROnPlateau` 都采用绝对改善阈值 `0.003`；该阈值不修改 Selector 的独立优化参数。
+- 当前 PDB 中心采样入口统一使用 `max_epochs=70` 和 `warmup_ratio=0.005`。Find_0 每个 epoch 执行 10 次完整 validation，相邻验证事件之间约有 68,585 个训练 BOX；Find_1 与三个 U-Net 入口每个 epoch 执行 12 次，相邻验证事件之间约有 57,154 个训练 BOX。每次活动 validation 固定读取 150 个 PDB 的 7,500 个 BOX。Stage1 CPC1 与 CPC2 的 `ReduceLROnPlateau` 都采用绝对改善阈值 `0.003`；该阈值不修改 Selector 的独立优化参数。
 
 ## 删除与依赖迁移
 

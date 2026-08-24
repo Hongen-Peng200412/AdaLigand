@@ -30,7 +30,8 @@
 
 - 主代理逐文件逐函数检查职责、位置、调用关系、嵌套、Docstring 和科学变量注释后，Dataset、冻结脚本、训练配置与 Stage1 V3 推理兼容的主链回归为 72 项通过，Python 编译、五个 Shell 的 `bash -n` 与两个仓库的 `git diff --check` 均通过。
 - 自审发现按文件路径执行硬编码脚本时，项目根目录不会自动进入 Python 搜索路径。正式命令因此改为模块调用 `python -m ops.stage1_data_preparation.freeze_validation_selection_pdb_centric`；没有增加 CLI 参数或第二个入口。
-- 最终 `25/0.5/25` 与 150 PDB 版本的正式产物证据将在覆盖发布和服务器核验后写入本节。原 `validation_selection.npz`、manifest、config、summary 与 `_COMPLETE` 不属于覆盖范围；本轮不操作任何 GPU Job。
+- 最终 `25/0.5/25` 与 150 PDB 版本已用硬编码模块命令覆盖发布。文件包含 150 个 PDB、3,750 个 bias、3,750 个 context 和 0 个 center 请求，共 7,500 个验证 BOX；每个 PDB 恰好包含 25 个 bias 与 25 个 context。逐字段 dtype、shape、候选索引范围、PDB manifest 顺序和逐 PDB 计数均通过服务器核验。
+- `validation_selection_pdb_centric.npz` 最终大小为 71,150 字节，SHA-256 为 `364db41a70213ffb4be8fafe5f5f5e51d0449bb322840f7ae39fb7c35105c3ae`；重复执行正式命令后哈希不变。原 `validation_selection.npz`、manifest、config、summary 与 `_COMPLETE` 的修改时间和 SHA-256 均未变化；本轮未操作任何 GPU Job。
 - 第一轮三类全面独立审查已完成。代码布局与 Git 审查要求补齐类分隔、五入口文档和配置覆盖；注释审查要求新代码统一 ASCII 标点、逐项字段说明和科学变量注释；逻辑审查确认采样与冻结算法正确，并指出活动资源说明仍残留 Find_1 的旧口径。整改后，正式 Find_1 说明统一为双卡 64 CPU、每 rank 30 workers，两个代码旁文档补齐 validation NPZ 的 11 字段表，五个入口的训练预算和配置测试保持一致。
 - 第一轮整改后的 Stage1 Dataset、配置、冻结脚本、推理兼容和模型边界回归为 94 项通过；Python 编译、五个 Shell 的 `bash -n` 与两个仓库的 `git diff --check` 均通过。剩余两轮全面审查、最终全量测试和 Git 双线端点尚待本记录后续回填。
 
