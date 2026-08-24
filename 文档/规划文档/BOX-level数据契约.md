@@ -183,6 +183,7 @@ centered 正式推理的 batch size 必须由配置显式提供，Python 不设�
 ├── validation/{pdb_id}.npz
 ├── manifest.json
 ├── validation_selection.npz
+├── validation_selection_pdb_centric.npz
 ├── config.json
 ├── summary.json
 └── _COMPLETE
@@ -198,11 +199,11 @@ centered 正式推理的 batch size 必须由配置显式提供，Python 不设�
 | `bias_start_zyx` | `int32 (N_occ,30,3)` | 每个真实配体实例的 30 个偏置正样本 BOX 起点；包含经验半径偏移和额外 0–3 Å 独立漂移 |
 | `context_start_zyx` | `int32 (N_context,3)` | 与真实配体实例无关的受体上下文 BOX 起点 |
 
-上下文 BOX 从逐轴合法的整数起点均匀采样，不设置核心受体重原子数量门槛，也不按配体位置过滤。每个 PDB 目标为 500 个上下文 BOX，最多尝试 3000 次，因此 `N_context` 可以是 0 到 500；本次正式 train 与 validation 均没有零 context PDB。
+上下文 BOX 从逐轴合法的整数起点均匀采样，不设置核心受体重原子数量门槛，也不按配体位置过滤。每个 PDB 目标为 500 个上下文 BOX，最多尝试 3000 次，因此构建器允许 `N_context` 为 0 到 500；本次正式 train 与 validation 的每个 PDB 都有超过 25 个 context 候选。
 
 不同 bias 随机样本解析到同一合法整数 BOX 起点时，重复起点原样保留。
 
-训练请求采用 `center:bias:context = 0:5:5`，冻结验证请求采用 `0:1:1`。两者对每个 PDB 都最多选择 50 个 occurrence；center 起点只为兼容既有字段而保留，不进入请求。训练上下文池不足 5 项时可以放回采样；验证每个 occurrence 只选择 1 个上下文候选。上下文池为空时不伪造请求。
+V3 逐 PDB NPZ 只定义几何候选，不再隐含活动训练比例。当前训练参数为 `pdb_foreground_box_num=25`、`pdb_foreground_fraction_target=0.5` 和 `pdb_occurrence_foreground_box_cap=25`；foreground 在这三个字段中专指 bias BOX，context 仍是独立角色。设一个 PDB 含 `O` 个 occurrence，则一个 epoch 的实际 bias 数量为 `min(25, 25O)`。正式 pool 的每个 PDB 至少含一个 occurrence，因此实际 bias 固定为 25。这些 bias 先按整除结果分给全部 occurrence，余数沿由 seed 与该 PDB 在 manifest 中的顺序编号确定的稳定排列逐 epoch 轮转；每个 occurrence 再从自己的 30 个 bias 候选中无放回选择。context 目标数量为 `round(25 × (1 - 0.5) / 0.5) = 25`，并从该 PDB 的 context 候选中无放回选择。center 起点只为兼容 V3 字段而保留，不进入活动请求。
 
 validation 使用冻结请求，不保存增强后的数组。train 的随机 90° 旋转会同步旋转密度、监督图和 Find 原子坐标；奇数次四分之一转交换空间轴时，还会交换 `voxel_size_world` 的对应 XYZ 尺度，并重新计算 BOX 中心和原子世界坐标，不能用“体素尺寸近似 1 Å”代替几何变换。
 
@@ -212,7 +213,7 @@ validation 使用冻结请求，不保存增强后的数组。train 的随机 90
 - `splits` 只含 `train` 和 `validation`。
 - 每个数据划分是对象数组；每项精确包含 `pdb_id: str` 与相对 BOX 池根目录的 POSIX 风格 `path: str`。
 
-`validation_selection.npz`：
+原 `validation_selection.npz` 与当前 `validation_selection_pdb_centric.npz` 共用以下索引字段：
 
 | 字段 | dtype 与形状 | 索引目标 |
 | --- | --- | --- |
@@ -225,7 +226,17 @@ validation 使用冻结请求，不保存增强后的数组。train 的随机 90
 | `context_pdb_index` | `int32 (N_context_selected,)` | 索引 `validation_pdb_id` 第一维 |
 | `context_candidate_index` | `int32 (N_context_selected,)` | 索引相应 PDB 的 `context_start_zyx` 第一维 |
 
-命令参数 `--seed` 的默认值是 3407。`config.json` 保存以下当前规则：
+`validation_selection_pdb_centric.npz` 使用 seed 3407 从 200 个 validation PDB 中无放回选择 150 个身份，保持 manifest 相对顺序，并冻结这 150 个 PDB 的 epoch 0。文件在上述八类索引字段之外精确增加三个标量：
+
+| 字段 | dtype 与形状 | 含义 |
+| --- | --- | --- |
+| `pdb_foreground_box_num` | `int32 ()` | 每个 PDB 的目标 bias BOX 数量，固定为 25 |
+| `pdb_foreground_fraction_target` | `float64 ()` | bias 占目标 bias 与 context 总数的比例，固定为 0.5 |
+| `pdb_occurrence_foreground_box_cap` | `int32 ()` | 单个 occurrence 每个 epoch 的 bias BOX 数量上限，固定为 25 |
+
+该文件不复制 BOX 起点，不增加 schema、策略字符串、冗余计数或完成标记。它由 Pocket_Plus 的硬编码脚本 `ops/stage1_data_preparation/freeze_validation_selection_pdb_centric.py` 一次性生成；脚本没有参数化命令行，准确运行命令为 `python -m ops.stage1_data_preparation.freeze_validation_selection_pdb_centric`。原 `validation_selection.npz` 不改写，保留为历史请求产物。
+
+V3 候选池构建命令的 `--seed` 默认值是 3407。`config.json` 保存以下历史构建规则，不再作为活动 Dataset 的采样参数来源：
 
 - `box_shape_zyx=[80,80,80]`
 - `bias_candidates_per_occurrence=30`
@@ -247,11 +258,13 @@ validation 使用冻结请求，不保存增强后的数组。train 的随机 90
 - `validation_selection` 的 `pdb_count`、`center_count`、`bias_count`、`context_count`
 - `manifest` 的 train 与 validation 文件数
 
-正式结果为 train 13,717/13,717 PDB、validation 200/200 PDB，两个集合的 `zero_context_pdb_count` 都为 0。2026-08-18 按同一 seed 3407 覆盖发布的固定验证选择有 3,305 个 bias、3,305 个 context 和 0 个 center 条目；原 `0:5:5` 验证选择不再是活动产物。上述计数全部是 `int`。`_COMPLETE` 是每次完整发布最后创建的零字节文件。
+V3 候选池的正式结果为 train 13,717/13,717 PDB、validation 200/200 PDB，两个集合的 `zero_context_pdb_count` 都为 0。2026-08-18 按历史 `0:1:1` 规则覆盖发布的 `validation_selection.npz` 有 3,305 个 bias、3,305 个 context 和 0 个 center 条目；该文件不再是活动验证入口。`_COMPLETE` 是 V3 候选池完整发布时最后创建的零字节文件，新 selection 不改变它。
+
+2026-08-24 正式发布的 `validation_selection_pdb_centric.npz` 使用 `SeedSequence(3407, spawn_key=(2,))` 的独立随机域，从原 200 个 validation PDB 中无放回冻结 150 个身份，包含 3,750 个 bias、3,750 个 context 和 0 个 center 请求。150 个 PDB 都恰好包含 25 个 bias 与 25 个 context，PDB 身份按原 validation manifest 顺序保存。文件大小为 71,150 字节，SHA-256 为 `546ebd3a1f07b230af42911b6740f466c6af289c8bff91a387c4eb8b1d69dd8e`。原 `validation_selection.npz`、manifest、config、summary 与 `_COMPLETE` 的修改时间和 SHA-256 均未变化。
 
 ### 3.3 训练消费契约
 
-当前活动 Dataset 不提供请求比例截断参数，也不创建额外的 train 或 validation 比例请求文件。训练按 manifest 生成每个 epoch 的完整 `0:5:5` 请求；验证完整展开活动 `validation_selection.npz` 中冻结的 `0:1:1` 请求。
+当前活动 Dataset 不提供请求比例截断参数。训练按 manifest 和三个 PDB 中心采样参数动态生成每个 epoch 的请求，不把训练选择落盘；验证完整展开 `validation_selection_pdb_centric.npz`，不重新抽样。原 `config.json::entry_ratio`、`validation_entry_ratio` 与 `validation_selection.npz` 只说明 V3 几何池的历史构建，不参与当前请求生成。
 
 四个完整体数组通过只读内存映射现场裁出 80³：
 
@@ -266,7 +279,7 @@ Dataset 只复制实际裁块，不因缓存计量或数值检查读取完整体
 
 受体资产不改写：`receptor_tokens.npz:feat` 保持 `float32 (N_receptor,49)`，`is_backbone` 保持 `bool (N_receptor,)`。Dataset/Collator 分别传递两个字段；模型输入边界仅在当前模型期望 50 维时，把主链标志转为 `float32 (N_receptor,1)` 并拼到特征末尾。旧 49 维模型继续直接使用基础特征。
 
-DataLoader 的正式口径是 `prefetch_factor=4`、`pin_memory=true`、`persistent_workers=false`。单卡使用 16 CPU/16 workers；双卡 DDP 每个 rank 使用 16 workers，总计 32 CPU/32 workers。禁止把 worker 设为常驻，因为每个 epoch 的动态训练请求由主进程重新生成。
+DataLoader 的正式口径是 `prefetch_factor=4`、`pin_memory=true`、`persistent_workers=false`。`Find_1.sh` 的双卡任务申请 64 CPU，每个 rank 使用 30 workers；其他当前 Stage1 入口每个 rank 使用 16 workers。禁止把 worker 设为常驻，因为每个 epoch 的动态训练请求由主进程重新生成。
 
 ## 4. Stage1 V3 正式输出目录与状态
 
