@@ -35,7 +35,7 @@
 - 第三轮逻辑审查发现原 PDB 子集随机种子与第 3 个 manifest PDB 的 occurrence 排列随机状态碰撞。验证 PDB 选择改用 `SeedSequence(3407, spawn_key=(2,))` 后，最终冻结集合相对碰撞版本保留 116 个身份并替换 34 个身份；该中间版本未用于训练。回归测试精确锁定 seed、spawn key、四 PDB 夹具选择结果和验证随机状态与 200 个 PDB 的 occurrence/candidate 随机状态互不相等。
 - `validation_selection_pdb_centric.npz` 最终大小为 71,150 字节，SHA-256 为 `546ebd3a1f07b230af42911b6740f466c6af289c8bff91a387c4eb8b1d69dd8e`；重复执行正式命令后哈希不变。原 `validation_selection.npz`、manifest、config、summary 与 `_COMPLETE` 的修改时间和 SHA-256 均未变化。
 - 代码布局与 Git、中文注释、科学逻辑三类独立审查各完成三轮全面核查。每轮意见均先整改再进入下一轮；第三轮后的三类窄口径复核全部为 `APPROVED`，没有继续扩大审查范围。正式 Find_1 说明统一为双卡 64 CPU、每 rank 30 workers；Find_0、unet_base、unet_c1 与 unet_diff 的资源说明和五个入口的训练预算均由配置测试锁定。
-- 本轮没有检查、提交、取消、重启或修改任何 GPU Job。Git 双线在两个实现分支的最终文档提交后统一收口。
+- 本轮没有检查、提交、取消、重启或修改任何 GPU Job。Pocket_Plus 实现端点 `01888bf6ae1a1aa0b936114ef0569c5fe54cbd5c` 与学习/累计端点 `752159b5ca2460227cebb429dcd7142b1b0c6292` 的 tree 均为 `a538e6aae01ce24a45a740ca0193d465dcf9c5dc`；AdaLigand 同样从原累计基点按最终文档树重建学习线，并在推进 `Learn/CUMULATIVE` 前执行 tree 与路径级等价核验。
 
 ## 计划与实现差异
 
