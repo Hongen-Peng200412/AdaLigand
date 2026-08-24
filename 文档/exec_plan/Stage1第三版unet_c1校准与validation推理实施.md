@@ -100,6 +100,9 @@ bash -n 训练与运行/sh/infer/stage1_v3.sh
 | 2026-08-24 03:41--03:47 | 首项产物验收 | `6bgi` 与 `6dqn` 已完成；首个 `6bgi` 的概率 NPZ、几何、性能与完成标记逐项通过。H100 快照利用率 98%、显存 43,924 MiB、功耗 344.75 W，a5 进入稳定计算。 |
 | 2026-08-24 07:49--08:00 | a5 完成与全量验收 | a5 以退出码 0 完成，墙钟 14,998 秒；calibration 为 100/100，完整图概率共 14,459,386,630 字节。全量审计确认没有缺项、额外项、临时项、非有限值或几何漂移；100 个 PDB 合计 112,070 个窗口。GPU 回填统计的 984 个活跃样本平均利用率 99.112%，峰值显存 43,930 MiB。 |
 | 2026-08-24 07:59--08:02 | F1/F2 blobs 与 a6 启动 | 提交 CPU16 Job `353620/353621`，分别生成 `alpha=1/2` 的 calibration semantic 与 blobs；两者于 Slurm 控制器时间 08:01:36 同时开始。a6 于 hnode02 时间 08:02:11 开始生成 validation 200 个 probability map；只移除 `try_lock_346737`，`after_lock_346737` 保留。三条支线均进入正常加载或计算。 |
+| 2026-08-24 08:09 | F1/F2 blobs 完成 | Job `353620/353621` 分别以 `COMPLETED 0:0` 结束，墙钟为 7 分 57 秒和 7 分 54 秒；两套 semantic、scan、100/100 blobs 和完成标记并存。每条 Job 读取约 17,978.6 MiB，确认该阶段由共享存储读取主导。 |
+| 2026-08-24 08:11--08:16 | F1/F2 basic 完成并全量验收 | Job `353646/353647` 分别在 17 秒和 20 秒内 `COMPLETED 0:0`。F1 得到 `score_threshold=0.9048807621, min_voxels=24`；F2 得到 `score_threshold=0.4806580544, min_voxels=15`。全量审计覆盖两套 semantic 扫描、200 份 blobs、完成标记和 basic JSON，全部通过。 |
+| 2026-08-24 08:03--08:18 | validation 首项验收 | 首个 `5irx` 的概率为 float32 `(234,234,234)`，全部有限且范围合法；shape、origin 和 voxel size 与 `exp.npy`、`exp.npz` 和 `ligand_area.npz` 完全一致。a6 的 GPU 采样连续处于 98--100%，`after_lock_346737` 保留。 |
 
 ## 部署与服务器 smoke 命令
 
@@ -132,7 +135,7 @@ pytest -q tests/inference/test_stage1_cuda.py
 
 ## 正式启动记录
 
-本节保存每次正式启动的完整科学命令、开始与结束时间、Slurm Job、attempt、release、launch、动态命令 SHA-256、日志和产物地址。cnode02 的文件时间比 Slurm 控制器记录约早 1 分 43 秒；CPU Job 同时保留控制器 `SubmitTime/StartTime=2026-08-24T08:01:36` 与执行节点生成的 launch 名称，不用其中一套时间改写另一套。
+本节保存每次正式启动的完整科学命令、开始与结束时间、Slurm Job、attempt、release、launch、动态命令 SHA-256、日志和产物地址。cnode02 的文件时间比 Slurm 控制器记录约早 2 分钟；CPU Job 同时保留控制器的 Submit/Start/End 时间与执行节点生成的 launch 名称，不用其中一套时间改写另一套。
 
 ### Job 346737 attempt a5：calibration probability
 
@@ -211,9 +214,17 @@ bash "${TASK_PROJECT_ROOT}/训练与运行/sh/infer/stage1_v3.sh" probability \
   --output-root /storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950/artifacts
 ```
 
+首个完成项 `5irx` 的正式审计结果：
+
+- `probability_map.npz` 精确包含 `probability_map`、`origin_xyz`、`voxel_size_xyz`；概率为 float32 `(234,234,234)`，全部有限，最小值约 `7.6669e-11`，最大值 `1.0`。
+- shape、`origin_xyz=[0,0,0]` 和 `voxel_size_xyz=[0.9974154,0.9974154,0.9974154]` 与数据根的 `exp.npy`、`exp.npz` 和 `ligand_area.npz` 逐元素一致。
+- `geometry.json` 记录 80³ 窗口、`stride_zyx=[30,30,30]` 与 343 个窗口；墙钟、物化等待和融合等待分别约为 `46.612`、`0.680` 和 `0.261` 秒。
+- `_COMPLETE` 的角色为 `probability`；`monitoring/validation_first_probability_audit.json` SHA-256 为 `8651c82942b817750dba7260dd4eb7737e5f90a91ce44437fd31b4abe25d5f50`。
+- 首次只读审计对 `performance.json` 使用了旧路径 `probability/performance.json`，因此在未写文件的情况下以 `FileNotFoundError` 退出；按实际契约路径 `status/probability/performance.json` 重跑后通过，科学产物未修改。
+
 ### F1 semantic 与 blobs CPU16
 
-Slurm Job `353620` 于控制器时间 2026-08-24 08:01:36+08:00 提交并开始，当前在 cnode02 使用 16 CPU 运行。执行节点建立 launch `stage1_v3_job353620_20260824T075953_a1`；`launch.json` SHA-256 为 `6829ed1efdeed8ad45505f5a48a18cced6c4af421fea1af9a94f33cee7ec2ff7`，动态命令与 launch 副本 SHA-256 为 `83ddd253751085473b0c7d91804580e8977786f1a10d177382348e716d3a9a16`。release 为正式根 `feedback/releases/Pocket_Plus_38edc6467116/Pocket_Plus`，manifest SHA-256 为 `aa4e77255d8866fd0716ae524a5308197ca1dbb6d412e280b548b1b4527567af`。标准输出与错误分别位于 `feedback/allocations/353620/out` 和 `err`。
+Slurm Job `353620` 于控制器时间 2026-08-24 08:01:36+08:00 提交并开始，08:09:33 以 `COMPLETED 0:0` 结束，墙钟为 7 分 57 秒。执行节点建立 launch `stage1_v3_job353620_20260824T075953_a1`；`launch.json` SHA-256 为 `6829ed1efdeed8ad45505f5a48a18cced6c4af421fea1af9a94f33cee7ec2ff7`，动态命令与 launch 副本 SHA-256 为 `83ddd253751085473b0c7d91804580e8977786f1a10d177382348e716d3a9a16`。release 为正式根 `feedback/releases/Pocket_Plus_38edc6467116/Pocket_Plus`，manifest SHA-256 为 `aa4e77255d8866fd0716ae524a5308197ca1dbb6d412e280b548b1b4527567af`。标准输出与错误分别位于 `feedback/allocations/353620/out` 和 `err`。
 
 完整提交命令为：
 
@@ -236,9 +247,11 @@ bash "$task_root/训练与运行/submit_task.sh" \
   --data-root /storage/penghongen/AdaLigand/Ori_Data
 ```
 
+正式结果为：语义阈值网格索引 27,087、阈值 `0.826629638671875`、全局 micro-F1 `0.5809896387895521`；100 份 F1 blobs 共 2,619 个 blob、576,101 个体素和 3,179,298 个 NPZ 字节。
+
 ### F2 semantic 与 blobs CPU16
 
-Slurm Job `353621` 与 Job `353620` 在同一控制器时间提交并开始，当前同样在 cnode02 使用 16 CPU 运行。执行节点建立 launch `stage1_v3_job353621_20260824T075954_a1`；`launch.json` SHA-256 为 `c1dc4c6a011ed0fc7ba42abc8a8dbd6d43f670a5c36373d4340a5de0596cb2b2`，动态命令与 launch 副本 SHA-256 为 `4972152578b3ed3638bad34ff9b20a01c6a6c2252d29f8a75f3bec3f5debe0fa`。release、manifest 与日志根和 F1 相同；标准输出与错误分别位于 `feedback/allocations/353621/out` 和 `err`。
+Slurm Job `353621` 与 Job `353620` 在同一控制器时间提交并开始，08:09:30 以 `COMPLETED 0:0` 结束，墙钟为 7 分 54 秒。执行节点建立 launch `stage1_v3_job353621_20260824T075954_a1`；`launch.json` SHA-256 为 `c1dc4c6a011ed0fc7ba42abc8a8dbd6d43f670a5c36373d4340a5de0596cb2b2`，动态命令与 launch 副本 SHA-256 为 `4972152578b3ed3638bad34ff9b20a01c6a6c2252d29f8a75f3bec3f5debe0fa`。release、manifest 与日志根和 F1 相同；标准输出与错误分别位于 `feedback/allocations/353621/out` 和 `err`。
 
 完整提交命令为：
 
@@ -261,13 +274,67 @@ bash "$task_root/训练与运行/submit_task.sh" \
   --data-root /storage/penghongen/AdaLigand/Ori_Data
 ```
 
+正式结果为：语义阈值网格索引 9,867、阈值 `0.301116943359375`、全局 micro-F2 `0.636146007126712`；100 份 F2 blobs 共 3,491 个 blob、798,418 个体素和 4,486,631 个 NPZ 字节。
+
 ### F1 basic tune CPU16
 
-状态：等待 F1 blobs 完成。
+Slurm Job `353646` 于控制器时间 2026-08-24 08:11:29+08:00 提交并开始，08:11:46 以 `COMPLETED 0:0` 结束，墙钟 17 秒。执行节点建立 launch `stage1_v3_job353646_20260824T080925_a1`；`launch.json` SHA-256 为 `b0e0ffc585376ea03c3c98a4f24f5f099b0fb2c98579b76ac699ca77f6916206`，动态命令与 launch 副本 SHA-256 为 `fe0e9c829a6ad2213a5e4e24c1c5803bd964f9a48a71826efa51f82f409ea338`。正式结果 `F1_basic.json` SHA-256 为 `721a302367e9b06c829ea6932ebf49e76fa34c0ee5df0eb0b420e2432bc3df87`；参数为 `alpha=1`、`objective_beta=1`、`prefiltered_min_voxel=8`、`score_threshold=0.9048807621002197`、`min_voxels=24`，最终目标值为 `1.5192947900233444`。
+
+完整提交命令为：
+
+```bash
+task_root=/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/task_root/Pocket_Plus
+formal_root=/storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950
+bash "$task_root/训练与运行/submit_task.sh" \
+  --task-root "$task_root" \
+  --feedback-root "$formal_root/feedback" \
+  --sh 训练与运行/sh/infer/stage1_v3.sh \
+  --resource cpu --cpus 16 \
+  --job-name unet_c1_calibration_f1_basic \
+  -- tune \
+  --producer unet_c1 \
+  --pdb-json "$formal_root/inputs/calibration.json" \
+  --split calibration \
+  --output-root "$formal_root/artifacts" \
+  --alpha 1 \
+  --objective-beta 1 \
+  --score-mode basic \
+  --prefiltered-min-voxel 8 \
+  --data-root /storage/penghongen/AdaLigand/Ori_Data
+```
 
 ### F2 basic tune CPU16
 
-状态：等待 F2 blobs 完成。
+Slurm Job `353647` 与 F1 在同一控制器时间提交并开始，08:11:49 以 `COMPLETED 0:0` 结束，墙钟 20 秒。执行节点建立 launch `stage1_v3_job353647_20260824T080927_a1`；`launch.json` SHA-256 为 `0611dfa33b19a1fadb5f0081988922f78ae25afe6c46f5e9ca93b12385fa62d7`，动态命令与 launch 副本 SHA-256 为 `46c4dd3fd7d24bc93736742b98fbdfdbbf97dfe72c935e478e6c0144503e3bd2`。正式结果 `F2_basic.json` SHA-256 为 `093b5372248f2277b1873bfaaa5dd20c10ea30260e26c6d78ad9b90e43448922`；参数为 `alpha=2`、`objective_beta=2`、`prefiltered_min_voxel=8`、`score_threshold=0.48065805435180664`、`min_voxels=15`，最终目标值为 `1.6342244192773876`。
+
+完整提交命令为：
+
+```bash
+task_root=/storage/penghongen/tmp/stage1_v3_ablation_replacement_20260817T1845/task_root/Pocket_Plus
+formal_root=/storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950
+bash "$task_root/训练与运行/submit_task.sh" \
+  --task-root "$task_root" \
+  --feedback-root "$formal_root/feedback" \
+  --sh 训练与运行/sh/infer/stage1_v3.sh \
+  --resource cpu --cpus 16 \
+  --job-name unet_c1_calibration_f2_basic \
+  -- tune \
+  --producer unet_c1 \
+  --pdb-json "$formal_root/inputs/calibration.json" \
+  --split calibration \
+  --output-root "$formal_root/artifacts" \
+  --alpha 2 \
+  --objective-beta 2 \
+  --score-mode basic \
+  --prefiltered-min-voxel 8 \
+  --data-root /storage/penghongen/AdaLigand/Ori_Data
+```
+
+### calibration 衍生产物与 CPU 性能验收
+
+`monitoring/calibration_semantic_blobs_basic_audit.json` SHA-256 为 `88888d32f9d6d74e44b0d8b6c878cd5d18ad81e8be4b50b25c937ebdc1b133f4`。审计逐一读取 200 份 blob NPZ，核对数组字段、长度关系、有限性、概率范围、语义来源阈值、完成角色、PDB 集合以及 F1/F2 文件共存；同时核对 32,769 个语义阈值端点、首个最大值规则和两份 basic 参数，全部通过。
+
+Job `353620/353621` 的 batch step 分别读取 17,978.56/17,978.57 MiB，只写 13.16/13.50 MiB；总 CPU 为 7 分 40 秒和 7 分 37 秒，接近单核墙钟，说明端到端时间由共享存储顺序读取约 18 GiB 主导，不属于“计算阶段长时间不足 8 核且非 I/O 饱和”的情形。basic 正式运行整体仅 17--20 秒：100 个输入文件加载为 1.295--1.328 秒，100 个 PDB 事实构造为 4.110--4.923 秒，串行实际阈值扫描为 0.068--0.084 秒，33 个最终 `min_voxels` 组合为 0.361--0.363 秒。由于并行阶段短于一次常规利用率采样，未伪造“持续 8 核”观测；代码层多线程、乱序与串行等价证据沿用冻结测试，正式端到端时间已消除原计划担心的调参瓶颈。
 
 ## 部署边界
 
