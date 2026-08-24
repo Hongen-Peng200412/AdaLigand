@@ -203,7 +203,7 @@ centered 正式推理的 batch size 必须由配置显式提供，Python 不设�
 
 不同 bias 随机样本解析到同一合法整数 BOX 起点时，重复起点原样保留。
 
-V3 逐 PDB NPZ 只定义几何候选，不再隐含活动训练比例。当前训练参数为 `pdb_foreground_box_num=25`、`pdb_foreground_fraction_target=0.5` 和 `pdb_occurrence_foreground_box_cap=5`；foreground 在这三个字段中专指 bias BOX，context 仍是独立角色。设一个 PDB 含 `O` 个 occurrence，则一个 epoch 的实际 bias 数量为 `min(25, 5O)`。这些 bias 先按整除结果分给全部 occurrence，余数沿由 seed 与该 PDB 在 manifest 中的顺序编号确定的稳定排列逐 epoch 轮转；每个 occurrence 再从自己的 30 个 bias 候选中无放回选择。context 目标数量为 `round(25 × (1 - 0.5) / 0.5) = 25`，不随实际 bias 数量不足而减少，并从该 PDB 的 context 候选中无放回选择。center 起点只为兼容 V3 字段而保留，不进入活动请求。
+V3 逐 PDB NPZ 只定义几何候选，不再隐含活动训练比例。当前训练参数为 `pdb_foreground_box_num=25`、`pdb_foreground_fraction_target=0.5` 和 `pdb_occurrence_foreground_box_cap=25`；foreground 在这三个字段中专指 bias BOX，context 仍是独立角色。设一个 PDB 含 `O` 个 occurrence，则一个 epoch 的实际 bias 数量为 `min(25, 25O)`。正式 pool 的每个 PDB 至少含一个 occurrence，因此实际 bias 固定为 25。这些 bias 先按整除结果分给全部 occurrence，余数沿由 seed 与该 PDB 在 manifest 中的顺序编号确定的稳定排列逐 epoch 轮转；每个 occurrence 再从自己的 30 个 bias 候选中无放回选择。context 目标数量为 `round(25 × (1 - 0.5) / 0.5) = 25`，并从该 PDB 的 context 候选中无放回选择。center 起点只为兼容 V3 字段而保留，不进入活动请求。
 
 validation 使用冻结请求，不保存增强后的数组。train 的随机 90° 旋转会同步旋转密度、监督图和 Find 原子坐标；奇数次四分之一转交换空间轴时，还会交换 `voxel_size_world` 的对应 XYZ 尺度，并重新计算 BOX 中心和原子世界坐标，不能用“体素尺寸近似 1 Å”代替几何变换。
 
@@ -226,13 +226,13 @@ validation 使用冻结请求，不保存增强后的数组。train 的随机 90
 | `context_pdb_index` | `int32 (N_context_selected,)` | 索引 `validation_pdb_id` 第一维 |
 | `context_candidate_index` | `int32 (N_context_selected,)` | 索引相应 PDB 的 `context_start_zyx` 第一维 |
 
-`validation_selection_pdb_centric.npz` 冻结相同 seed 3407 下的 validation epoch 0，并在上述八类索引字段之外精确增加三个标量：
+`validation_selection_pdb_centric.npz` 使用 seed 3407 从 200 个 validation PDB 中无放回选择 150 个身份，保持 manifest 相对顺序，并冻结这 150 个 PDB 的 epoch 0。文件在上述八类索引字段之外精确增加三个标量：
 
 | 字段 | dtype 与形状 | 含义 |
 | --- | --- | --- |
 | `pdb_foreground_box_num` | `int32 ()` | 每个 PDB 的目标 bias BOX 数量，固定为 25 |
 | `pdb_foreground_fraction_target` | `float64 ()` | bias 占目标 bias 与 context 总数的比例，固定为 0.5 |
-| `pdb_occurrence_foreground_box_cap` | `int32 ()` | 单个 occurrence 每个 epoch 的 bias BOX 数量上限，固定为 5 |
+| `pdb_occurrence_foreground_box_cap` | `int32 ()` | 单个 occurrence 每个 epoch 的 bias BOX 数量上限，固定为 25 |
 
 该文件不复制 BOX 起点，不增加 schema、策略字符串、冗余计数或完成标记。它由 Pocket_Plus 的硬编码脚本 `ops/stage1_data_preparation/freeze_validation_selection_pdb_centric.py` 一次性生成；脚本没有参数化命令行，准确运行命令为 `python -m ops.stage1_data_preparation.freeze_validation_selection_pdb_centric`。原 `validation_selection.npz` 不改写，保留为历史请求产物。
 
