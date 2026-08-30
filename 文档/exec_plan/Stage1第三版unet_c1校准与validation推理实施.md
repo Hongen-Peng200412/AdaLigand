@@ -10,6 +10,12 @@
 /storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950
 ```
 
+> 2026-08-25 后续说明：本记录所述 micro 调参产物已经整体重命名到
+> `/storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950——micro(old)`。
+> 下文保留运行发生时的原路径，作为历史证据，不改写当时事实。原名称现在由
+> `文档/exec_plan/Stage1_PDB等权macro调参与unet_c1重算实施.md` 记录的 macro
+> F1/F2 重算使用。
+
 目录职责如下：
 
 - `inputs/`：冻结 calibration、validation、推理配置，以及 checkpoint、训练配置和部署代码身份。
