@@ -145,7 +145,7 @@ def sample_test_0(full_test_pdb_ids: Iterable[str], sample_size: int, seed: int)
     输入集合先排序去重, 再固定使用 `SeedSequence(seed, spawn_key=(1,))`; 返回顺序就是随机抽取顺序.
     """
 
-    # list[str] (N_full_test,), full_test 的稳定 PDB identity 顺序.
+    # list[str] (N_full_test,), full_test 去重排序后的稳定 PDB identity 顺序; N_full_test 是去重后的 PDB 数.
     sorted_ids = sorted(set(full_test_pdb_ids))
     if len(sorted_ids) < sample_size:
         raise ValueError(f"full_test 只有 {len(sorted_ids)} 个 PDB, 不足 {sample_size} 个.")
@@ -287,7 +287,7 @@ def finalize_identity_views(
             - seed: int, 当前固定随机 entropy.
             - name: str, 固定为 full_test.
             - occurrence_filter: None, 表示不按 occurrence 数过滤.
-            - pdb_ids: list[str], 按贪心接受顺序保存的 PDB identities.
+            - pdb_ids: 长度 summary.full_test_count 的 list[str], 按贪心接受顺序保存的 PDB identities.
         - `test_0.json`: dict; 从 full_test 无放回抽取且不应用 occurrence 数过滤的固定视图.
             - schema_version: int, 当前为 1.
             - pdb_coverage_mode: str, 当前 or/and 组合模式.
@@ -376,7 +376,7 @@ def finalize_identity_views(
     ]
     # dict[str, dict], 每个统一资格 PDB 的固定种子贪心接受或拒绝状态.
     greedy_states = greedy_independent_set(eligible_ids, conflict_pairs, seed)
-    # list[str] (N_full_test,), 完整贪心极大独立集; 任意两个成员之间没有当前冗余边.
+    # list[str] (N_full_test,), 完整贪心极大独立集; N_full_test 是贪心接受的 PDB 数, 任意两个成员之间没有当前冗余边.
     full_test_ids = [
         pdb_id for pdb_id, state in greedy_states.items() if bool(state["accepted"])
     ]
