@@ -4,7 +4,7 @@
 
 ## 范围
 
-本轮从冻结的 22,386 个 PDB 建立 polymer entity 序列目录，以 train、validation、calibration 合计 14,017 个 PDB 作为已暴露参考，以日期留出的 2,497 个 PDB 作为 held-out 候选。当前只完成序列去冗余、统一身份证和 `test_0`、`test_1` 两个身份视图。
+本轮从冻结的 22,386 个 PDB 建立 polymer entity 序列目录，以 train、validation、calibration 合计 14,017 个 PDB 作为已暴露参考，以日期留出的 2,497 个 PDB 作为 held-out 候选。当前只完成序列去冗余、统一身份证和 `full_test`、`test_0`、`test_1` 三个身份视图。
 
 ESM2、Luca、CryoAtom2 的真实 smoke，残基—原子映射、残基内原子平均坐标、ESM2 残基嵌入与空间位置对齐，以及密度图加序列的 CryoAtom2 推理属于后续范围。本轮保留稳定的 `pdb_id + entity_id + label_asym_id` 身份，未来残基位置统一使用 mmCIF `label_seq_id`，但不提前实现这些模型或映射。
 
@@ -43,7 +43,7 @@ MMseqs2 使用真实 alignment identity，即 `--alignment-mode 3 --seq-id-mode 
 
 ## Held-out 身份证与选择
 
-2,497 个 held-out PDB 全部进入统一 JSONL 身份证。每条记录包含 PDB/EMDB/日期、`map_resolution`、`cc_contour`、资产状态、六类配体计数、polymer/entity/chain/residue 统计、序列状态、参考集与 held-out 内部冗余摘要、贪心接受或拒绝状态，以及两个测试视图标记。完整 PDB 对关系单独保存在冗余边文件，身份证只保存摘要和直接见证。
+2,497 个 held-out PDB 全部进入统一 JSONL 身份证。每条记录包含 PDB/EMDB/日期、`map_resolution`、`cc_contour`、资产状态、六类配体计数、polymer/entity/chain/residue 统计、序列状态、参考集与 held-out 内部冗余摘要、贪心接受或拒绝状态，以及三个测试视图标记。完整 PDB 对关系单独保存在冗余边文件，身份证只保存摘要和直接见证。
 
 正式候选依次要求：
 
@@ -52,9 +52,9 @@ MMseqs2 使用真实 alignment identity，即 `--alignment-mode 3 --seq-id-mode 
 3. mmCIF 序列解析成功；零可比 chain 不属于失败；
 4. 与 14,017 个已暴露参考 PDB 没有当前参数下的冗余边。
 
-在剩余 held-out 冲突图上，以 `SeedSequence(3407, spawn_key=(0,))` 产生固定贪心顺序，构建任意两成员之间均无冗余边的独立集。每个拒绝项保存已接受邻居作为见证。
+在剩余 held-out 冲突图上，以 `SeedSequence(3407, spawn_key=(0,))` 产生固定贪心顺序，依次接受与已有成员均不冲突的 PDB。遍历全部合格 PDB 后，完整接受集合写为 `full_test`。任意两个成员之间均无冗余边；每个拒绝项都保存一个已接受的直接冲突邻居，因此再加入任何一个被拒绝 PDB 都会破坏独立性。`full_test` 由此是极大独立集，但不保证是基数最大的独立集。
 
-从完整独立集用 `SeedSequence(3407, spawn_key=(1,))` 无放回抽取 200 个 PDB 得到 `test_0`。`test_1` 只保留 `test_0` 中总 occurrence 数严格满足 `1 < n < 100` 的 PDB，因此必为 `test_0` 子集且数量不预设。
+从 `full_test` 用 `SeedSequence(3407, spawn_key=(1,))` 无放回抽取 200 个 PDB 得到 `test_0`。`test_1` 只保留 `test_0` 中总 occurrence 数严格满足 `1 < n < 100` 的 PDB，因此 `test_1 ⊆ test_0 ⊆ full_test`。`full_test` 与 `test_0` 都不按 occurrence 数过滤；`test_1` 数量不预设。
 
 ## 执行边界
 

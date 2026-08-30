@@ -1,12 +1,12 @@
 # AdaLigand held-out 去冗余
 
-本目录把冻结的 PDB/EMDB 数据整理成一份可复用的 polymer entity 序列目录，再从日期留出的 2,497 个 PDB 生成统一身份证、序列冗余关系和两个测试视图。科学定义以 `../../文档/规划文档/held-out去冗余与测试集构建.md` 为准；本 README 只说明当前代码入口和盘上字段。
+本目录把冻结的 PDB/EMDB 数据整理成一份可复用的 polymer entity 序列目录，再从日期留出的 2,497 个 PDB 生成统一身份证、序列冗余关系和三个测试视图。科学定义以 `../../文档/规划文档/held-out去冗余与测试集构建.md` 为准；本 README 只说明当前代码入口和盘上字段。
 
 ## 目录组织
 
 - `held_out_pipeline/catalog.py`：解析 mmCIF、审计 held-out 质量与资产、合并序列目录、生成 FASTA、对照 RCSB 官方 FASTA。
 - `held_out_pipeline/redundancy.py`：运行 MMseqs2、读取真实 identity 与双向 coverage、在 entity 容量图计算三个一对一匹配并展开最终 chain 见证。
-- `held_out_pipeline/selection.py`：汇总参考集和 held-out 内部关系，构建身份证、固定种子独立集、`test_0` 与 `test_1`。
+- `held_out_pipeline/selection.py`：汇总参考集和 held-out 内部关系，构建身份证、固定种子贪心极大独立集 `full_test`，再派生 `test_0` 与 `test_1`。
 - `held_out_pipeline/cli.py`：四个显式步骤的薄命令行入口，不隐式串联 Job。
 - `tests/`：纯合成契约测试；真实 RCSB FASTA 和 MMseqs2 smoke 在服务器步骤执行。
 - `../../训练与运行/sh/held_out_*.sh`：两个数组步骤与两个合并步骤的正式任务脚本。
@@ -131,22 +131,25 @@ bash 训练与运行/submit_task.sh --sh held_out_finalize.sh --resource cpu --c
 | `ligands` | object | 与 `held_out_base.jsonl` 相同；含总数、六个具名类别计数与严格 occurrence 过滤布尔值。 |
 | `sequence` | object | 与 `held_out_base.jsonl` 相同；含状态、可空错误、六个总计字段和五类各自的六个计数字段。 |
 | `redundancy` | object | mode、threshold，参考/内部 edge 数与 redundant edge 数，`reference_redundant`，以及可空 `strongest_reference_edge`、`strongest_internal_edge`。`reference_redundant` 只针对 `pdb_sequence_status.status=ok` 的参考目录；实际失败数见 stage1 summary。压缩见证字段见下文。 |
-| `selection` | object | `base_eligible`；`exclusion_reasons` 可含 `quality_failed`、`asset_failed`、`sequence_failed`、`reference_redundant`；可空 `greedy_rank`、`independent_accepted`、可空 `rejected_by`/`rejection_edge`、`test_0`/`test_1` 布尔值及可空排名。 |
+| `selection` | object | `base_eligible`；`exclusion_reasons` 可含 `quality_failed`、`asset_failed`、`sequence_failed`、`reference_redundant`；可空 `greedy_rank`、`full_test` 布尔值、可空 `full_test_rank`、可空 `rejected_by`/`rejection_edge`、`test_0`/`test_1` 布尔值及可空排名。 |
 
 压缩关系见证为 null 或 object；object 含 `other_pdb_id`、`relation`、四个原始 coverage、`max_coverage`、`chain_pass`、`residue_pass` 和 `redundant`。存在冗余边时优先选择冗余见证，保证参考排除原因与身份证见证一致。
 
-两个测试视图的准确字段是：
+三个测试视图的准确字段是：
 
 | 文件 | 字段 |
 | --- | --- |
-| `test_0.json` | `schema_version`、`pdb_coverage_mode`、`pdb_coverage_threshold`、`seed`、`name="test_0"`、`occurrence_filter=null`、200 个 `pdb_ids`。 |
+| `full_test.json` | `schema_version`、`pdb_coverage_mode`、`pdb_coverage_threshold`、`seed`、`name="full_test"`、`occurrence_filter=null`、按贪心接受顺序保存的全部 `pdb_ids`。该集合两两无内部冗余边；每个未进入集合的合格 PDB 都与一个已进入成员直接冲突，因此它是极大独立集，但不声称是基数最大的独立集。 |
+| `test_0.json` | 同一版本与选择参数、`name="test_0"`、`occurrence_filter=null`、`parent="full_test"`、从 full_test 无放回抽取的 200 个 `pdb_ids`。 |
 | `test_1.json` | 同一版本与选择参数、`name="test_1"`、`occurrence_filter="1 < total_count < 100"`、`parent="test_0"`、从 test_0 保序过滤得到的 `pdb_ids`。 |
+
+三个视图满足 `test_1 ⊆ test_0 ⊆ full_test`。`full_test` 与 `test_0` 都不应用 occurrence 数过滤。
 
 ### 汇总与完成标记
 
 `stage1/summary.json` 字段为 `catalog_pdb_count`、`catalog_entity_count`、`reference_pdb_count`、`reference_sequence_failure_count`、`held_out_pdb_count`、`held_out_sequence_failure_count`、`sequence_status_counts`、`protein_target_entity_count`、`nucleic_target_entity_count`、`alignment_shard_count`、`official_fasta_smoke_passed`。
 
-`stage2/summary.json` 字段为 `raw_qualifying_alignment_count`、`oriented_entity_hit_count`、`pdb_edge_count`、`redundant_pdb_edge_count`、`relation_counts`、`mode`、`threshold`、`held_out_pdb_count`、`base_eligible_count`、`independent_set_count`、`test_0_count`、`test_1_count`、`exclusion_reason_counts`、`seed`。
+`stage2/summary.json` 字段为 `raw_qualifying_alignment_count`、`oriented_entity_hit_count`、`pdb_edge_count`、`redundant_pdb_edge_count`、`relation_counts`、`mode`、`threshold`、`held_out_pdb_count`、`base_eligible_count`、`full_test_count`、`test_0_count`、`test_1_count`、`exclusion_reason_counts`、`seed`。
 
 步骤 1 的分片 summary 含 `shard_index`、`shard_count`、`assigned_pdb_count`、`held_out_pdb_count`、`sequence_status_counts`、`workers`、`output`。步骤 3 的分片 summary 含 `shard_index`、`threads`、`mmseqs_version` 和两项 `commands`；每项 command 含 `sequence_kind`、`status`、完整命令与结果路径。对应步骤正常结束后分别写 `stage1/_COMPLETE` 与 `stage2/_COMPLETE`。分片中间结果位于 `stage1/shards/` 和 `stage2/mmseqs/`，不是下游正式接口。
 

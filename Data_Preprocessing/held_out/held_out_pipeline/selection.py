@@ -1,10 +1,10 @@
 """把 held-out 基础事实和冗余边合成为身份证与测试视图.
 
-主要入口是 :func:`finalize_identity_views`. 该入口先调用 redundancy 模块生成完整 PDB 对关系, 再排除参考集冗余, 最后在 held-out 内部冲突图上构建固定种子贪心独立集并抽取 `test_0`, `test_1`.
+主要入口是 :func:`finalize_identity_views`. 该入口先调用 redundancy 模块生成完整 PDB 对关系, 再排除参考集冗余, 最后把 held-out 内部冲突图的固定种子贪心极大独立集写为 `full_test`, 并派生 `test_0`, `test_1`.
 
 本模块不解析 mmCIF, 不运行 MMseqs2, 也不改变质量, 资产或序列阈值.
 
-全部路径相对于调用方 `output_root`. `held_out_identity.jsonl` 一行对应一个冻结 held-out PDB; `test_0.json` 和 `test_1.json` 各保存一个身份视图; `stage2/summary.json` 与 `_COMPLETE` 收口第二组产物.
+全部路径相对于调用方 `output_root`. `held_out_identity.jsonl` 一行对应一个冻结 held-out PDB; `full_test.json`, `test_0.json`, `test_1.json` 各保存一个身份视图; `stage2/summary.json` 与 `_COMPLETE` 收口第二组产物.
 """
 
 from __future__ import annotations
@@ -73,7 +73,7 @@ def greedy_independent_set(
     conflict_pairs: Iterable[tuple[str, str]],
     seed: int,
 ) -> dict[str, dict[str, Any]]:
-    """按固定 SeedSequence 顺序构建 held-out 冲突图的贪心独立集.
+    """按固定 SeedSequence 顺序构建 held-out 冲突图的贪心极大独立集.
 
     输入参数:
         - eligible_pdb_ids: Iterable[str], 已排除参考冗余的候选身份.
@@ -85,6 +85,8 @@ def greedy_independent_set(
             - states[*].greedy_rank: int, 当前 PDB 在固定随机访问顺序中的零基排名.
             - states[*].accepted: bool, 当前 PDB 是否被加入独立集.
             - states[*].rejected_by: str | None, 拒绝当前 PDB 的更早已接受直接邻居.
+
+    每个未接受候选都保存一个已接受的直接冲突邻居, 因此接受集合是极大独立集; 本算法不保证它是基数最大的独立集.
     """
 
     # list[str] (N,), 去重, 排序后的统一资格 PDB identity.
@@ -129,11 +131,11 @@ def greedy_independent_set(
     return states
 
 
-def sample_test_0(independent_pdb_ids: Iterable[str], sample_size: int, seed: int) -> list[str]:
-    """用独立 SeedSequence 子流从完整独立集无放回抽取 `test_0`.
+def sample_test_0(full_test_pdb_ids: Iterable[str], sample_size: int, seed: int) -> list[str]:
+    """用独立 SeedSequence 子流从 full_test 无放回抽取 `test_0`.
 
     输入参数:
-        - independent_pdb_ids: Iterable[str], 贪心独立集中的 PDB identities.
+        - full_test_pdb_ids: Iterable[str], 贪心极大独立集 full_test 中的 PDB identities.
         - sample_size: int, 要抽取的 test_0 PDB 数.
         - seed: int, 全局 SeedSequence entropy; 本入口固定使用 `spawn_key=(1,)`.
 
@@ -143,10 +145,10 @@ def sample_test_0(independent_pdb_ids: Iterable[str], sample_size: int, seed: in
     输入集合先排序去重, 再固定使用 `SeedSequence(seed, spawn_key=(1,))`; 返回顺序就是随机抽取顺序.
     """
 
-    # list[str] (N_independent,), 完整贪心独立集的稳定身份顺序.
-    sorted_ids = sorted(set(independent_pdb_ids))
+    # list[str] (N_full_test,), full_test 的稳定 PDB identity 顺序.
+    sorted_ids = sorted(set(full_test_pdb_ids))
     if len(sorted_ids) < sample_size:
-        raise ValueError(f"独立集只有 {len(sorted_ids)} 个 PDB, 不足 {sample_size} 个.")
+        raise ValueError(f"full_test 只有 {len(sorted_ids)} 个 PDB, 不足 {sample_size} 个.")
     # Generator, test_0 抽样专用随机子流; 不受贪心顺序消费量影响.
     random_generator = np.random.default_rng(np.random.SeedSequence(seed, spawn_key=(1,)))
     # ndarray int64 (sample_size,), 无放回随机排列的前 sample_size 个索引.
@@ -221,7 +223,7 @@ def finalize_identity_views(
     seed: int,
     test_0_size: int,
 ) -> dict[str, Any]:
-    """生成完整 PDB 关系, held-out 身份证和 `test_0/test_1` 两个冻结视图.
+    """生成完整 PDB 关系, held-out 身份证和三个冻结测试视图.
 
     输入参数:
         - output_root: Path, 第一组产物, MMseqs2 TSV 和最终视图的共享根目录.
@@ -239,7 +241,7 @@ def finalize_identity_views(
         - summary: dict, 保留 :func:`build_redundancy_edges` summary 并增加最终视图规模.
             - summary.held_out_pdb_count: int, 冻结 held-out PDB 数.
             - summary.base_eligible_count: int, 质量, 资产, 序列和参考冗余前置条件全部通过的 PDB 数.
-            - summary.independent_set_count: int, held-out 内部贪心独立集 PDB 数.
+            - summary.full_test_count: int, held-out 内部贪心极大独立集 PDB 数.
             - summary.test_0_count: int, 未应用 occurrence 数过滤的 test_0 PDB 数.
             - summary.test_1_count: int, 从 test_0 应用严格 `(1, 100)` 过滤后的 PDB 数.
             - summary.exclusion_reason_counts: dict[str, int], 四种前置排除原因各自出现的 PDB 数.
@@ -266,24 +268,34 @@ def finalize_identity_views(
                 - redundancy.internal_edge_count: int, 当前 PDB 与其他 held-out PDB 的直接关系数.
                 - redundancy.internal_redundant_edge_count: int, internal_edge_count 中 redundant=True 的关系数.
                 - redundancy.strongest_internal_edge: dict | None, 使用 :func:`_strongest_edge` 的压缩内部见证.
-            - selection: dict, 当前 PDB 的前置资格, 独立集状态和测试视图成员身份.
+            - selection: dict, 当前 PDB 的前置资格, 极大独立集状态和测试视图成员身份.
                 - selection.base_eligible: bool, 四类 exclusion_reasons 均未出现时为 True.
                 - selection.exclusion_reasons: list[str], 可含 quality_failed, asset_failed, sequence_failed, reference_redundant.
                 - selection.greedy_rank: int | None, 前置资格 PDB 在固定贪心顺序中的零基排名.
-                - selection.independent_accepted: bool, 是否被贪心独立集接受.
+                - selection.full_test: bool, 当前 PDB 是否属于贪心极大独立集 full_test.
+                - selection.full_test_rank: int | None, 当前 PDB 在 full_test 贪心接受顺序中的零基排名.
                 - selection.rejected_by: str | None, 拒绝当前 PDB 的已接受直接冲突 PDB.
                 - selection.rejection_edge: dict | None, 使用 :func:`_strongest_edge` 的直接冲突见证.
                 - selection.test_0: bool, 当前 PDB 是否属于 test_0.
                 - selection.test_0_rank: int | None, 当前 PDB 在 test_0 随机顺序中的零基排名.
                 - selection.test_1: bool, 当前 PDB 是否属于 test_1.
                 - selection.test_1_rank: int | None, 当前 PDB 在 test_1 保序子集中的零基排名.
-        - `test_0.json`: dict; 未应用 occurrence 数过滤的固定抽样视图.
+        - `full_test.json`: dict; 满足全部前置条件且 held-out 内部无冗余边的贪心极大独立集.
+            - schema_version: int, 当前为 1.
+            - pdb_coverage_mode: str, 当前 or/and 组合模式.
+            - pdb_coverage_threshold: float, 当前 PDB coverage 包含边界.
+            - seed: int, 当前固定随机 entropy.
+            - name: str, 固定为 full_test.
+            - occurrence_filter: None, 表示不按 occurrence 数过滤.
+            - pdb_ids: list[str], 按贪心接受顺序保存的 PDB identities.
+        - `test_0.json`: dict; 从 full_test 无放回抽取且不应用 occurrence 数过滤的固定视图.
             - schema_version: int, 当前为 1.
             - pdb_coverage_mode: str, 当前 or/and 组合模式.
             - pdb_coverage_threshold: float, 当前 PDB coverage 包含边界.
             - seed: int, 当前固定随机 entropy.
             - name: str, 固定为 test_0.
             - occurrence_filter: None, 表示不按 occurrence 数过滤.
+            - parent: str, 固定为 full_test.
             - pdb_ids: 长度 test_0_size 的 list[str], 按固定随机抽样顺序保存的 PDB identities.
         - `test_1.json`: dict; 只从 test_0 应用 occurrence 数过滤的保序子集.
             - schema_version: int, 与 test_0 相同.
@@ -297,7 +309,7 @@ def finalize_identity_views(
         - `stage2/summary.json`: dict; 字段与函数返回值相同.
         - `stage2/_COMPLETE`: 空文件; 本函数正常执行到末尾时写出, 不作为后续代码门控.
 
-    选择顺序固定为质量, 资产, 序列成功, 无参考冗余, held-out 内部贪心独立集, 固定种子抽取 `test_0_size` 项, 最后仅对 `test_0` 应用 occurrence 总数 `(1, 100)` 过滤得到 `test_1`.
+    选择顺序固定为质量, 资产, 序列成功, 无参考冗余, held-out 内部贪心极大独立集 full_test, 固定种子抽取 `test_0_size` 项, 最后仅对 `test_0` 应用 occurrence 总数 `(1, 100)` 过滤得到 `test_1`.
 
     完成标记只记录本步骤正常执行到末尾, 不参与失败率或步骤间门控.
     """
@@ -364,12 +376,14 @@ def finalize_identity_views(
     ]
     # dict[str, dict], 每个统一资格 PDB 的固定种子贪心接受或拒绝状态.
     greedy_states = greedy_independent_set(eligible_ids, conflict_pairs, seed)
-    # list[str], 完整贪心独立集; 任意两个成员之间没有当前冗余边.
-    independent_ids = [
+    # list[str] (N_full_test,), 完整贪心极大独立集; 任意两个成员之间没有当前冗余边.
+    full_test_ids = [
         pdb_id for pdb_id, state in greedy_states.items() if bool(state["accepted"])
     ]
+    # dict[str, int], full_test PDB 到贪心接受顺序中紧凑排名的映射.
+    full_test_rank = {pdb_id: rank for rank, pdb_id in enumerate(full_test_ids)}
     # list[str] (N_test0,), 不应用 occurrence 数过滤的固定随机身份; N_test0=test_0_size.
-    test_0_ids = sample_test_0(independent_ids, test_0_size, seed)
+    test_0_ids = sample_test_0(full_test_ids, test_0_size, seed)
     # dict[str, int], test_0 PDB 到随机抽取顺序的映射.
     test_0_rank = {pdb_id: rank for rank, pdb_id in enumerate(test_0_ids)}
     # list[str] (N_test1,), test_0 中 total occurrence 严格位于 `(1, 100)` 的子集.
@@ -420,12 +434,13 @@ def finalize_identity_views(
             ),
             "strongest_internal_edge": _strongest_edge(internal_edges, pdb_id),
         }
-        # dict, 当前 PDB 的前置资格, 贪心状态, 拒绝见证和测试视图成员身份.
+        # dict, 当前 PDB 的前置资格, 贪心状态, 拒绝见证和三个测试视图成员身份.
         selection_summary = {
             "base_eligible": not exclusion_reasons_by_pdb[pdb_id],
             "exclusion_reasons": exclusion_reasons_by_pdb[pdb_id],
             "greedy_rank": None if state is None else state["greedy_rank"],
-            "independent_accepted": False if state is None else state["accepted"],
+            "full_test": pdb_id in full_test_rank,
+            "full_test_rank": full_test_rank.get(pdb_id),
             "rejected_by": rejected_by,
             "rejection_edge": rejection_edge,
             "test_0": pdb_id in test_0_rank,
@@ -450,7 +465,7 @@ def finalize_identity_views(
         identities.append(identity_record)
 
     _write_jsonl(output_root / "held_out_identity.jsonl", identities)
-    # dict, test_0/test_1 共享的冗余参数和随机身份.
+    # dict[str, object], 三个测试视图共享的 schema 版本, PDB coverage 参数和随机 entropy.
     common_view_fields = {
         "schema_version": IDENTITY_SCHEMA_VERSION,
         "pdb_coverage_mode": mode,
@@ -458,11 +473,21 @@ def finalize_identity_views(
         "seed": seed,
     }
     _write_json(
+        output_root / "full_test.json",
+        {
+            **common_view_fields,
+            "name": "full_test",
+            "occurrence_filter": None,
+            "pdb_ids": full_test_ids,
+        },
+    )
+    _write_json(
         output_root / "test_0.json",
         {
             **common_view_fields,
             "name": "test_0",
             "occurrence_filter": None,
+            "parent": "full_test",
             "pdb_ids": test_0_ids,
         },
     )
@@ -481,12 +506,12 @@ def finalize_identity_views(
     exclusion_counts = Counter(
         reason for reasons in exclusion_reasons_by_pdb.values() for reason in reasons
     )
-    # dict, 冗余边, 前置资格, 独立集和两个测试视图的最终规模.
+    # dict, 冗余边, 前置资格和三个测试视图的最终规模.
     summary = {
         **edge_summary,
         "held_out_pdb_count": len(held_out_ids),
         "base_eligible_count": len(eligible_ids),
-        "independent_set_count": len(independent_ids),
+        "full_test_count": len(full_test_ids),
         "test_0_count": len(test_0_ids),
         "test_1_count": len(test_1_ids),
         "exclusion_reason_counts": dict(sorted(exclusion_counts.items())),
