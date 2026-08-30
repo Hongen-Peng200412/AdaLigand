@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adaligand-held-out"
+version = "0.1.0"
+description = "AdaLigand held-out 序列去冗余与测试集身份构建"
+requires-python = ">=3.10"
+dependencies = [
+    "gemmi",
+    "numpy",
+    "scipy",
+]
+
+[project.scripts]
+adaligand-held-out = "held_out_pipeline.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["held_out_pipeline*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -p no:cacheprovider"
