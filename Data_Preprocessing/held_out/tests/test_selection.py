@@ -138,10 +138,8 @@ def test_finalize_keeps_zero_comparable_chain_and_test_1_is_test_0_subset(
 ) -> None:
     """零可比 chain 不是失败; test_1 只从 test_0 应用 occurrence 数过滤."""
 
-    # Path, 含 stage1 完成标记和最终身份视图的合成输出根.
+    # Path, 最终身份视图的合成输出根; 运行入口不读取完成标记作为门控.
     output_root = tmp_path / "output"
-    (output_root / "stage1").mkdir(parents=True)
-    (output_root / "stage1" / "_COMPLETE").write_text("", encoding="utf-8")
     # list[dict] (4,), occurrence 数覆盖 test_1 两个边界外侧并含一个零可比 chain PDB.
     base_records = [
         make_base_record("a", 10),

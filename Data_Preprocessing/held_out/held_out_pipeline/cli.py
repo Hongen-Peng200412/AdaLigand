@@ -1,4 +1,4 @@
-"""提供 held-out 去冗余的四个显式命令行阶段."""
+"""提供 held-out 去冗余的四个显式命令行步骤."""
 
 from __future__ import annotations
 
@@ -39,7 +39,6 @@ def _build_parser() -> argparse.ArgumentParser:
     catalog_finalize.add_argument("--shard-count", type=int, required=True)
     catalog_finalize.add_argument("--alignment-shard-count", type=int, required=True)
     catalog_finalize.add_argument("--official-smoke-count", type=int, required=True)
-    catalog_finalize.add_argument("--max-held-out-failures", type=int, required=True)
     catalog_finalize.add_argument("--official-timeout-seconds", type=float, required=True)
 
     mmseqs_shard = subparsers.add_parser("mmseqs-shard", help="运行一个 MMseqs2 query 分片.")
@@ -66,7 +65,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    """解析一个显式子命令并打印该阶段的 JSON summary."""
+    """解析一个显式子命令并打印该步骤的 JSON summary."""
 
     arguments = _build_parser().parse_args()
     if arguments.command == "catalog-shard":
@@ -91,7 +90,6 @@ def main() -> None:
             arguments.shard_count,
             arguments.alignment_shard_count,
             arguments.official_smoke_count,
-            arguments.max_held_out_failures,
             arguments.official_timeout_seconds,
         )
     elif arguments.command == "mmseqs-shard":

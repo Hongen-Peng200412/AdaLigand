@@ -3,7 +3,7 @@ set -euo pipefail
 
 # str, chain 和 residue 两级判定的组合方式, 可取 or 或 and.
 pdb_coverage_mode="${1:-or}"
-# float [0,1], chain 和 residue 两级共用的包含边界阈值.
+# float (0, 1], chain 和 residue 两级共用的包含边界阈值.
 pdb_coverage_threshold="${2:-0.5}"
 # path, 冻结 PDB split 目录和本轮独立输出根目录.
 data_root=/storage/penghongen/AdaLigand/Ori_Data

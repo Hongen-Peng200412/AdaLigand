@@ -13,7 +13,7 @@ pytest.importorskip("gemmi")
 def test_mmcif_parser_uses_entity_poly_and_label_asym_without_nonpolymer(tmp_path: Path) -> None:
     """polymer entity 可映射多条 label asym chain, 非 polymer struct_asym 不进入目录."""
 
-    # Path, 两个 polymer entity 和一个非 polymer struct_asym 外键的合成 mmCIF.
+    # Path, 含 quoted polymer type/sequence 和一个非 polymer struct_asym 外键的合成 mmCIF.
     mmcif_path = tmp_path / "1abc.cif"
     mmcif_path.write_text(
         "data_1abc\n"

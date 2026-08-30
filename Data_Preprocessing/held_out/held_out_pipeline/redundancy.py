@@ -1,6 +1,6 @@
 """运行 MMseqs2 并把 entity 命中转换为 PDB 双向 coverage.
 
-主要入口是 :func:`run_mmseqs_shard` 与 :func:`build_redundancy_edges`. 前者只运行一个 FASTA query 分片; 后者读取全部真实 alignment, 展开 entity 到 label asym chain 的边, 并对每个 PDB 对分别求最大 chain 数, 最大 A 侧残基数和最大 B 侧残基数的一对一匹配.
+主要入口是 :func:`run_mmseqs_shard` 与 :func:`build_redundancy_edges`. 前者只运行一个 FASTA query 分片; 后者读取全部真实 alignment, 在 entity 容量图上求最大 chain 数, 最大 A 侧残基数和最大 B 侧残基数的一对一匹配, 再展开被选中的 label asym chain 见证.
 
 本模块不读取质量, 资产或配体计数, 也不选择测试集.
 
@@ -79,13 +79,19 @@ def parse_mmseqs_rows(
 ) -> Iterator[dict[str, Any]]:
     """读取一个 MMseqs2 TSV, 并再次应用 identity 与双向 coverage 包含边界.
 
-    输入列顺序固定为 `query, target, fident, qcov, tcov, qlen, tlen, alnlen, evalue`. `fident` 使用 alignment length 归一化; `qcov` 和 `tcov` 都必须至少为 0.80. 函数逐行 yield 命中, 避免在合并阶段同时保留全部原始 TSV.
+    输入列顺序固定为 `query, target, fident, qcov, tcov, qlen, tlen, alnlen, evalue`. `fident` 使用 alignment length 归一化; `qcov` 和 `tcov` 都必须至少为 0.80. 函数逐行 yield 命中, 避免在合并步骤同时保留全部原始 TSV.
 
     Yield 字段:
-        - `query`, `target`, `sequence_kind`: str, 两侧 entity FASTA identity 和 protein/nucleic 类别.
-        - `identity`, `query_coverage`, `target_coverage`: float `[0, 1]`, 真实 identity 和双向全长覆盖率.
-        - `query_length`, `target_length`, `alignment_length`: int, 两侧全长与 alignment 列数.
-        - `evalue`: float, MMseqs2 alignment E-value.
+        - query: str, query entity 的大写 FASTA identity.
+        - target: str, target entity 的大写 FASTA identity.
+        - sequence_kind: str, protein 或 nucleic.
+        - identity: float, MMseqs2 真实序列 identity, 取值位于 `[0, 1]`.
+        - query_coverage: float, alignment 覆盖 query 全长的比例, 取值位于 `[0, 1]`.
+        - target_coverage: float, alignment 覆盖 target 全长的比例, 取值位于 `[0, 1]`.
+        - query_length: int, query 沉积序列长度, 单位 aa 或 nt.
+        - target_length: int, target 沉积序列长度, 单位 aa 或 nt.
+        - alignment_length: int, alignment 长度, 单位 aa 或 nt.
+        - evalue: float, MMseqs2 alignment E-value.
     """
 
     # float, 当前 protein 或 nucleic TSV 使用的真实 identity 包含下界.
@@ -139,13 +145,26 @@ def classify_pdb_redundancy(
 ) -> dict[str, bool]:
     """按 chain 与 residue 两级 coverage 组合 PDB 冗余判定.
 
-    `chain_pass` 使用 A/B 两个方向的最大 chain coverage, `residue_pass` 使用 A/B 两个方向的最大 residue coverage. `or` 或 `and` 只组合这两个级别, 不改变方向 coverage. 四个输入和 threshold 都是 `[0, 1]` 比例, 比较使用包含边界.
+    输入参数:
+        - chain_A: float, A 侧 comparable chain 被一对一匹配覆盖的比例.
+        - chain_B: float, B 侧 comparable chain 被一对一匹配覆盖的比例.
+        - residue_A: float, A 侧 comparable 残基被最大权匹配覆盖的比例.
+        - residue_B: float, B 侧 comparable 残基被最大权匹配覆盖的比例.
+        - mode: str, 取 or 或 and; 只组合 chain_pass 与 residue_pass.
+        - threshold: float, chain 和 residue 两级共用的包含边界, 取值位于 `(0, 1]`.
+
+    返回字段:
+        - chain_pass: bool, max(chain_A, chain_B) 是否达到 threshold.
+        - residue_pass: bool, max(residue_A, residue_B) 是否达到 threshold.
+        - redundant: bool, mode 对 chain_pass 和 residue_pass 的组合结果.
+
+    四个 coverage 输入位于 `[0, 1]`. mode 不改变 A/B 方向 coverage.
     """
 
     if mode not in {"or", "and"}:
         raise ValueError(f"未知 PDB coverage mode: {mode}")
-    if not 0.0 <= threshold <= 1.0:
-        raise ValueError(f"PDB coverage threshold 必须位于 [0, 1]: {threshold}")
+    if not 0.0 < threshold <= 1.0:
+        raise ValueError(f"PDB coverage threshold 必须位于 (0, 1]: {threshold}")
     # bool, 任一 PDB 方向的 chain 数覆盖达到当前 PDB 阈值.
     chain_pass = max(chain_A, chain_B) >= threshold
     # bool, 任一 PDB 方向的残基覆盖达到当前 PDB 阈值.
@@ -167,14 +186,66 @@ def _maximum_matching(
 ) -> list[dict[str, Any]]:
     """在 entity 容量图上求与 chain 二分图等价的最大权一对一匹配.
 
-    同一 entity 的 chain 具有相同序列和长度, 一条 entity 命中等价于两侧 chain copies 的完全二分图. 每个 entity 的 chain 数作为整数容量, 每单位流量代表一对 chain. 三种单位权重分别是 1, A 侧 chain 长度和 B 侧 chain 长度. 返回值仍展开为不复用 chain 的直接见证, 但不物化 `C_A * C_B` 条候选边.
+    形状符号:
+        - C_A: A 侧 comparable label asym chain 数.
+        - C_B: B 侧 comparable label asym chain 数.
+        - N_entity_A: A 侧 comparable chain 所属的 entity 数.
+        - N_entity_B: B 侧 comparable chain 所属的 entity 数.
+        - N_edge: 两侧 entity 均存在的高重复 entity 边数.
+        - M: 最优整数流量总和, 即返回的 chain 匹配数.
+
+    输入参数:
+        - chains_A: 长度 C_A 的 list[dict], A 侧 comparable label asym chains.
+            - chains_A[*].chain_id: str, A 侧 label_asym_id.
+            - chains_A[*].entity_id: str, 当前 A 侧 chain 所属的 entity_id.
+            - chains_A[*].sequence_id: str, 当前 A 侧 entity 的 FASTA identity.
+            - chains_A[*].length: int, 当前 A 侧 chain 的沉积序列长度, 单位 aa 或 nt.
+            - chains_A[*].sequence_class: str, 当前 A 侧 chain 的 polymer 类别.
+        - chains_B: 长度 C_B 的 list[dict], B 侧 comparable label asym chains.
+            - chains_B[*].chain_id: str, B 侧 label_asym_id.
+            - chains_B[*].entity_id: str, 当前 B 侧 chain 所属的 entity_id.
+            - chains_B[*].sequence_id: str, 当前 B 侧 entity 的 FASTA identity.
+            - chains_B[*].length: int, 当前 B 侧 chain 的沉积序列长度, 单位 aa 或 nt.
+            - chains_B[*].sequence_class: str, 当前 B 侧 chain 的 polymer 类别.
+        - evidence_by_entity_pair: dict[tuple[str, str], dict], 高重复 entity 边和对应序列比对证据.
+            - key[0]: str, A 侧 entity_id.
+            - key[1]: str, B 侧 entity_id.
+            - value.entity_A: str, A 侧 entity_id.
+            - value.entity_B: str, B 侧 entity_id.
+            - value.sequence_id_A: str, A 侧 `<PDB_ID>_<entity_id>`.
+            - value.sequence_id_B: str, B 侧 `<PDB_ID>_<entity_id>`.
+            - value.length_A: int, A 侧 entity 沉积序列长度, 单位 aa 或 nt.
+            - value.length_B: int, B 侧 entity 沉积序列长度, 单位 aa 或 nt.
+            - value.sequence_kind: str, protein 或 nucleic.
+            - value.identity: float, MMseqs2 真实序列 identity, 取值位于 `[0, 1]`.
+            - value.coverage_A: float, alignment 覆盖 A 侧 entity 全长的比例, 取值位于 `[0, 1]`.
+            - value.coverage_B: float, alignment 覆盖 B 侧 entity 全长的比例, 取值位于 `[0, 1]`.
+        - objective: str, 取 chain, residue_A 或 residue_B; 单位权重依次为 1, length_A, length_B.
+
+    返回字段:
+        - matching: 长度 M 的 list[dict], 不复用两侧 label asym chain 的直接匹配见证.
+            - matching[*].chain_A: str, A 侧被选中的 label_asym_id.
+            - matching[*].chain_B: str, B 侧被选中的 label_asym_id.
+            - matching[*].entity_A: str, A 侧 chain 所属 entity_id.
+            - matching[*].entity_B: str, B 侧 chain 所属 entity_id.
+            - matching[*].sequence_id_A: str, A 侧 entity FASTA identity.
+            - matching[*].sequence_id_B: str, B 侧 entity FASTA identity.
+            - matching[*].length_A: int, A 侧 chain 的沉积序列长度, 单位 aa 或 nt.
+            - matching[*].length_B: int, B 侧 chain 的沉积序列长度, 单位 aa 或 nt.
+            - matching[*].sequence_kind: str, protein 或 nucleic.
+            - matching[*].identity: float, 产生该 entity 边的真实序列 identity.
+            - matching[*].coverage_A: float, alignment 覆盖 A 侧 entity 全长的比例.
+            - matching[*].coverage_B: float, alignment 覆盖 B 侧 entity 全长的比例.
+
+    同一 entity 的 chain 具有相同序列和长度, 一条 entity 命中等价于两侧 chain copies 的完全二分图. entity 的 chain 数作为整数容量, 每单位流量代表一对 chain. 求解只展开最终 matching, 不物化 `C_A * C_B` 条候选边.
     """
 
     if not chains_A or not chains_B or not evidence_by_entity_pair:
         return []
 
-    # dict[str, list[dict]], A/B 两侧 entity identity 到可互换 chain copies 的映射.
+    # dict[str, list[dict]] (N_entity_A,), A 侧 entity identity 到可互换 chain copies 的映射.
     chains_by_entity_A: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    # dict[str, list[dict]] (N_entity_B,), B 侧 entity identity 到可互换 chain copies 的映射.
     chains_by_entity_B: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for chain in chains_A:
         chains_by_entity_A[str(chain["entity_id"])].append(chain)
@@ -183,7 +254,7 @@ def _maximum_matching(
     for chain_group in (*chains_by_entity_A.values(), *chains_by_entity_B.values()):
         chain_group.sort(key=lambda chain: str(chain["chain_id"]))
 
-    # list[tuple], 同时存在两侧 entity 和真实高重复命中的容量图边.
+    # list[tuple] (N_edge,), 每项为 `(entity_A, entity_B)` 主键及 A/B sequence_id, 长度, 类别, identity, coverage evidence.
     entity_edges = [
         (entity_pair, evidence)
         for entity_pair, evidence in sorted(evidence_by_entity_pair.items())
@@ -191,16 +262,19 @@ def _maximum_matching(
     ]
     if not entity_edges:
         return []
-    # list[str], 容量约束矩阵 A/B 两侧的稳定 entity 行顺序.
+    # list[str] (N_entity_A,), 容量约束矩阵 A 侧的稳定 entity 行顺序.
     entity_ids_A = sorted(chains_by_entity_A)
+    # list[str] (N_entity_B,), 容量约束矩阵 B 侧的稳定 entity 行顺序.
     entity_ids_B = sorted(chains_by_entity_B)
-    # dict[str, int], entity identity 到容量约束矩阵行号的映射.
+    # dict[str, int] (N_entity_A,), A 侧 entity identity 到约束矩阵前半行号的映射.
     row_by_entity_A = {entity_id: index for index, entity_id in enumerate(entity_ids_A)}
+    # dict[str, int] (N_entity_B,), B 侧 entity identity 到约束矩阵后半行号的映射.
     row_by_entity_B = {
         entity_id: len(entity_ids_A) + index for index, entity_id in enumerate(entity_ids_B)
     }
-    # list[int], 每个 entity edge 变量在稀疏约束矩阵中出现的两个行列坐标.
+    # list[int] (2*N_edge,), 稀疏矩阵行坐标; 每条边各占用一个 A entity 和 B entity 容量.
     constraint_rows: list[int] = []
+    # list[int] (2*N_edge,), 稀疏矩阵列坐标; 同一 edge 变量在两侧约束行各出现一次.
     constraint_columns: list[int] = []
     for edge_index, ((entity_A, entity_B), _evidence) in enumerate(entity_edges):
         constraint_rows.extend((row_by_entity_A[entity_A], row_by_entity_B[entity_B]))
@@ -213,13 +287,13 @@ def _maximum_matching(
         ),
         shape=(len(entity_ids_A) + len(entity_ids_B), len(entity_edges)),
     ).tocsr()
-    # ndarray float64 (N_entity_A + N_entity_B,), 每个 entity 可使用的 chain copy 数.
+    # ndarray float64 (N_entity_A + N_entity_B,), 以浮点传给求解器的整数 chain copy 容量.
     entity_capacities = np.asarray(
         [len(chains_by_entity_A[entity_id]) for entity_id in entity_ids_A]
         + [len(chains_by_entity_B[entity_id]) for entity_id in entity_ids_B],
         dtype=np.float64,
     )
-    # ndarray float64 (N_edge,), 三种目标下每匹配一对 chain 的正权重.
+    # ndarray float64 (N_edge,), 随 objective 取 1, A 长度或 B 长度的每对 chain 正权重.
     objective_weights = np.asarray(
         [
             1.0
@@ -231,7 +305,7 @@ def _maximum_matching(
         ],
         dtype=np.float64,
     )
-    # ndarray float64 (N_edge,), 单条 entity edge 的最大整数流量.
+    # ndarray float64 (N_edge,), 以浮点传给求解器的单边整数流量上限.
     upper_bounds = np.asarray(
         [
             min(len(chains_by_entity_A[entity_A]), len(chains_by_entity_B[entity_B]))
@@ -239,7 +313,7 @@ def _maximum_matching(
         ],
         dtype=np.float64,
     )
-    # OptimizeResult, entity 容量图上的最大权整数 b-matching; SciPy milp 以最小化为约定.
+    # OptimizeResult, entity 容量图上的最大权整数 b-matching; x 为 (N_edge,) 单边整数流量近似值.
     optimization = milp(
         c=-objective_weights,
         integrality=np.ones(len(entity_edges), dtype=np.int32),
@@ -292,18 +366,34 @@ def calculate_pdb_edge(
 
     输入参数:
         - relation: str, `reference` 或 `held_out_internal`.
-        - pdb_A, pdb_B: str, 已固定方向的两侧 PDB identity.
-        - chains_A, chains_B: list[dict], 两侧全部 comparable chain instance, 字段含 `chain_id`, `entity_id`, `length`.
-        - evidence_by_entity_pair: dict[tuple[str, str], dict], 高重复 entity 边及 identity, 双向 coverage, 两侧长度.
-        - mode, threshold: str 与 float, chain/residue 两级组合方式和 `[0, 1]` 包含边界.
+        - pdb_A: str, 已固定方向的 A 侧 PDB identity.
+        - pdb_B: str, 已固定方向的 B 侧 PDB identity.
+        - chains_A: list[dict], A 侧全部 comparable chain instances; 字段使用 :func:`_maximum_matching` 契约.
+        - chains_B: list[dict], B 侧全部 comparable chain instances; 字段使用 :func:`_maximum_matching` 契约.
+        - evidence_by_entity_pair: dict[tuple[str, str], dict], 使用 :func:`_maximum_matching` 的 entity 比对证据字段契约.
+        - mode: str, 取 or 或 and; 只组合 chain_pass 与 residue_pass.
+        - threshold: float, chain 和 residue 两级共用的包含边界, 取值位于 `(0, 1]`.
 
     返回字段:
-        - `relation`, `pdb_A`, `pdb_B`: str, 关系和固定方向身份.
-        - `comparable_chain_count_A/B`, `comparable_residue_count_A/B`: int, 四个 coverage 的分母.
-        - `chain_A/B`, `residue_A/B`: float, 最大 chain 数和两个残基目标得到的双向 coverage.
-        - `chain_matching`, `residue_A_matching`, `residue_B_matching`: list[dict], 三个目标各自不复用 chain 的直接见证.
-        - 每条 matching 见证含 A/B chain, entity, sequence identity 与长度, `sequence_kind`, `identity`, `coverage_A/B`.
-        - `chain_pass`, `residue_pass`, `redundant`: bool, 当前 mode/threshold 下的两级和最终判定.
+        - relation: str, 输入关系类别.
+        - pdb_A: str, A 侧 PDB identity.
+        - pdb_B: str, B 侧 PDB identity.
+        - comparable_chain_count_A: int, chain_A 的 coverage 分母.
+        - comparable_chain_count_B: int, chain_B 的 coverage 分母.
+        - comparable_residue_count_A: int, residue_A 的沉积序列长度分母.
+        - comparable_residue_count_B: int, residue_B 的沉积序列长度分母.
+        - chain_A: float, 最大 cardinality 匹配数除以 A 侧 comparable chain 数.
+        - chain_B: float, 最大 cardinality 匹配数除以 B 侧 comparable chain 数.
+        - residue_A: float, A 侧最大权匹配残基数除以 A 侧 comparable 残基数.
+        - residue_B: float, B 侧最大权匹配残基数除以 B 侧 comparable 残基数.
+        - chain_matching: list[dict], 最大化匹配 chain 数的直接见证; 每项使用 :func:`_maximum_matching` 返回字段.
+        - residue_A_matching: list[dict], 最大化 A 侧匹配残基数的直接见证; 每项使用 :func:`_maximum_matching` 返回字段.
+        - residue_B_matching: list[dict], 最大化 B 侧匹配残基数的直接见证; 每项使用 :func:`_maximum_matching` 返回字段.
+        - pdb_coverage_mode: str, 当前 or/and 组合模式.
+        - pdb_coverage_threshold: float, 当前 PDB coverage 包含边界.
+        - chain_pass: bool, max(chain_A, chain_B) 是否达到当前阈值.
+        - residue_pass: bool, max(residue_A, residue_B) 是否达到当前阈值.
+        - redundant: bool, 当前 mode 对 chain_pass 和 residue_pass 的组合结果.
 
     chain 分母是每侧全部 comparable chain instance 数; residue 分母是这些 chain 的沉积全长序列长度之和. 三个匹配分别求解, 不能把某一个 matching 同时用于三个统计目标.
     """
@@ -375,6 +465,18 @@ def _build_chain_tables(
 ) -> tuple[dict[str, dict[str, Any]], dict[str, list[dict[str, Any]]]]:
     """建立 sequence_id 到 entity 以及 PDB 到可比 chain instance 的两个索引.
 
+    输入参数:
+        - entities: Iterable[dict], 使用序列目录字段契约的 polymer entities.
+
+    返回字段:
+        - entity_by_sequence_id: dict[str, dict], 大写 sequence_id 到完整 entity 目录记录的映射.
+        - chains_by_pdb: dict[str, list[dict]], 小写 pdb_id 到 comparable label asym chain 列表的映射.
+            - chains_by_pdb[*][*].chain_id: str, 当前 PDB 内的 label_asym_id.
+            - chains_by_pdb[*][*].entity_id: str, 当前 chain 所属的 entity_id.
+            - chains_by_pdb[*][*].sequence_id: str, 当前 entity 的大写 FASTA identity.
+            - chains_by_pdb[*][*].length: int, 当前 chain 的沉积序列长度, 单位 aa 或 nt.
+            - chains_by_pdb[*][*].sequence_class: str, 当前 chain 的 protein, rna, dna 或 hybrid 类别.
+
     每个 `label_asym_id` 是一条独立 chain instance; `comparable=False` 的短链和 other 不进入第二个索引.
     """
 
@@ -411,6 +513,35 @@ def _orient_hit(
     reference_ids: set[str],
 ) -> tuple[tuple[str, str, str], dict[str, Any]] | None:
     """把 query/target entity hit 定向为 reference 或字典序 held-out 内部 PDB 对.
+
+    输入参数:
+        - hit: dict, 使用 :func:`parse_mmseqs_rows` 的单条 MMseqs2 entity 命中字段.
+        - entity_by_sequence_id: dict[str, dict], 大写 sequence_id 到完整 entity 目录记录的映射.
+        - held_out_ids: set[str], 冻结 held-out PDB identities.
+        - reference_ids: set[str], train/validation/calibration 暴露参考 PDB identities.
+
+    返回字段:
+        - result: tuple[tuple[str, str, str], dict] | None, 与任务无关或同 PDB 命中返回 None; 其余命中返回 pair_key 和 oriented_hit.
+            - pair_key[0]: str, 取 reference 或 held_out_internal.
+            - pair_key[1]: str, 定向后的 pdb_A.
+            - pair_key[2]: str, 定向后的 pdb_B.
+            - oriented_hit.relation: str, 与 pair_key[0] 相同.
+            - oriented_hit.pdb_A: str, reference 关系中的 held-out PDB, 或内部关系中字典序较小的 PDB.
+            - oriented_hit.pdb_B: str, reference 关系中的暴露参考 PDB, 或内部关系中字典序较大的 PDB.
+            - oriented_hit.entity_A: str, pdb_A 内的 entity_id.
+            - oriented_hit.entity_B: str, pdb_B 内的 entity_id.
+            - oriented_hit.sequence_id_A: str, entity_A 的 FASTA identity.
+            - oriented_hit.sequence_id_B: str, entity_B 的 FASTA identity.
+            - oriented_hit.label_asym_ids_A: list[str], entity_A 映射的全部 label asym chains.
+            - oriented_hit.label_asym_ids_B: list[str], entity_B 映射的全部 label asym chains.
+            - oriented_hit.length_A: int, entity_A 沉积序列长度, 单位 aa 或 nt.
+            - oriented_hit.length_B: int, entity_B 沉积序列长度, 单位 aa 或 nt.
+            - oriented_hit.sequence_kind: str, protein 或 nucleic.
+            - oriented_hit.identity: float, MMseqs2 真实序列 identity, 取值位于 `[0, 1]`.
+            - oriented_hit.coverage_A: float, alignment 覆盖 entity_A 全长的比例.
+            - oriented_hit.coverage_B: float, alignment 覆盖 entity_B 全长的比例.
+            - oriented_hit.alignment_length: int, alignment 长度, 单位 aa 或 nt.
+            - oriented_hit.evalue: float, MMseqs2 alignment E-value.
 
     reference 边固定让 held-out query 位于 A; 内部边按 PDB identity 排序. 发生 A/B 交换时 entity, 长度和 query/target coverage 同步交换.
     """
@@ -484,14 +615,33 @@ def run_mmseqs_shard(
 ) -> dict[str, Any]:
     """对一个 held-out query 分片依次运行 protein 和 nucleic MMseqs2 easy-search.
 
-    两类命令都使用真实 identity, alignment length 归一化, query 和 target 双向 0.80 coverage. protein identity 下限为 0.30, nucleic 下限为 0.80. 结果和命令身份分别写到 `stage2/mmseqs/<kind>_<shard>.tsv` 与 shard summary.
+    输入参数:
+        - mmseqs_binary: Path, 已安装的 MMseqs2 可执行文件.
+        - output_root: Path, 第一组 FASTA 和当前 MMseqs2 分片结果的共享根目录.
+        - shard_index: int, 当前 held-out query FASTA 分片编号.
+        - threads: int, 传给每条 MMseqs2 easy-search 命令的 CPU 线程数.
+
+    返回字段:
+        - shard_index: int, 输入 query 分片编号.
+        - threads: int, 当前 easy-search 使用的 CPU 线程数.
+        - mmseqs_version: str, 当前可执行文件报告的版本.
+        - commands: 长度 2 的 list[dict], protein 和 nucleic 两条命令记录.
+            - commands[*].sequence_kind: str, protein 或 nucleic.
+            - commands[*].status: str, 取 completed 或 empty_query.
+            - commands[*].command: list[str], 实际 easy-search 命令和全部参数.
+            - commands[*].result: str, 当前 alignment TSV 路径.
+
+    落盘产物:
+        - `stage2/mmseqs/<kind>_<shard>.tsv`: TSV; 列顺序由 MMSEQS_FORMAT 定义.
+        - `stage2/mmseqs/summary_<shard>.json`: dict; 字段与函数返回值相同.
+        - `stage2/mmseqs_tmp/<kind>_<shard>/`: MMseqs2 easy-search 临时数据库目录; 不属于下游正式接口.
+
+    两类命令都使用真实 identity, alignment length 归一化, query 和 target 双向 0.80 coverage. protein identity 下限为 0.30, nucleic 下限为 0.80.
     """
 
-    if not (output_root / "stage1" / "_COMPLETE").is_file():
-        raise FileNotFoundError("stage1 尚未完成, 不能运行 MMseqs2.")
     # Path, stage1 finalize 生成的 query/target FASTA 目录.
     fasta_root = output_root / "fasta" / "mmseqs"
-    # Path, 当前 12 个数组分片的正式 MMseqs2 TSV 与命令摘要目录.
+    # Path, 当前 query 分片的正式 MMseqs2 TSV 与命令摘要目录.
     result_root = output_root / "stage2" / "mmseqs"
     # Path, 每个 sequence kind 和 shard 独占的 MMseqs2 临时数据库目录.
     temporary_root = output_root / "stage2" / "mmseqs_tmp"
@@ -588,23 +738,37 @@ def build_redundancy_edges(
 
     输入参数:
         - output_root: Path, stage1 序列目录和 stage2 MMseqs2 TSV 的共享产物根.
-        - train_pdb_path, validation_pdb_path, calibration_pdb_path: Path, 暴露参考 PDB JSON 列表.
+        - train_pdb_path: Path, train 暴露参考 PDB JSON 列表.
+        - validation_pdb_path: Path, validation 暴露参考 PDB JSON 列表.
+        - calibration_pdb_path: Path, calibration 暴露参考 PDB JSON 列表.
         - held_out_pdb_path: Path, 冻结 held-out PDB JSON 列表.
         - alignment_shard_count: int, 必须读取的 protein/nucleic TSV 分片数.
-        - mode, threshold: str 与 float, PDB chain/residue 聚合方式和包含边界.
+        - mode: str, 取 or 或 and; 只组合 chain_pass 与 residue_pass.
+        - threshold: float, chain 和 residue 两级共用的包含边界, 取值位于 `(0, 1]`.
 
-    返回值:
+    返回字段:
         - edges: list[dict], 按 relation 与 PDB A/B 排序的 :func:`calculate_pdb_edge` 结果.
-        - summary: dict, 原始 alignment, 定向 entity hit, PDB edge, redundant edge 数及 relation/mode/threshold.
+        - summary: dict, 当前 alignment 合并和 PDB 冗余边规模.
+            - summary.raw_qualifying_alignment_count: int, 通过类别 identity 和双向 0.80 coverage 的原始 TSV 行数.
+            - summary.oriented_entity_hit_count: int, 定向并按 entity 对去重后的命中数.
+            - summary.pdb_edge_count: int, 至少含一条定向 entity 命中的 PDB 对数.
+            - summary.redundant_pdb_edge_count: int, 当前 mode 和 threshold 下 redundant=True 的 PDB 对数.
+            - summary.relation_counts: dict[str, int], reference 和 held_out_internal 两类 PDB 对数.
+            - summary.mode: str, 当前 PDB coverage 组合模式.
+            - summary.threshold: float, 当前 PDB coverage 包含边界.
 
     落盘产物:
-        - `qualifying_entity_hits.jsonl`: 每行含定向 PDB/entity identity, label_asym 列表, 两侧长度, 类别, identity, 双向 coverage, alignment 长度和 E-value.
-        - `redundancy_edges.jsonl`: 每行一个完整 PDB edge, 字段由 :func:`calculate_pdb_edge` 定义.
+        - `qualifying_entity_hits.jsonl`: JSONL; 每行使用 :func:`_orient_hit` 返回的 oriented_hit 字段.
+        - `redundancy_edges.jsonl`: JSONL; 每行使用 :func:`calculate_pdb_edge` 返回字段.
 
     原始 TSV 按行处理; 同一 entity 对的双向或重复 alignment 只保留 identity 较高, 再取最小双向 coverage 较高的一条, 精确并列时保留固定输入顺序中的首条. entity hit 以 chain copy 数作为容量求解, 只在 matching 结果中展开直接 chain 见证.
     """
 
-    # list[dict] (N_entity,), stage1 发布的完整 polymer entity 目录.
+    if mode not in {"or", "and"}:
+        raise ValueError(f"未知 PDB coverage mode: {mode}")
+    if not 0.0 < threshold <= 1.0:
+        raise ValueError(f"PDB coverage threshold 必须位于 (0, 1]: {threshold}")
+    # list[dict] (N_entity,), stage1 写出的完整 polymer entity 目录.
     entities = _read_jsonl(output_root / "sequence_catalog.jsonl")
     # 两个索引分别解析 alignment header 和建立 PDB coverage 分母.
     entity_by_sequence_id, chains_by_pdb = _build_chain_tables(entities)
@@ -621,7 +785,7 @@ def build_redundancy_edges(
             for pdb_id in json.loads(path.read_text(encoding="utf-8"))
         )
 
-    # Path, 12 个数组分片的 protein/nucleic alignment TSV 目录.
+    # Path, 全部 alignment_shard_count 个 protein/nucleic alignment TSV 目录.
     result_root = output_root / "stage2" / "mmseqs"
     # int, 通过真实 identity 和双向 0.80 coverage 的原始 alignment 数.
     raw_hit_count = 0

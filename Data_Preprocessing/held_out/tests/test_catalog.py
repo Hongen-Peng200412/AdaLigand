@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -11,11 +12,87 @@ from held_out_pipeline.catalog import (
     _write_fasta,
     classify_polymer_type,
     compare_official_fasta,
+    finalize_catalog,
     inspect_training_assets,
     normalize_sequence,
     sequence_is_comparable,
     summarize_entities,
 )
+
+
+def test_catalog_finalize_reports_reference_failure_without_requiring_full_success(
+    tmp_path: Path,
+) -> None:
+    """参考序列失败单独计数, 不把正常运行强制成 100% 成功率."""
+
+    # Path, 含一个缺失参考 PDB 和一个成功 held-out PDB 的合成输出根.
+    output_root = tmp_path / "output"
+    shard_root = output_root / "stage1" / "shards"
+    shard_root.mkdir(parents=True)
+    # list[dict] (2,), 参考 mmCIF 缺失, held-out 无 polymer entity 但解析状态成功.
+    shard_records = [
+        {
+            "pdb_id": "1ref",
+            "sequence_status": "missing_mmcif",
+            "sequence_error": "missing.cif",
+            "entities": [],
+        },
+        {
+            "pdb_id": "2out",
+            "sequence_status": "ok",
+            "sequence_error": None,
+            "entities": [],
+            "held_out": {
+                "emdb_ids": ["EMD-2"],
+                "first_map_release": "2026-01-01",
+                "quality": {"map_resolution": 3.0, "cc_contour": 0.8, "passed": True},
+                "ligands": {
+                    "total_count": 2,
+                    "type_counts": {},
+                    "strict_1_100_passed": True,
+                },
+                "assets": {
+                    "status": "eligible",
+                    "passed": True,
+                    "shape_zyx": [80, 80, 80],
+                    "detail": "",
+                },
+            },
+        },
+    ]
+    (shard_root / "catalog_000.jsonl").write_text(
+        "".join(json.dumps(record) + "\n" for record in shard_records), encoding="utf-8"
+    )
+    # Path, 完整身份对照和四个纯 PDB split 的合成输入.
+    pair_list_path = tmp_path / "pair_list.jsonl"
+    pair_list_path.write_text(
+        json.dumps({"pdb_id": "1ref", "emdb_id": "EMD-1"})
+        + "\n"
+        + json.dumps({"pdb_id": "2out", "emdb_id": "EMD-2"})
+        + "\n",
+        encoding="utf-8",
+    )
+    split_paths = {name: tmp_path / f"{name}.json" for name in ("train", "val", "cal", "held")}
+    split_paths["train"].write_text(json.dumps(["1ref"]), encoding="utf-8")
+    for name in ("val", "cal"):
+        split_paths[name].write_text("[]", encoding="utf-8")
+    split_paths["held"].write_text(json.dumps(["2out"]), encoding="utf-8")
+
+    # dict, 正常完成且明确记录实际参考去冗余范围的第一组汇总.
+    summary = finalize_catalog(
+        output_root,
+        pair_list_path,
+        split_paths["train"],
+        split_paths["val"],
+        split_paths["cal"],
+        split_paths["held"],
+        1,
+        1,
+        0,
+        1.0,
+    )
+    assert summary["reference_sequence_failure_count"] == 1
+    assert (output_root / "stage1" / "_COMPLETE").is_file()
 
 
 def test_sequence_normalization_and_length_boundaries() -> None:

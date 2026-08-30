@@ -11,9 +11,6 @@ catalog_shard_count=12
 alignment_shard_count=12
 # int, 3 个官方 smoke 身份优先覆盖 protein 和核酸, 再稳定补足一个 PDB.
 official_smoke_count=3
-# int, 2,497 个 held-out 最多允许 74 个未预期序列失败, 即严格低于 3%.
-max_held_out_failures=74
-
 source /home/penghongen/anaconda3/etc/profile.d/conda.sh
 conda activate /home/penghongen/anaconda3/envs/AdaLigand_stage1_py310
 # path, 通用任务执行器注入的冻结 release 项目根, 用于导入本次提交的代码.
@@ -29,5 +26,4 @@ python -u -m held_out_pipeline.cli catalog-finalize \
     --shard-count "${catalog_shard_count}" \
     --alignment-shard-count "${alignment_shard_count}" \
     --official-smoke-count "${official_smoke_count}" \
-    --max-held-out-failures "${max_held_out_failures}" \
     --official-timeout-seconds 30

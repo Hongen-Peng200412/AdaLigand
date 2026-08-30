@@ -6,15 +6,37 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from held_out_pipeline.redundancy import (
     _build_chain_tables,
     _orient_hit,
+    build_redundancy_edges,
     calculate_pdb_edge,
     classify_pdb_redundancy,
     parse_mmseqs_rows,
     run_mmseqs_shard,
 )
+
+
+def test_build_edges_rejects_zero_pdb_threshold_even_without_candidate_edges(
+    tmp_path: Path,
+) -> None:
+    """零阈值不属于公开契约, 不能因候选边为空而绕过校验."""
+
+    # Path, 校验应在读取任何目录或 split 文件之前发生的占位路径.
+    missing_split = tmp_path / "missing.json"
+    with pytest.raises(ValueError, match=r"\(0, 1\]"):
+        build_redundancy_edges(
+            tmp_path,
+            missing_split,
+            missing_split,
+            missing_split,
+            missing_split,
+            1,
+            "or",
+            0.0,
+        )
 
 
 def make_chain(chain_id: str, length: int) -> dict[str, object]:
@@ -139,7 +161,7 @@ def test_many_chain_copies_use_entity_capacity_without_cartesian_evidence() -> N
     ]
     # dict[tuple, dict] (1,), 一条 entity hit 表示两组 chain copies 间的完全二分图.
     evidence = {("EA", "EB"): make_evidence("EA", "EB", 100, 80)}
-    # dict, entity 容量求解后展开出的三个 2,000 条 chain matching.
+    # dict, entity 容量求解后展开出的三组各含 2,000 条 chain matching.
     edge = calculate_pdb_edge(
         "held_out_internal", "a", "b", chains_A, chains_B, evidence, "or", 0.5
     )
@@ -289,10 +311,8 @@ def test_mmseqs_command_requests_real_identity_and_bidirectional_coverage(
 ) -> None:
     """正式 MMseqs2 命令显式包含 alignment-mode 3, seq-id-mode 0 与 cov-mode 0."""
 
-    # Path, 合成 stage1 完成标记与 query/target FASTA 的输出根.
+    # Path, 合成 query/target FASTA 的输出根; 运行入口不读取完成标记作为门控.
     output_root = tmp_path / "output"
-    (output_root / "stage1").mkdir(parents=True)
-    (output_root / "stage1" / "_COMPLETE").write_text("", encoding="utf-8")
     # Path, protein/nucleic query 和 target FASTA 目录.
     fasta_root = output_root / "fasta" / "mmseqs"
     fasta_root.mkdir(parents=True)

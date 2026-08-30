@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# path, 第一阶段输出根目录和冻结版本 MMseqs2 可执行文件.
+# path, 第一组输出根目录和冻结版本 MMseqs2 可执行文件.
 output_root=/storage/penghongen/AdaLigand/held_out
 mmseqs_binary=/home/penghongen/software/mmseqs2/18-8cc5c/bin/mmseqs
 # int, 单个 easy-search 的线程数, 默认跟随申请的 8 个 CPU core.

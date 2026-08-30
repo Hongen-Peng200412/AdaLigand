@@ -80,8 +80,11 @@ def greedy_independent_set(
         - conflict_pairs: Iterable[tuple[str, str]], 当前 PDB 参数下的 held-out 内部冗余无向边.
         - seed: int, 全局种子; 本入口固定使用 `spawn_key=(0,)`.
 
-    返回值:
-        - states: dict[str, dict], 每个候选保存 `greedy_rank`, `accepted` 和 `rejected_by`; 拒绝见证一定是更早接受的邻居.
+    返回字段:
+        - states: dict[str, dict], 候选 PDB identity 到贪心选择状态的映射.
+            - states[*].greedy_rank: int, 当前 PDB 在固定随机访问顺序中的零基排名.
+            - states[*].accepted: bool, 当前 PDB 是否被加入独立集.
+            - states[*].rejected_by: str | None, 拒绝当前 PDB 的更早已接受直接邻居.
     """
 
     # list[str] (N,), 去重, 排序后的统一资格 PDB identity.
@@ -129,6 +132,14 @@ def greedy_independent_set(
 def sample_test_0(independent_pdb_ids: Iterable[str], sample_size: int, seed: int) -> list[str]:
     """用独立 SeedSequence 子流从完整独立集无放回抽取 `test_0`.
 
+    输入参数:
+        - independent_pdb_ids: Iterable[str], 贪心独立集中的 PDB identities.
+        - sample_size: int, 要抽取的 test_0 PDB 数.
+        - seed: int, 全局 SeedSequence entropy; 本入口固定使用 `spawn_key=(1,)`.
+
+    返回值:
+        - test_0_pdb_ids: 长度 sample_size 的 list[str], 按无放回随机抽取顺序保存的 PDB identities.
+
     输入集合先排序去重, 再固定使用 `SeedSequence(seed, spawn_key=(1,))`; 返回顺序就是随机抽取顺序.
     """
 
@@ -146,7 +157,20 @@ def sample_test_0(independent_pdb_ids: Iterable[str], sample_size: int, seed: in
 def _strongest_edge(edges: list[dict[str, Any]], pdb_id: str) -> dict[str, Any] | None:
     """优先从冗余边中按最大原始 coverage 选一个稳定直接见证.
 
-    若没有冗余边, 再从全部非冗余关系中选择. 返回 `None` 或含 `other_pdb_id`, `relation`, 四个 coverage, `max_coverage`, `chain_pass`, `residue_pass`, `redundant` 的压缩见证; 完整三组 matching 仍以 `redundancy_edges.jsonl` 为准.
+    返回字段:
+        - witness: dict | None, 没有直接关系时为 None; 否则返回一个压缩关系见证.
+            - witness.other_pdb_id: str, 当前 pdb_id 的另一端 PDB identity.
+            - witness.relation: str, 取 reference 或 held_out_internal.
+            - witness.chain_A: float, 原始 PDB 边的 A 侧 chain coverage.
+            - witness.chain_B: float, 原始 PDB 边的 B 侧 chain coverage.
+            - witness.residue_A: float, 原始 PDB 边的 A 侧 residue coverage.
+            - witness.residue_B: float, 原始 PDB 边的 B 侧 residue coverage.
+            - witness.max_coverage: float, 四个原始 coverage 的最大值.
+            - witness.chain_pass: bool, 当前阈值下的 chain 级判定.
+            - witness.residue_pass: bool, 当前阈值下的 residue 级判定.
+            - witness.redundant: bool, 当前 mode 和 threshold 下的最终判定.
+
+    若没有冗余边, 再从全部非冗余关系中选择. 完整三组 matching 仍以 `redundancy_edges.jsonl` 为准.
     """
 
     if not edges:
@@ -201,28 +225,83 @@ def finalize_identity_views(
 
     输入参数:
         - output_root: Path, 第一组产物, MMseqs2 TSV 和最终视图的共享根目录.
-        - train_pdb_path, validation_pdb_path, calibration_pdb_path: Path, 暴露参考 PDB JSON 列表.
+        - train_pdb_path: Path, train 暴露参考 PDB JSON 列表.
+        - validation_pdb_path: Path, validation 暴露参考 PDB JSON 列表.
+        - calibration_pdb_path: Path, calibration 暴露参考 PDB JSON 列表.
         - held_out_pdb_path: Path, 冻结 held-out PDB JSON 列表.
         - alignment_shard_count: int, 要合并的 MMseqs2 query 分片数.
-        - mode, threshold: str 与 float, PDB chain/residue 聚合方式和 `[0, 1]` 包含边界.
-        - seed, test_0_size: int, SeedSequence entropy 和固定 test_0 PDB 数.
+        - mode: str, 取 or 或 and; 只组合 chain_pass 与 residue_pass.
+        - threshold: float, chain 和 residue 两级共用的包含边界, 取值位于 `(0, 1]`.
+        - seed: int, 贪心顺序和 test_0 抽样使用的 SeedSequence entropy.
+        - test_0_size: int, test_0 固定抽取的 PDB 数.
 
-    返回值:
-        - summary: dict, 冗余边规模, held-out 数, 前置资格数, 独立集数, test_0/test_1 数, 排除原因计数与 seed.
+    返回字段:
+        - summary: dict, 保留 :func:`build_redundancy_edges` summary 并增加最终视图规模.
+            - summary.held_out_pdb_count: int, 冻结 held-out PDB 数.
+            - summary.base_eligible_count: int, 质量, 资产, 序列和参考冗余前置条件全部通过的 PDB 数.
+            - summary.independent_set_count: int, held-out 内部贪心独立集 PDB 数.
+            - summary.test_0_count: int, 未应用 occurrence 数过滤的 test_0 PDB 数.
+            - summary.test_1_count: int, 从 test_0 应用严格 `(1, 100)` 过滤后的 PDB 数.
+            - summary.exclusion_reason_counts: dict[str, int], 四种前置排除原因各自出现的 PDB 数.
+            - summary.seed: int, 当前固定随机 entropy.
 
     落盘产物:
-        - `held_out_identity.jsonl`: 每行含 schema/PDB/EMDB/日期和 `quality`, `assets`, `ligands`, `sequence`, `redundancy`, `selection` 嵌套对象.
-        - `test_0.json`: 含 schema version, mode, threshold, seed, 空 occurrence filter 和固定抽样 `pdb_ids`.
-        - `test_1.json`: 继承同一参数, 记录 parent 与 `(1, 100)` filter, `pdb_ids` 只来自 test_0.
-        - `stage2/summary.json`, `stage2/_COMPLETE`: 返回 summary 和成功发布后的空完成标记.
+        - `held_out_identity.jsonl`: JSONL; 每行一个冻结 held-out PDB 的统一身份证.
+            - schema: str, 固定为 adaligand.held_out_identity.
+            - schema_version: int, 当前为 1.
+            - pdb_id: str, 小写 held-out PDB identity.
+            - emdb_ids: list[str], 当前 PDB 对应的全部 EMDB identities.
+            - first_map_release: str | None, 首次 EMDB 发布时间.
+            - quality: dict, 从 held_out_base.jsonl 原样复制的质量事实.
+            - assets: dict, 从 held_out_base.jsonl 原样复制的资产审计.
+            - ligands: dict, 从 held_out_base.jsonl 原样复制的 occurrence 统计.
+            - sequence: dict, 从 held_out_base.jsonl 原样复制的序列状态和 polymer 统计.
+            - redundancy: dict, 当前 PDB 的参考和 held-out 内部冗余摘要.
+                - redundancy.pdb_coverage_mode: str, 当前 or/and 组合模式.
+                - redundancy.pdb_coverage_threshold: float, 当前 PDB coverage 包含边界.
+                - redundancy.reference_edge_count: int, 当前 PDB 与成功序列目录中参考 PDB 的直接关系数.
+                - redundancy.reference_redundant_edge_count: int, reference_edge_count 中 redundant=True 的关系数.
+                - redundancy.reference_redundant: bool, 是否存在至少一条冗余参考关系.
+                - redundancy.strongest_reference_edge: dict | None, 使用 :func:`_strongest_edge` 的压缩参考见证.
+                - redundancy.internal_edge_count: int, 当前 PDB 与其他 held-out PDB 的直接关系数.
+                - redundancy.internal_redundant_edge_count: int, internal_edge_count 中 redundant=True 的关系数.
+                - redundancy.strongest_internal_edge: dict | None, 使用 :func:`_strongest_edge` 的压缩内部见证.
+            - selection: dict, 当前 PDB 的前置资格, 独立集状态和测试视图成员身份.
+                - selection.base_eligible: bool, 四类 exclusion_reasons 均未出现时为 True.
+                - selection.exclusion_reasons: list[str], 可含 quality_failed, asset_failed, sequence_failed, reference_redundant.
+                - selection.greedy_rank: int | None, 前置资格 PDB 在固定贪心顺序中的零基排名.
+                - selection.independent_accepted: bool, 是否被贪心独立集接受.
+                - selection.rejected_by: str | None, 拒绝当前 PDB 的已接受直接冲突 PDB.
+                - selection.rejection_edge: dict | None, 使用 :func:`_strongest_edge` 的直接冲突见证.
+                - selection.test_0: bool, 当前 PDB 是否属于 test_0.
+                - selection.test_0_rank: int | None, 当前 PDB 在 test_0 随机顺序中的零基排名.
+                - selection.test_1: bool, 当前 PDB 是否属于 test_1.
+                - selection.test_1_rank: int | None, 当前 PDB 在 test_1 保序子集中的零基排名.
+        - `test_0.json`: dict; 未应用 occurrence 数过滤的固定抽样视图.
+            - schema_version: int, 当前为 1.
+            - pdb_coverage_mode: str, 当前 or/and 组合模式.
+            - pdb_coverage_threshold: float, 当前 PDB coverage 包含边界.
+            - seed: int, 当前固定随机 entropy.
+            - name: str, 固定为 test_0.
+            - occurrence_filter: None, 表示不按 occurrence 数过滤.
+            - pdb_ids: 长度 test_0_size 的 list[str], 按固定随机抽样顺序保存的 PDB identities.
+        - `test_1.json`: dict; 只从 test_0 应用 occurrence 数过滤的保序子集.
+            - schema_version: int, 与 test_0 相同.
+            - pdb_coverage_mode: str, 与 test_0 相同.
+            - pdb_coverage_threshold: float, 与 test_0 相同.
+            - seed: int, 与 test_0 相同.
+            - name: str, 固定为 test_1.
+            - occurrence_filter: str, 固定为 `1 < total_count < 100`.
+            - parent: str, 固定为 test_0.
+            - pdb_ids: list[str], 从 test_0.pdb_ids 保序过滤得到的 PDB identities.
+        - `stage2/summary.json`: dict; 字段与函数返回值相同.
+        - `stage2/_COMPLETE`: 空文件; 本函数正常执行到末尾时写出, 不作为后续代码门控.
 
     选择顺序固定为质量, 资产, 序列成功, 无参考冗余, held-out 内部贪心独立集, 固定种子抽取 `test_0_size` 项, 最后仅对 `test_0` 应用 occurrence 总数 `(1, 100)` 过滤得到 `test_1`.
 
-    返回 summary; 正式写出完整冗余边, 全部 held-out 身份证, 两个测试 JSON, stage2 summary 和最后的 `stage2/_COMPLETE`.
+    完成标记只记录本步骤正常执行到末尾, 不参与失败率或步骤间门控.
     """
 
-    if not (output_root / "stage1" / "_COMPLETE").is_file():
-        raise FileNotFoundError("stage1 尚未完成, 不能生成 held-out 身份证.")
     # list[dict], reference 和 held-out internal 的全部 PDB 关系及三组 matching.
     edges, edge_summary = build_redundancy_edges(
         output_root,
