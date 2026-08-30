@@ -1,5 +1,9 @@
 # 任务脚本目录
 
+## Held-out 去冗余
+
+`held_out_catalog_array.sh`、`held_out_catalog_finalize.sh`、`held_out_mmseqs_array.sh` 与 `held_out_finalize.sh` 依次完成序列目录分片、目录合并与官方 FASTA smoke、MMseqs2 分片和身份证/测试视图发布。四步必须显式提交；数组范围固定为 `0-11`，每个数组元素建议 `--cpus 8`。完整命令与产物契约见 `Data_Preprocessing/held_out/README.md`。
+
 ## Stage3 PocketXMol Phase 1
 
 - `adapt_pocketxmol_phase1.sh`：分两阶段执行 A–G 到 PocketXMol 原生缓存的离线适配。脚本先在 `AdaLigand_stage1_py310` 环境中读取与该 A–G 版本匹配的 CCD pickle，只落盘版本中立的键型审计 JSON；随后切换到固定的 `pxm_phase1` 环境，主适配器只读取该 JSON，不再反序列化 CCD pickle。第一个参数是输出根目录，其后可传一至三项 `数据划分名称=冻结清单路径`，并可额外传一个正整数覆盖 worker 数量；默认使用本次 Slurm allocation 的 `SLURM_CPUS_PER_TASK`。脚本固定读取服务器 A–G 数据根目录和未修改的官方 PocketXMol 真值仓库，不运行 Builder docking。
