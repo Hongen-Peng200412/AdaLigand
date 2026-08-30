@@ -16,6 +16,7 @@ test_0_size=200
 
 source /home/penghongen/anaconda3/etc/profile.d/conda.sh
 conda activate /home/penghongen/anaconda3/envs/AdaLigand_stage1_py310
+# path, 通用任务执行器注入的冻结 release 项目根, 用于导入本次提交的代码.
 export PYTHONPATH="${TASK_PROJECT_ROOT}/Data_Preprocessing/held_out"
 
 python -u -m held_out_pipeline.cli finalize \

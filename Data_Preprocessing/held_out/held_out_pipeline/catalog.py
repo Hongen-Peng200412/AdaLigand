@@ -3,6 +3,8 @@
 主要入口是 :func:`run_catalog_shard` 与 :func:`finalize_catalog`. 前者按 PDB 分片解析冻结 mmCIF, 并只对 held-out PDB 检查质量, 配体计数和 Stage1 资产; 后者合并完整目录, 生成自然 FASTA, MMseqs2 query/target FASTA 和 RCSB 官方 FASTA smoke.
 
 本模块只建立序列身份和比对输入, 不运行 MMseqs2, 不判断 PDB 冗余, 也不选择测试集.
+
+全部正式路径都相对于调用方传入的 `output_root`. JSONL 的一行对应一个 PDB 或一个 polymer entity; JSON 保存 smoke 和计数汇总; FASTA header 固定使用 `<PDB_ID>_<entity_id>`. 具体字段由 :func:`parse_mmcif_entities` 与 :func:`finalize_catalog` 的返回和落盘契约定义.
 """
 
 from __future__ import annotations
@@ -22,9 +24,9 @@ import numpy as np
 PROTEIN_MIN_LENGTH = 30
 # int, RNA/DNA/hybrid chain 进入比对和 PDB coverage 分母的最短沉积序列长度, 单位 nt.
 NUCLEIC_MIN_LENGTH = 20
-# tuple[int,int,int], Stage1 完整图的最小 ZYX 形状; 三个轴都使用包含边界.
+# tuple[int, int, int], Stage1 完整图的最小 ZYX 形状; 三个轴都使用包含边界.
 MIN_GRID_SHAPE_ZYX = (80, 80, 80)
-# tuple[str,...], occurrence 级配体计数的六个冻结 type_tag, 输出顺序固定.
+# tuple[str, ...], occurrence 级配体计数的六个冻结 type_tag, 输出顺序固定.
 LIGAND_TYPES = (
     "ion",
     "nucleotide_like",
@@ -141,6 +143,11 @@ def parse_mmcif_entities(mmcif_path: Path, pdb_id: str) -> list[dict[str, Any]]:
 
     返回值:
         - entities: list[dict[str, Any]], 每个 `_entity_poly.entity_id` 一条, 按 entity_id 字典序排列.
+        - `sequence_id`, `pdb_id`, `entity_id`: str, FASTA identity, 小写 PDB identity 和 PDB 内 entity identity.
+        - `polymer_type`, `sequence_class`: str, 原始 mmCIF type 和 protein/rna/dna/hybrid/other 分类.
+        - `sequence`, `length`: str 与 int, 规范全长序列和字符数.
+        - `label_asym_ids`: list[str], 指向该 entity 的全部 label_asym chain identities.
+        - `comparable`: bool, 是否达到本轮类别长度边界并进入比对与 PDB coverage 分母.
 
     科学边界:
         - 序列只来自 `_entity_poly.pdbx_seq_one_letter_code_can`.
@@ -154,21 +161,21 @@ def parse_mmcif_entities(mmcif_path: Path, pdb_id: str) -> list[dict[str, Any]]:
     document = gemmi.cif.read_file(str(mmcif_path))
     # gemmi.cif.Block, 单个 PDB entry 的唯一 data block.
     block = document.sole_block()
-    # dict[str,list[str]], entity_id 到 label_asym_id 列表; 每个列表元素是一条 chain instance.
+    # dict[str, list[str]], entity_id 到 label_asym_id 列表; 每个列表元素是一条 chain instance.
     asym_ids_by_entity: dict[str, list[str]] = defaultdict(list)
-    # gemmi.cif.Table (N_asym,2), 列依次为 label_asym_id 和 entity_id.
+    # gemmi.cif.Table (N_asym, 2), 列依次为 label_asym_id 和 entity_id.
     asym_table = block.find(["_struct_asym.id", "_struct_asym.entity_id"])
     for row in asym_table:
         # str, 当前结构内唯一的 label_asym_id; 未来残基-原子映射的 chain 身份.
-        label_asym_id = str(row[0]).strip()
+        label_asym_id = row.str(0).strip()
         # str, `_entity_poly.entity_id` 的外键.
-        entity_id = str(row[1]).strip()
+        entity_id = row.str(1).strip()
         if label_asym_id and entity_id:
             asym_ids_by_entity[entity_id].append(label_asym_id)
 
     # list[dict], 一个 PDB 的 polymer entity 记录; 序列在 entity 层只保存一次.
     entities: list[dict[str, Any]] = []
-    # gemmi.cif.Table (N_entity,3), entity identity, polymer type 和沉积规范全长序列.
+    # gemmi.cif.Table (N_entity, 3), entity identity, polymer type 和沉积规范全长序列.
     entity_table = block.find(
         [
             "_entity_poly.entity_id",
@@ -178,11 +185,11 @@ def parse_mmcif_entities(mmcif_path: Path, pdb_id: str) -> list[dict[str, Any]]:
     )
     for row in entity_table:
         # str, 当前 PDB 内的 polymer entity identity.
-        entity_id = str(row[0]).strip()
+        entity_id = row.str(0).strip()
         # str, mmCIF 原始 `_entity_poly.type`; 用于区分 protein/RNA/DNA/hybrid.
-        polymer_type = str(row[1]).strip()
+        polymer_type = row.str(1).strip()
         # str (L,), 仅去空白并大写的 `_pdbx_seq_one_letter_code_can`; L 是沉积全长.
-        sequence = normalize_sequence(row[2])
+        sequence = normalize_sequence(row.str(2))
         # str, 本轮五类序列身份; other 只入目录, 不参与比对.
         sequence_class = classify_polymer_type(polymer_type)
         # list[str] (C,), 该 entity 的全部 label_asym chain, 去重后稳定排序.
@@ -217,14 +224,14 @@ def inspect_training_assets(data_root: Path, pdb_id: str) -> dict[str, Any]:
         - detail: str, 失败路径或首个契约错误.
 
     数组契约:
-        - 四个完整图数组形状均为 `(1,Z,Y,X)`; dtype 依次为 float32, float32, float16, bool.
-        - exp/sim/ligand_dist/ligand_area 的体素尺寸与世界原点必须一致.
+        - 四个完整图数组 exp/sim/ligand_dist/union_mask 形状均为 `(1, Z, Y, X)`; dtype 依次为 float32, float32, float16, bool.
+        - exp/sim/ligand_dist/ligand_area 元数据的体素尺寸与世界原点必须一致.
         - `receptor_tokens.npz::coords` 的原子数必须等于 `atom_labels.npz::binding_atom` 长度.
     """
 
     # Path, 当前 PDB 的完整实验图, 模拟图和体素监督目录.
     density_directory = data_root / "density" / pdb_id
-    # tuple[Path,...], 与当前 Stage1 Dataset 对齐的最小完整资产集合.
+    # tuple[Path, ...], 与当前 Stage1 Dataset 对齐的最小完整资产集合.
     required_paths = (
         density_directory / "exp.npz",
         density_directory / "exp.npy",
@@ -249,7 +256,7 @@ def inspect_training_assets(data_root: Path, pdb_id: str) -> dict[str, Any]:
 
     try:
         with np.load(density_directory / "exp.npz", allow_pickle=False) as exp_metadata:
-            # tuple[int,int,int], 实验完整图 ZYX 轴长度.
+            # tuple[int, int, int], 实验完整图 ZYX 轴长度.
             shape_zyx = tuple(
                 int(value) for value in np.asarray(exp_metadata["canonical_shape_zyx"]).tolist()
             )
@@ -260,9 +267,9 @@ def inspect_training_assets(data_root: Path, pdb_id: str) -> dict[str, Any]:
         if len(shape_zyx) != 3 or any(length <= 0 for length in shape_zyx):
             raise ValueError(f"canonical_shape_zyx 非法: {shape_zyx}")
 
-        # tuple[int,int,int,int], 单通道完整图的 `(1,Z,Y,X)` 盘上形状.
+        # tuple[int, int, int, int], 单通道完整图的 `(1, Z, Y, X)` 盘上形状.
         expected_array_shape = (1, *shape_zyx)
-        # tuple[(Path,dtype),...], 四个 mmap 数组的正式 dtype 契约.
+        # tuple[(Path, dtype), ...], 四个 mmap 数组的正式 dtype 契约.
         array_contracts = (
             (density_directory / "exp.npy", np.dtype(np.float32)),
             (density_directory / "sim.npy", np.dtype(np.float32)),
@@ -270,7 +277,7 @@ def inspect_training_assets(data_root: Path, pdb_id: str) -> dict[str, Any]:
             (density_directory / "union_mask.npy", np.dtype(np.bool_)),
         )
         for array_path, expected_dtype in array_contracts:
-            # memmap (1,Z,Y,X), 只读取 NPY header 和被访问的页, 不把完整体载入内存.
+            # memmap (1, Z, Y, X), 只读取 NPY header 和被访问的页, 不把完整体载入内存.
             array = np.load(array_path, mmap_mode="r", allow_pickle=False)
             if array.shape != expected_array_shape or array.dtype != expected_dtype:
                 raise ValueError(
@@ -286,7 +293,7 @@ def inspect_training_assets(data_root: Path, pdb_id: str) -> dict[str, Any]:
 
         for metadata_name in ("ligand_dist.npz", "ligand_area.npz"):
             with np.load(density_directory / metadata_name, allow_pickle=False) as metadata:
-                # tuple[int,int,int], 当前监督元数据声明的 ZYX 网格形状.
+                # tuple[int, int, int], 当前监督元数据声明的 ZYX 网格形状.
                 target_shape = tuple(
                     int(value) for value in np.asarray(metadata["grid_shape_zyx"]).tolist()
                 )
@@ -297,7 +304,7 @@ def inspect_training_assets(data_root: Path, pdb_id: str) -> dict[str, Any]:
                 if not np.array_equal(np.asarray(metadata["origin_xyz"]), origin_xyz):
                     raise ValueError(f"{metadata_name}::origin_xyz 与 exp.npz 不一致")
 
-        # Path, 完整受体重原子表; `coords` 形状为 `(N_atom,3)` 世界 XYZ.
+        # Path, 完整受体重原子表; `coords` 形状为 `(N_atom, 3)` 世界 XYZ.
         receptor_path = data_root / "parse" / pdb_id / "receptor_tokens.npz"
         # Path, 与受体原子逐项对齐的 Stage1 标签表.
         label_path = data_root / "labels" / pdb_id / "atom_labels.npz"
@@ -332,15 +339,15 @@ def summarize_entities(entities: Iterable[dict[str, Any]]) -> dict[str, Any]:
     """按 entity, chain instance 和沉积序列长度汇总一个 PDB 的 polymer 事实.
 
     输入参数:
-        - entities: Iterable[dict[str,Any]], 同一 PDB 的 polymer entity 记录.
+        - entities: Iterable[dict[str, Any]], 同一 PDB 的 polymer entity 记录.
 
     返回值:
-        - summary: dict[str,Any], 全部和按 sequence_class 分组的 entity, chain instance, residue 与 comparable 计数.
+        - summary: dict[str, Any], 全部和按 sequence_class 分组的 entity, chain instance, residue 与 comparable 计数.
 
     residue 计数按 chain instance 计算, 即一个多 chain entity 的序列长度乘以 chain 数. 短链和 other 进入 total 统计, 但不进入 comparable 统计.
     """
 
-    # dict[str,dict[str,int]], 五类序列的 entity/chain/residue 计数及可比子集计数.
+    # dict[str, dict[str, int]], 五类序列的 entity/chain/residue 计数及可比子集计数.
     by_class: dict[str, dict[str, int]] = {}
     for sequence_class in ("protein", "rna", "dna", "hybrid", "other"):
         by_class[sequence_class] = {
@@ -358,7 +365,7 @@ def summarize_entities(entities: Iterable[dict[str, Any]]) -> dict[str, Any]:
         chain_count = len(entity["label_asym_ids"])
         # int, 当前 entity 对 PDB residue 分母的总贡献 L*C; 短链仅进入 total.
         residue_count = int(entity["length"]) * chain_count
-        # dict[str,int], 当前 sequence class 的可变累加器.
+        # dict[str, int], 当前 sequence class 的可变累加器.
         class_summary = by_class[sequence_class]
         class_summary["entity_count"] += 1
         class_summary["chain_count"] += chain_count
@@ -387,7 +394,7 @@ def summarize_entities(entities: Iterable[dict[str, Any]]) -> dict[str, Any]:
 def _process_pdb(argument: tuple[str, str, dict[str, Any] | None]) -> dict[str, Any]:
     """解析一个 PDB, 并在它属于 held-out 时附加资产审计.
 
-    该顶层函数是 ProcessPoolExecutor worker.mmCIF 缺失或任意解析异常被转换为逐 PDB 序列状态, 使 2,497 个 held-out 的未预期失败数可以按约定的 3% 门槛统一统计.
+    该顶层函数是 ProcessPoolExecutor worker. mmCIF 缺失或任意解析异常被转换为逐 PDB 序列状态, 使 2,497 个 held-out 的未预期失败数可以按约定的 3% 门槛统一统计.
     """
 
     # str, Path 序列化值; 保证 ProcessPool worker 参数可直接 pickle.
@@ -438,7 +445,7 @@ def parse_fasta_entities(text: str) -> dict[str, str]:
     header 的第一个 `|` 前必须是 `<PDB_ID>_<entity_id>`; 返回键转为大写, 序列只去空白并大写.
     """
 
-    # dict[str,str], 大写 `<PDB_ID>_<entity_id>` 到官方全长序列的映射.
+    # dict[str, str], 大写 `<PDB_ID>_<entity_id>` 到官方全长序列的映射.
     sequences: dict[str, str] = {}
     # str | None, 当前 FASTA 记录的 entity identity.
     current_id: str | None = None
@@ -469,12 +476,12 @@ def compare_official_fasta(
     本地和官方的 entity identity 集合也必须相等; 缺少一侧的 entity 以 `None` 保存并使 `passed=False`.
     """
 
-    # dict[str,str], 本地 mmCIF entity identity 到规范全长序列.
+    # dict[str, str], 本地 mmCIF entity identity 到规范全长序列.
     local_sequences = {
         str(entity["sequence_id"]).upper(): str(entity["sequence"])
         for entity in local_entities
     }
-    # dict[str,str], RCSB 官方下载文件中的 entity identity 到全长序列.
+    # dict[str, str], RCSB 官方下载文件中的 entity identity 到全长序列.
     official_sequences = parse_fasta_entities(official_fasta_text)
     # list[str], 两侧 identity 并集; 缺少任一侧都显式进入失败明细.
     all_sequence_ids = sorted(set(local_sequences).union(official_sequences))
@@ -499,7 +506,7 @@ def compare_official_fasta(
 def _write_fasta(path: Path, entities: Iterable[dict[str, Any]], normalize_u_to_t: bool) -> None:
     """写出 entity FASTA; 核酸比对视图可显式把 U 替换为 T.
 
-    每条 header 只包含无空白的 `sequence_id`, 序列每 80 个字符换行.`normalize_u_to_t=False` 的自然 FASTA 不修改 U.
+    每条 header 只包含无空白的 `sequence_id`, 序列每 80 个字符换行. `normalize_u_to_t=False` 的自然 FASTA 不修改 U.
     """
 
     # list[str], FASTA header 与 80 字符序列行; entity 顺序继承调用方稳定排序.
@@ -518,18 +525,17 @@ def _select_official_smoke_pdbs(
     entities_by_pdb: dict[str, list[dict[str, Any]]],
     smoke_count: int,
 ) -> list[str]:
-    """依次选择 protein, 核酸和多 chain entity 代表, 再按 PDB identity 补足.
+    """依次选择 protein 和核酸代表, 再按 PDB identity 补足.
 
     返回值最多含 `smoke_count` 个互异 PDB; 固定排序使同一冻结目录得到相同的真实 smoke 身份.
     """
 
-    # list[str], 按科学角色依次选择且互异的 PDB identity.
+    # list[str], 按序列类别依次选择且互异的 PDB identity.
     selected: list[str] = []
-    # tuple[Callable,...], protein, 核酸和多 chain entity 三个 smoke 角色.
+    # tuple[Callable, ...], protein 和核酸两个序列 smoke 角色.
     predicates = (
         lambda entity: entity["sequence_class"] == "protein",
         lambda entity: entity["sequence_class"] in {"rna", "dna", "hybrid"},
-        lambda entity: len(entity["label_asym_ids"]) > 1,
     )
     for predicate in predicates:
         for pdb_id in sorted(entities_by_pdb):
@@ -577,7 +583,7 @@ def run_catalog_shard(
     pair_records = _read_jsonl(pair_list_path)
     # list[str] (N_pdb,), 22,386 个去重, 排序的小写 PDB identity.
     all_pdb_ids = sorted({str(record["pdb_id"]).strip().lower() for record in pair_records})
-    # dict[str,set[str]], 每个 PDB 对应的全部 EMDB identity.
+    # dict[str, set[str]], 每个 PDB 对应的全部 EMDB identity.
     emdb_ids_by_pdb: dict[str, set[str]] = defaultdict(set)
     for record in pair_records:
         pdb_id = str(record["pdb_id"]).strip().lower()
@@ -585,16 +591,16 @@ def run_catalog_shard(
 
     # list[dict] (N_occ,), held-out 的 81,922 条 occurrence 级质量与类型记录.
     held_out_rows = json.loads(held_out_split_path.read_text(encoding="utf-8"))
-    # dict[str,list[dict]], held-out PDB 到全部 occurrence 的映射.
+    # dict[str, list[dict]], held-out PDB 到全部 occurrence 的映射.
     occurrences_by_pdb: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in held_out_rows:
         occurrences_by_pdb[str(row["pdb_id"]).strip().lower()].append(row)
-    # dict[str,dict], PDB 到首次 EMDB 发布时间和冻结状态的映射.
+    # dict[str, dict], PDB 到首次 EMDB 发布时间和冻结状态的映射.
     audit_by_pdb = {
         str(record["pdb_id"]).strip().lower(): record for record in _read_jsonl(pdb_audit_path)
     }
 
-    # dict[str,dict], 只供 held-out PDB 使用的日期, 质量和六类配体计数.
+    # dict[str, dict], 只供 held-out PDB 使用的日期, 质量和六类配体计数.
     held_out_facts: dict[str, dict[str, Any]] = {}
     for pdb_id, rows in occurrences_by_pdb.items():
         # dict, 同一密度图任一 occurrence 的图级质量字段; 图级字段在 PDB 内共享.
@@ -631,12 +637,16 @@ def run_catalog_shard(
         # list[dict], 与 assigned_pdb_ids 同序的逐 PDB 目录分片结果.
         records = list(executor.map(_process_pdb, worker_arguments, chunksize=8))
 
+    # Path, 当前数组所有目录分片和分片摘要的共享输出目录.
     shard_directory = output_root / "stage1" / "shards"
+    # Path, 当前分片逐 PDB 序列与 held-out 基础事实的 JSONL.
     shard_path = shard_directory / f"catalog_{shard_index:03d}.jsonl"
+    # Path, 当前分片输入规模与序列状态计数的 JSON.
     summary_path = shard_directory / f"summary_{shard_index:03d}.json"
     _write_jsonl(shard_path, records)
     # Counter[str], 当前分片的 ok/missing_mmcif/parse_error 数量.
     status_counts = Counter(str(record["sequence_status"]) for record in records)
+    # dict, 当前分片身份, 输入数量, 状态计数, worker 数和结果路径.
     summary = {
         "shard_index": shard_index,
         "shard_count": shard_count,
@@ -665,7 +675,27 @@ def finalize_catalog(
 ) -> dict[str, Any]:
     """合并序列目录, 生成比对 FASTA, 并执行 RCSB 官方 FASTA smoke.
 
-    正式输出包括 `sequence_catalog.jsonl`, `pdb_sequence_status.jsonl`, `held_out_base.jsonl`, 自然 FASTA, MMseqs2 query/target FASTA, 官方 smoke, stage1 summary 与完成标记.
+    输入参数:
+        - output_root: Path, 全部正式产物的根目录.
+        - pair_list_path: Path, 完整 PDB/EMDB JSONL, 用于独立核对分片身份.
+        - train_pdb_path, validation_pdb_path, calibration_pdb_path: Path, 三个暴露参考 PDB JSON 列表.
+        - held_out_pdb_path: Path, 冻结 held-out PDB JSON 列表.
+        - shard_count, alignment_shard_count: int, 已完成目录分片数和派生 MMseqs2 query 分片数.
+        - official_smoke_count: int, 要下载并对照的真实 PDB 数.
+        - max_held_out_failures: int, 允许发布第一组产物的 held-out 未预期序列失败上限.
+        - official_timeout_seconds: float, 单次 RCSB FASTA HTTP 请求超时, 单位 s.
+
+    返回值:
+        - summary: dict[str, Any], PDB/entity/reference/held-out 数量, 序列状态计数, target entity 数, 分片数, 失败上限与官方 smoke 布尔值.
+
+    落盘产物:
+        - `sequence_catalog.jsonl`: 每行一个 :func:`parse_mmcif_entities` entity.
+        - `pdb_sequence_status.jsonl`: 每行含 `pdb_id`, `status`, `error`, `entity_count`.
+        - `held_out_base.jsonl`: 每行含 PDB/EMDB/日期, `quality`, `ligands`, `assets`, `sequence` 基础事实.
+        - `fasta/natural/*.fasta`: 四类自然序列; `fasta/mmseqs/*.fasta`: comparable query/target 比对视图.
+        - `official_fasta_smoke.json`: 含请求数, PDB identities, 总布尔值和逐 entity 本地/官方序列对照.
+        - `held_out_sequence_failures.jsonl`: `held_out_base` 中 status 为 missing_mmcif 或 parse_error 的子集.
+        - `stage1/summary.json`, `stage1/_COMPLETE`: 返回 summary 和全部门槛通过后的空完成标记.
 
     只有 held-out 的 `missing_mmcif` 与 `parse_error` 计入失败门槛. 官方 FASTA 不一致或失败数超过 `max_held_out_failures` 时保留报告但不写 `stage1/_COMPLETE`.
     """
@@ -696,7 +726,7 @@ def finalize_catalog(
     # list[dict] (N_entity,), 完整目录中每个 polymer entity 一条记录.
     entities = [entity for record in records for entity in record["entities"]]
     entities.sort(key=lambda entity: (str(entity["pdb_id"]), str(entity["entity_id"])))
-    # dict[str,list[dict]], 官方 FASTA smoke 与逐 PDB 汇总使用的 entity 索引.
+    # dict[str, list[dict]], 官方 FASTA smoke 与逐 PDB 汇总使用的 entity 索引.
     entities_by_pdb = {
         str(record["pdb_id"]): list(record["entities"]) for record in records
     }
@@ -728,7 +758,7 @@ def finalize_catalog(
     if held_out_id_set.intersection(reference_id_set):
         raise ValueError("held-out 与暴露参考 PDB identity 不互斥.")
 
-    # list[dict] (2,497,), 日期, 质量, 资产, 配体和序列统计的统一基础身份证.
+    # list[dict] (N_held_out,), 日期, 质量, 资产, 配体和序列统计的基础身份证; 正式 N_held_out=2497.
     held_out_base_records: list[dict[str, Any]] = []
     for record in records:
         pdb_id = str(record["pdb_id"])
@@ -755,8 +785,10 @@ def finalize_catalog(
         raise ValueError("held_out_base 与冻结 held-out PDB identity 不一致.")
     _write_jsonl(output_root / "held_out_base.jsonl", held_out_base_records)
 
+    # Path, 不改写自然序列的四类 entity FASTA 目录.
     natural_directory = output_root / "fasta" / "natural"
     for sequence_class in ("protein", "rna", "dna", "hybrid"):
+        # list[dict], 当前自然序列类别的全部 entity, 包含短链.
         class_entities = [
             entity for entity in entities if entity["sequence_class"] == sequence_class
         ]
@@ -779,6 +811,7 @@ def finalize_catalog(
         if entity["pdb_id"] in target_id_set
         and entity["sequence_class"] in {"rna", "dna", "hybrid"}
     ]
+    # Path, protein/nucleic 的完整 target 和 12 份 held-out query FASTA 目录.
     mmseqs_directory = output_root / "fasta" / "mmseqs"
     _write_fasta(mmseqs_directory / "protein_target.fasta", protein_targets, False)
     _write_fasta(mmseqs_directory / "nucleic_target.fasta", nucleic_targets, True)
@@ -811,7 +844,7 @@ def finalize_catalog(
             True,
         )
 
-    # list[str], 固定选择的少量真实 PDB, 覆盖 protein, 核酸和多 chain 角色.
+    # list[str], 固定选择的少量真实 PDB, 优先覆盖 protein 和核酸序列.
     smoke_pdb_ids = _select_official_smoke_pdbs(entities_by_pdb, official_smoke_count)
     # list[dict], 本地 mmCIF 与 RCSB 官方 FASTA 的逐 PDB 对照结果.
     smoke_results: list[dict[str, Any]] = []
@@ -825,7 +858,7 @@ def finalize_catalog(
             # str, RCSB 返回的 text/x-fasta 全文.
             official_text = response.read().decode("utf-8")
         smoke_results.append(compare_official_fasta(pdb_id, entities_by_pdb[pdb_id], official_text))
-    # dict, 三个真实 PDB 的 entity identity 集合和序列逐项相等报告.
+    # dict, N_smoke 个真实 PDB 的 entity identity 集合和序列逐项相等报告.
     smoke_report = {
         "requested_count": official_smoke_count,
         "pdb_ids": smoke_pdb_ids,
@@ -844,6 +877,7 @@ def finalize_catalog(
     _write_jsonl(output_root / "held_out_sequence_failures.jsonl", held_out_failures)
     # Counter[str], 完整 22,386 个 PDB 的序列处理状态分布.
     status_counts = Counter(str(record["sequence_status"]) for record in records)
+    # dict, 第一组产物的目录规模, 失败门槛, 比对输入规模和官方 smoke 结果.
     summary = {
         "catalog_pdb_count": len(records),
         "catalog_entity_count": len(entities),

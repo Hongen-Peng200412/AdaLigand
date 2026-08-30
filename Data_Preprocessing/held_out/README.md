@@ -9,7 +9,7 @@
 - `held_out_pipeline/selection.py`：汇总参考集和 held-out 内部关系，构建身份证、固定种子独立集、`test_0` 与 `test_1`。
 - `held_out_pipeline/cli.py`：四个显式阶段的薄命令行入口，不隐式串联 Job。
 - `tests/`：纯合成契约测试；真实 RCSB FASTA 和 MMseqs2 smoke 在服务器阶段执行。
-- `../../../训练与运行/sh/held_out_*.sh`：两个数组阶段与两个合并阶段的正式任务脚本。
+- `../../训练与运行/sh/held_out_*.sh`：两个数组步骤与两个合并步骤的正式任务脚本。
 
 建议按 `READING.md` 的顺序阅读。
 
@@ -26,33 +26,33 @@
 
 代码不读取坐标残基重建序列。`_entity_poly.pdbx_seq_one_letter_code_can` 只去除空白并转为大写；entity 到 chain 使用 `_struct_asym.entity_id -> _struct_asym.id`。
 
-## 四个显式阶段
+## 四个显式执行步骤
 
-第一阶段数组任务为 12 个分片，每个数组元素内部使用 `SLURM_CPUS_PER_TASK` 个进程：
+步骤 1 是目录数组任务，共 12 个分片，每个数组元素内部使用 `SLURM_CPUS_PER_TASK` 个进程：
 
 ```bash
 bash 训练与运行/submit_task.sh --sh held_out_catalog_array.sh --resource cpu --cpus 8 --array 0-11 --time 04:00:00
 ```
 
-第一阶段合并目录、生成自然 FASTA 与 MMseqs2 FASTA，并对三个真实 PDB 调用 RCSB 官方 FASTA：
+步骤 2 合并目录、生成自然 FASTA 与 MMseqs2 FASTA，并对三个真实 PDB 调用 RCSB 官方 FASTA：
 
 ```bash
 bash 训练与运行/submit_task.sh --sh held_out_catalog_finalize.sh --resource cpu --cpus 8 --time 02:00:00
 ```
 
-第二阶段数组任务分别运行 protein 与 nucleic MMseqs2：
+步骤 3 用数组任务分别运行 protein 与 nucleic MMseqs2：
 
 ```bash
 bash 训练与运行/submit_task.sh --sh held_out_mmseqs_array.sh --resource cpu --cpus 8 --array 0-11 --time 12:00:00
 ```
 
-第二阶段合并并按 PDB coverage 选择测试身份。shell 的前两个可选参数依次为聚合模式和阈值；第一版省略参数即使用 `or 0.5`：
+步骤 4 合并并按 PDB coverage 选择测试身份。shell 的前两个可选参数依次为聚合模式和阈值；第一版省略参数即使用 `or 0.5`：
 
 ```bash
 bash 训练与运行/submit_task.sh --sh held_out_finalize.sh --resource cpu --cpus 8 --time 04:00:00 -- or 0.5
 ```
 
-这些命令不建立自动依赖。只有确认上一阶段 `_COMPLETE` 与 summary 后才提交下一阶段。
+这些命令不建立自动依赖。步骤 2 成功写出第一组产物的 `stage1/_COMPLETE`，步骤 4 成功写出第二组产物的 `stage2/_COMPLETE`；只有核对前一步的输出后才显式提交下一步。
 
 ## 主要产物
 
@@ -76,11 +76,27 @@ bash 训练与运行/submit_task.sh --sh held_out_finalize.sh --resource cpu --c
 
 `pdb_sequence_status.jsonl` 每个完整 PDB 一行，保存 `ok`、`missing_mmcif` 或 `parse_error`，以及 entity 数。没有 polymer entity 仍是 `ok`。
 
+`held_out_base.jsonl` 固定覆盖全部 held-out PDB，每行字段如下：
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `pdb_id` | string | 小写 held-out PDB identity。 |
+| `emdb_ids` | list[string] | 该 PDB 在冻结对照中出现的全部 EMDB identity。 |
+| `first_map_release` | string 或 null | 首次 EMDB 发布时间。 |
+| `quality` | object | `map_resolution`、`cc_contour` 和严格 `<4.0`、`>0.65` 的 `passed`。 |
+| `ligands` | object | `total_count`、六类 `type_counts` 和严格 `1 < n < 100` 的布尔值。 |
+| `assets` | object | `status`、`passed`、`shape_zyx` 与 `detail`；失败时形状可为 null。 |
+| `sequence` | object | `status`、可空 `error`，以及 entity/chain/residue 的总计、可比子集计数和 `by_class`。 |
+
+`held_out_sequence_failures.jsonl` 是其中 `sequence.status` 为 `missing_mmcif` 或 `parse_error` 的完整记录子集。
+
 `fasta/natural/{protein,rna,dna,hybrid}.fasta` 保留自然序列。`fasta/mmseqs/` 保存 12 份 held-out query 和完整 target；nucleic FASTA 只在这个派生视图把 `U` 改为 `T`。
 
-`official_fasta_smoke.json` 保存三个代表 PDB 的本地 entity、官方 entity、逐 entity 是否相等和最终 `passed`。
+`official_fasta_smoke.json` 保存 `requested_count`、实际 `pdb_ids`、总 `passed` 和 `results`。每个 result 含 `pdb_id`、`source_url`、`passed` 与逐 entity 的 `sequence_id`、本地/官方序列和 `equal`。样本优先覆盖 protein 与核酸；本轮 smoke 只验收 entity identity 和沉积全长序列，不声称核对官方 header 中的 author chain 文本。
 
 ### 冗余边
+
+`qualifying_entity_hits.jsonl` 保存通过类别 identity 和双向 0.80 coverage 的去重 entity 对。每行包含 `relation`、PDB/entity/sequence identity A/B、两侧 `label_asym_ids` 与全长、`sequence_kind`、`identity`、`coverage_A`、`coverage_B`、`alignment_length` 和 `evalue`。
 
 `redundancy_edges.jsonl` 只保存至少存在一条高重复 chain 边的 PDB 对：
 
@@ -95,21 +111,33 @@ bash 训练与运行/submit_task.sh --sh held_out_finalize.sh --resource cpu --c
 | `chain_pass`、`residue_pass` | boolean | 两级 coverage 是否达到当前阈值。 |
 | `redundant` | boolean | 当前 `pdb_coverage_mode` 与阈值的最终判断。 |
 
+三类 matching 的每条见证均含 `chain_A`、`chain_B`、`entity_A`、`entity_B`、`sequence_id_A`、`sequence_id_B`、`length_A`、`length_B`、`sequence_kind`、`identity`、`coverage_A` 和 `coverage_B`。实现先在 entity 容量图上求解数学等价的一对一 chain matching，再只展开被选中的 chain 见证，不物化高拷贝 entity 的完整 chain 笛卡尔积。
+
 `or` 表示 `chain_pass or residue_pass`，`and` 表示 `chain_pass and residue_pass`。A/B 方向始终保留，模式不会改变四个原始 coverage。
 
 ### Held-out 身份证
 
-`held_out_identity.jsonl` 固定包含全部 2,497 个 held-out PDB。顶层字段是：
+`held_out_identity.jsonl` 固定包含全部 2,497 个 held-out PDB。每行字段如下：
 
-- `pdb_id`、`emdb_ids`、`first_map_release`；
-- `quality`：分辨率、`cc_contour` 和严格质量布尔值；
-- `assets`：资产状态、完整图形状、布尔值和失败说明；
-- `ligands`：六类 occurrence 计数、总数和 `1 < n < 100` 布尔值；
-- `sequence`：状态、错误、entity/chain/residue 与可比子集统计；
-- `redundancy`：当前模式、阈值、参考/内部关系数量、是否命中和最强直接见证；
-- `selection`：统一资格原因、贪心顺序、接受或拒绝见证，以及 `test_0/test_1` 标记与排序。
+| 字段 | 类型 | 含义与子字段 |
+| --- | --- | --- |
+| `schema`、`schema_version` | string、integer | 身份证 schema identity 与版本。 |
+| `pdb_id`、`emdb_ids`、`first_map_release` | string、list[string]、string 或 null | PDB/EMDB/日期身份。 |
+| `quality` | object | `map_resolution` 和 `cc_contour` 为 float 或 null；`passed` 为 boolean。 |
+| `assets` | object | `status`、`passed`、可空 `shape_zyx`、`detail`。 |
+| `ligands` | object | `total_count`、六类 `type_counts`、`strict_1_100_passed`。 |
+| `sequence` | object | `status`、可空 `error`、entity/chain/residue 总计、可比子集计数和逐类别 `by_class`。 |
+| `redundancy` | object | mode、threshold，参考/内部 edge 数与 redundant edge 数，`reference_redundant`，以及可空 `strongest_reference_edge`、`strongest_internal_edge`。压缩见证字段见下文。 |
+| `selection` | object | `base_eligible`、全部 `exclusion_reasons`、可空 `greedy_rank`、`independent_accepted`、可空 `rejected_by`/`rejection_edge`、两个测试布尔值与可空排名。 |
 
-`test_0.json` 与 `test_1.json` 都保存 schema、选择参数和 `pdb_ids`。`test_0` 固定 200 个；`test_1` 只对这 200 个应用 occurrence 总数严格 `(1,100)` 过滤。
+压缩关系见证为 null 或 object；object 含 `other_pdb_id`、`relation`、四个原始 coverage、`max_coverage`、`chain_pass`、`residue_pass` 和 `redundant`。存在冗余边时优先选择冗余见证，保证参考排除原因与身份证见证一致。
+
+两个测试视图的准确字段是：
+
+| 文件 | 字段 |
+| --- | --- |
+| `test_0.json` | `schema_version`、`pdb_coverage_mode`、`pdb_coverage_threshold`、`seed`、`name="test_0"`、`occurrence_filter=null`、200 个 `pdb_ids`。 |
+| `test_1.json` | 同一版本与选择参数、`name="test_1"`、`occurrence_filter="1 < total_count < 100"`、`parent="test_0"`、从 test_0 保序过滤得到的 `pdb_ids`。 |
 
 ### 汇总与完成标记
 

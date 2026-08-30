@@ -69,7 +69,7 @@ def brute_matching_value(
         # int, 不匹配当前 A chain 时的剩余最优值.
         best_value = search(index_A + 1, used_B)
         for index_B, chain_B in enumerate(chains_B):
-            # tuple[str,str], 当前候选 A/B chain identity.
+            # tuple[str, str], 当前候选 A/B chain identity.
             pair = (str(chains_A[index_A]["chain_id"]), str(chain_B["chain_id"]))
             if index_B in used_B or pair not in edge_pairs:
                 continue
@@ -109,7 +109,7 @@ def test_chain_matching_never_reuses_one_target_chain() -> None:
     # list[dict], A 侧两条 chain 和 B 侧唯一 chain.
     chains_A = [make_chain("A1", 100), make_chain("A2", 50)]
     chains_B = [make_chain("B1", 80)]
-    # dict[tuple,dict], 两条 A chain 都连接同一 B chain 的二分图.
+    # dict[tuple, dict], 两条 A chain 都连接同一 B chain 的二分图.
     evidence = {
         ("A1", "B1"): make_evidence("A1", "B1", 100, 80),
         ("A2", "B1"): make_evidence("A2", "B1", 50, 80),
@@ -123,13 +123,40 @@ def test_chain_matching_never_reuses_one_target_chain() -> None:
     assert edge["chain_B"] == 1.0
 
 
+def test_many_chain_copies_use_entity_capacity_without_cartesian_evidence() -> None:
+    """两千对同 entity chain copies 只需一条 entity edge, 且输出不复用 chain."""
+
+    # int, 单个 entity 在 A/B 两侧各自映射的高拷贝 chain 数.
+    copy_count = 2000
+    # list[dict] (copy_count,), A/B 两侧共享 entity identity 的可互换 chain copies.
+    chains_A = [
+        {**make_chain(f"A{index:04d}", 100), "entity_id": "EA", "sequence_id": "A_EA"}
+        for index in range(copy_count)
+    ]
+    chains_B = [
+        {**make_chain(f"B{index:04d}", 80), "entity_id": "EB", "sequence_id": "B_EB"}
+        for index in range(copy_count)
+    ]
+    # dict[tuple, dict] (1,), 一条 entity hit 表示两组 chain copies 间的完全二分图.
+    evidence = {("EA", "EB"): make_evidence("EA", "EB", 100, 80)}
+    # dict, entity 容量求解后展开出的三个 2,000 条 chain matching.
+    edge = calculate_pdb_edge(
+        "held_out_internal", "a", "b", chains_A, chains_B, evidence, "or", 0.5
+    )
+    assert len(edge["chain_matching"]) == copy_count
+    assert len({match["chain_A"] for match in edge["chain_matching"]}) == copy_count
+    assert len({match["chain_B"] for match in edge["chain_matching"]}) == copy_count
+    assert edge["chain_A"] == edge["chain_B"] == 1.0
+    assert edge["residue_A"] == edge["residue_B"] == 1.0
+
+
 def test_three_matching_objectives_are_solved_separately() -> None:
     """同一 A chain 可匹配两个 B chain 时, B 残基目标选择较长 B, 而非复用 chain 匹配."""
 
     # list[dict], 一条 A chain 和两条长度差异明显的 B chain.
     chains_A = [make_chain("A1", 100)]
     chains_B = [make_chain("B1", 10), make_chain("B2", 100)]
-    # dict[tuple,dict], 唯一 A chain 同时连接两条 B chain 的二分图.
+    # dict[tuple, dict], 唯一 A chain 同时连接两条 B chain 的二分图.
     evidence = {
         ("A1", "B1"): make_evidence("A1", "B1", 100, 10),
         ("A1", "B2"): make_evidence("A1", "B2", 100, 100),
@@ -146,7 +173,7 @@ def test_pdb_or_and_modes_combine_chain_and_residue_levels() -> None:
 
     assert classify_pdb_redundancy(0.5, 0.0, 0.1, 0.1, "or", 0.5)["redundant"]
     assert not classify_pdb_redundancy(0.5, 0.0, 0.1, 0.1, "and", 0.5)["redundant"]
-    # dict[str,bool], chain 和 residue 分别由不同方向达到阈值的 and 判定.
+    # dict[str, bool], chain 和 residue 分别由不同方向达到阈值的 and 判定.
     crossed = classify_pdb_redundancy(0.5, 0.0, 0.0, 0.5, "and", 0.5)
     assert crossed == {"chain_pass": True, "residue_pass": True, "redundant": True}
     assert not classify_pdb_redundancy(0.499, 0.0, 0.499, 0.0, "or", 0.5)["redundant"]
@@ -205,7 +232,7 @@ def test_chain_table_excludes_short_entities_and_internal_hit_orientation_swaps_
         set(),
     )
     assert oriented is not None
-    # tuple[str,str,str], relation 和固定字典序 PDB A/B identity.
+    # tuple[str, str, str], relation 和固定字典序 PDB A/B identity.
     pair_key, hit = oriented
     assert pair_key == ("held_out_internal", "1aaa", "1zzz")
     assert hit["entity_A"] == "1"
@@ -225,9 +252,9 @@ def test_matching_objectives_equal_brute_force_on_random_small_domains() -> None
         # list[dict] (4,), 由当前随机长度建立的 A/B chain 表.
         chains_A = [make_chain(f"A{index}", int(length)) for index, length in enumerate(lengths_A)]
         chains_B = [make_chain(f"B{index}", int(length)) for index, length in enumerate(lengths_B)]
-        # ndarray bool (4,4), 独立概率 0.45 采样的 chain 二分图邻接矩阵.
+        # ndarray bool (4, 4), 独立概率 0.45 采样的 chain 二分图邻接矩阵.
         edge_mask = random_generator.random((4, 4)) < 0.45
-        # dict[tuple,dict], 邻接矩阵中 True 位置对应的高重复 chain 见证.
+        # dict[tuple, dict], 邻接矩阵中 True 位置对应的高重复 chain 见证.
         evidence = {
             (f"A{index_A}", f"B{index_B}"): make_evidence(
                 f"A{index_A}",
@@ -243,7 +270,7 @@ def test_matching_objectives_equal_brute_force_on_random_small_domains() -> None
         edge = calculate_pdb_edge(
             "held_out_internal", "a", "b", chains_A, chains_B, evidence, "or", 0.5
         )
-        # set[tuple[str,str]], 交给独立穷举器的无权 chain 边集合.
+        # set[tuple[str, str]], 交给独立穷举器的无权 chain 边集合.
         edge_pairs = set(evidence)
         assert len(edge["chain_matching"]) == brute_matching_value(
             chains_A, chains_B, edge_pairs, "chain"

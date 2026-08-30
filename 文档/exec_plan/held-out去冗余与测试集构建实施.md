@@ -19,12 +19,20 @@
 
 ## 独立审查
 
-待主代理两遍自查完成后，由代码布局与 Git、中文注释、科学逻辑三名独立审查者各执行三轮全面核查；第三轮后只对已列问题做窄口径复核。
+主代理两遍自查完成后，由代码布局与 Git、中文注释、科学逻辑三名独立审查者各执行三轮全面核查；第三轮后只对已列问题做窄口径复核。
+
+### 第 1 轮全面核查
+
+- 布局与 Git 审查批准了当前模块依赖、函数位置、冷读分隔线和嵌套深度；要求在修复前保存独立审查前基线，并补全产物 Docstring、README 与四个显式步骤表述。
+- 注释审查发现资产 Docstring 把 `union_mask` 误写为 `ligand_area`、类型/形状标点空格不统一、可配置维度被注释写死，以及若干非标量变量和外部 `TASK_PROJECT_ROOT` 缺少说明。
+- 科学逻辑审查发现 Gemmi `row[index]` 保留 CIF 引号、高拷贝 entity 的 chain 笛卡尔积可能阻断全局合并、`and` 模式最强关系可能选到非冗余边，以及官方 FASTA smoke 不应声称验收 label chain 映射。
+- 修复采用 Gemmi `row.str(index)` 解引号；用 entity chain-copy 容量上的稀疏整数 b-matching 数学等价替代候选 chain 笛卡尔积，并仍输出逐 chain 见证；关系摘要优先选择冗余见证；官方 smoke 明确只验收 entity identity 与序列。同步补全字段契约、四步命名、变量注释和 2,000-copy 回归测试。
+- 修复后 Windows 本地回归为 `18 passed, 1 skipped`；唯一跳过项仍是需在正式 Linux Gemmi 环境补跑的 mmCIF 解析测试。`compileall`、四个 shell 语法和 diff 检查通过。
 
 ## Git 双线
 
-待实现提交与 Learn 历史重建完成后回填端点和 tree 等价证据。
+- 实现线已提交独立审查前基线 `5ac2c97`，后续审查修复另存提交；Learn 历史仍待按人类理解顺序重建并核对 tree 等价。
 
 ## 服务器执行与验收
 
-正式输出根固定为 `/storage/penghongen/AdaLigand/held_out`。待 MMseqs2 安装、同步、两阶段 Job 完成后回填 Job、版本、结果计数和失败清单。
+正式输出根固定为 `/storage/penghongen/AdaLigand/held_out`。待 MMseqs2 安装、同步、四个显式步骤完成后回填 Job、版本、结果计数和失败清单。

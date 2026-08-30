@@ -3,6 +3,8 @@
 主要入口是 :func:`finalize_identity_views`. 该入口先调用 redundancy 模块生成完整 PDB 对关系, 再排除参考集冗余, 最后在 held-out 内部冲突图上构建固定种子贪心独立集并抽取 `test_0`, `test_1`.
 
 本模块不解析 mmCIF, 不运行 MMseqs2, 也不改变质量, 资产或序列阈值.
+
+全部路径相对于调用方 `output_root`. `held_out_identity.jsonl` 一行对应一个冻结 held-out PDB; `test_0.json` 和 `test_1.json` 各保存一个身份视图; `stage2/summary.json` 与 `_COMPLETE` 收口第二组产物.
 """
 
 from __future__ import annotations
@@ -75,18 +77,18 @@ def greedy_independent_set(
 
     输入参数:
         - eligible_pdb_ids: Iterable[str], 已排除参考冗余的候选身份.
-        - conflict_pairs: Iterable[tuple[str,str]], 当前 PDB 参数下的 held-out 内部冗余无向边.
+        - conflict_pairs: Iterable[tuple[str, str]], 当前 PDB 参数下的 held-out 内部冗余无向边.
         - seed: int, 全局种子; 本入口固定使用 `spawn_key=(0,)`.
 
     返回值:
-        - states: dict[str,dict], 每个候选保存 `greedy_rank`, `accepted` 和 `rejected_by`; 拒绝见证一定是更早接受的邻居.
+        - states: dict[str, dict], 每个候选保存 `greedy_rank`, `accepted` 和 `rejected_by`; 拒绝见证一定是更早接受的邻居.
     """
 
     # list[str] (N,), 去重, 排序后的统一资格 PDB identity.
     sorted_ids = sorted(set(eligible_pdb_ids))
     # set[str], 过滤内部边两端是否仍属于当前选择域.
     eligible_set = set(sorted_ids)
-    # dict[str,set[str]], 当前参数下的 held-out 冗余无向邻接表.
+    # dict[str, set[str]], 当前参数下的 held-out 冗余无向邻接表.
     neighbors: dict[str, set[str]] = defaultdict(set)
     for pdb_A, pdb_B in conflict_pairs:
         if pdb_A in eligible_set and pdb_B in eligible_set:
@@ -98,7 +100,7 @@ def greedy_independent_set(
     random_order = [sorted_ids[index] for index in random_generator.permutation(len(sorted_ids))]
     # set[str], 已接受且两两无冲突的当前独立集.
     accepted_ids: set[str] = set()
-    # dict[str,dict], 每个统一资格 PDB 的顺序, 接受布尔值和直接拒绝见证.
+    # dict[str, dict], 每个统一资格 PDB 的顺序, 接受布尔值和直接拒绝见证.
     states: dict[str, dict[str, Any]] = {}
     for greedy_rank, pdb_id in enumerate(random_order):
         # list[str], 当前 PDB 已经接受的直接冗余邻居; 非传递闭包.
@@ -142,9 +144,9 @@ def sample_test_0(independent_pdb_ids: Iterable[str], sample_size: int, seed: in
 
 
 def _strongest_edge(edges: list[dict[str, Any]], pdb_id: str) -> dict[str, Any] | None:
-    """按最大原始 coverage 和另一端 PDB identity 选一个稳定直接见证.
+    """优先从冗余边中按最大原始 coverage 选一个稳定直接见证.
 
-    返回值只压缩展示另一端 identity, 四个 coverage 和当前判定; 完整三组 matching 仍以 `redundancy_edges.jsonl` 为准.
+    若没有冗余边, 再从全部非冗余关系中选择. 返回 `None` 或含 `other_pdb_id`, `relation`, 四个 coverage, `max_coverage`, `chain_pass`, `residue_pass`, `redundant` 的压缩见证; 完整三组 matching 仍以 `redundancy_edges.jsonl` 为准.
     """
 
     if not edges:
@@ -172,7 +174,11 @@ def _strongest_edge(edges: list[dict[str, Any]], pdb_id: str) -> dict[str, Any] 
     ]
     return max(
         compressed_edges,
-        key=lambda edge: (float(edge["max_coverage"]), str(edge["other_pdb_id"])),
+        key=lambda edge: (
+            bool(edge["redundant"]),
+            float(edge["max_coverage"]),
+            str(edge["other_pdb_id"]),
+        ),
     )
 
 
@@ -193,7 +199,24 @@ def finalize_identity_views(
 ) -> dict[str, Any]:
     """生成完整 PDB 关系, held-out 身份证和 `test_0/test_1` 两个冻结视图.
 
-    选择顺序固定为质量, 资产, 序列成功, 无参考冗余, held-out 内部贪心独立集, 固定种子抽取 `test_0_size` 项, 最后仅对 `test_0` 应用 occurrence 总数 `(1,100)` 过滤得到 `test_1`.
+    输入参数:
+        - output_root: Path, 第一组产物, MMseqs2 TSV 和最终视图的共享根目录.
+        - train_pdb_path, validation_pdb_path, calibration_pdb_path: Path, 暴露参考 PDB JSON 列表.
+        - held_out_pdb_path: Path, 冻结 held-out PDB JSON 列表.
+        - alignment_shard_count: int, 要合并的 MMseqs2 query 分片数.
+        - mode, threshold: str 与 float, PDB chain/residue 聚合方式和 `[0, 1]` 包含边界.
+        - seed, test_0_size: int, SeedSequence entropy 和固定 test_0 PDB 数.
+
+    返回值:
+        - summary: dict, 冗余边规模, held-out 数, 前置资格数, 独立集数, test_0/test_1 数, 排除原因计数与 seed.
+
+    落盘产物:
+        - `held_out_identity.jsonl`: 每行含 schema/PDB/EMDB/日期和 `quality`, `assets`, `ligands`, `sequence`, `redundancy`, `selection` 嵌套对象.
+        - `test_0.json`: 含 schema version, mode, threshold, seed, 空 occurrence filter 和固定抽样 `pdb_ids`.
+        - `test_1.json`: 继承同一参数, 记录 parent 与 `(1, 100)` filter, `pdb_ids` 只来自 test_0.
+        - `stage2/summary.json`, `stage2/_COMPLETE`: 返回 summary 和成功发布后的空完成标记.
+
+    选择顺序固定为质量, 资产, 序列成功, 无参考冗余, held-out 内部贪心独立集, 固定种子抽取 `test_0_size` 项, 最后仅对 `test_0` 应用 occurrence 总数 `(1, 100)` 过滤得到 `test_1`.
 
     返回 summary; 正式写出完整冗余边, 全部 held-out 身份证, 两个测试 JSON, stage2 summary 和最后的 `stage2/_COMPLETE`.
     """
@@ -211,9 +234,9 @@ def finalize_identity_views(
         mode,
         threshold,
     )
-    # list[dict] (2,497,), stage1 生成的日期, 质量, 资产, 配体和序列基础事实.
+    # list[dict] (N_held_out,), stage1 基础事实; 正式 N_held_out=2497.
     base_records = _read_jsonl(output_root / "held_out_base.jsonl")
-    # dict[str,dict], PDB identity 到唯一基础身份证的映射.
+    # dict[str, dict], PDB identity 到唯一基础身份证的映射.
     base_by_pdb = {str(record["pdb_id"]): record for record in base_records}
     # set[str], 冻结 held-out 身份基准.
     held_out_ids = {
@@ -223,9 +246,9 @@ def finalize_identity_views(
     if set(base_by_pdb) != held_out_ids:
         raise ValueError("held_out_base 与冻结 held-out PDB identity 不一致.")
 
-    # dict[str,list[dict]], held-out PDB 到全部暴露参考关系的映射.
+    # dict[str, list[dict]], held-out PDB 到全部暴露参考关系的映射.
     reference_edges_by_pdb: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    # dict[str,list[dict]], held-out PDB 到全部内部关系的双端邻接映射.
+    # dict[str, list[dict]], held-out PDB 到全部内部关系的双端邻接映射.
     internal_edges_by_pdb: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for edge in edges:
         if edge["relation"] == "reference":
@@ -234,7 +257,7 @@ def finalize_identity_views(
             internal_edges_by_pdb[str(edge["pdb_A"])].append(edge)
             internal_edges_by_pdb[str(edge["pdb_B"])].append(edge)
 
-    # dict[str,list[str]], 独立记录质量, 资产, 序列和参考冗余的全部排除原因.
+    # dict[str, list[str]], 独立记录质量, 资产, 序列和参考冗余的全部排除原因.
     exclusion_reasons_by_pdb: dict[str, list[str]] = {}
     # list[str], 通过四项统一前置条件, 尚待内部去冗余的 PDB.
     eligible_ids: list[str] = []
@@ -254,32 +277,32 @@ def finalize_identity_views(
         if not exclusion_reasons:
             eligible_ids.append(pdb_id)
 
-    # list[tuple[str,str]], 当前 mode/threshold 下 redundant=True 的内部无向边.
+    # list[tuple[str, str]], 当前 mode/threshold 下 redundant=True 的内部无向边.
     conflict_pairs = [
         (str(edge["pdb_A"]), str(edge["pdb_B"]))
         for edge in edges
         if edge["relation"] == "held_out_internal" and bool(edge["redundant"])
     ]
-    # dict[str,dict], 每个统一资格 PDB 的固定种子贪心接受或拒绝状态.
+    # dict[str, dict], 每个统一资格 PDB 的固定种子贪心接受或拒绝状态.
     greedy_states = greedy_independent_set(eligible_ids, conflict_pairs, seed)
     # list[str], 完整贪心独立集; 任意两个成员之间没有当前冗余边.
     independent_ids = [
         pdb_id for pdb_id, state in greedy_states.items() if bool(state["accepted"])
     ]
-    # list[str] (200,), 不应用 occurrence 数过滤的固定随机 test_0 身份和抽取顺序.
+    # list[str] (N_test0,), 不应用 occurrence 数过滤的固定随机身份; N_test0=test_0_size.
     test_0_ids = sample_test_0(independent_ids, test_0_size, seed)
-    # dict[str,int], test_0 PDB 到随机抽取顺序的映射.
+    # dict[str, int], test_0 PDB 到随机抽取顺序的映射.
     test_0_rank = {pdb_id: rank for rank, pdb_id in enumerate(test_0_ids)}
-    # list[str] (N_test1,), test_0 中 total occurrence 严格位于 `(1,100)` 的子集.
+    # list[str] (N_test1,), test_0 中 total occurrence 严格位于 `(1, 100)` 的子集.
     test_1_ids = [
         pdb_id
         for pdb_id in test_0_ids
         if bool(base_by_pdb[pdb_id]["ligands"]["strict_1_100_passed"])
     ]
-    # dict[str,int], 继承 test_0 相对顺序后的 test_1 紧凑排名.
+    # dict[str, int], 继承 test_0 相对顺序后的 test_1 紧凑排名.
     test_1_rank = {pdb_id: rank for rank, pdb_id in enumerate(test_1_ids)}
 
-    # list[dict] (2,497,), 最终统一身份证; 完整关系仍由 redundancy_edges.jsonl 保存.
+    # list[dict] (N_held_out,), 最终统一身份证; 正式 N_held_out=2497.
     identities: list[dict[str, Any]] = []
     for pdb_id in sorted(held_out_ids):
         base_record = base_by_pdb[pdb_id]
@@ -302,48 +325,50 @@ def finalize_identity_views(
                 and bool(edge["redundant"])
             ]
             rejection_edge = _strongest_edge(matching_edges, pdb_id)
-        identities.append(
-            {
-                "schema": IDENTITY_SCHEMA,
-                "schema_version": IDENTITY_SCHEMA_VERSION,
-                "pdb_id": pdb_id,
-                "emdb_ids": base_record["emdb_ids"],
-                "first_map_release": base_record["first_map_release"],
-                "quality": base_record["quality"],
-                "assets": base_record["assets"],
-                "ligands": base_record["ligands"],
-                "sequence": base_record["sequence"],
-                "redundancy": {
-                    "pdb_coverage_mode": mode,
-                    "pdb_coverage_threshold": threshold,
-                    "reference_edge_count": len(reference_edges),
-                    "reference_redundant_edge_count": sum(
-                        bool(edge["redundant"]) for edge in reference_edges
-                    ),
-                    "reference_redundant": any(
-                        bool(edge["redundant"]) for edge in reference_edges
-                    ),
-                    "strongest_reference_edge": _strongest_edge(reference_edges, pdb_id),
-                    "internal_edge_count": len(internal_edges),
-                    "internal_redundant_edge_count": sum(
-                        bool(edge["redundant"]) for edge in internal_edges
-                    ),
-                    "strongest_internal_edge": _strongest_edge(internal_edges, pdb_id),
-                },
-                "selection": {
-                    "base_eligible": not exclusion_reasons_by_pdb[pdb_id],
-                    "exclusion_reasons": exclusion_reasons_by_pdb[pdb_id],
-                    "greedy_rank": None if state is None else state["greedy_rank"],
-                    "independent_accepted": False if state is None else state["accepted"],
-                    "rejected_by": rejected_by,
-                    "rejection_edge": rejection_edge,
-                    "test_0": pdb_id in test_0_rank,
-                    "test_0_rank": test_0_rank.get(pdb_id),
-                    "test_1": pdb_id in test_1_rank,
-                    "test_1_rank": test_1_rank.get(pdb_id),
-                },
-            }
-        )
+        # dict, 当前参数下的参考/内部关系规模, 布尔值和最强直接见证.
+        redundancy_summary = {
+            "pdb_coverage_mode": mode,
+            "pdb_coverage_threshold": threshold,
+            "reference_edge_count": len(reference_edges),
+            "reference_redundant_edge_count": sum(
+                bool(edge["redundant"]) for edge in reference_edges
+            ),
+            "reference_redundant": any(bool(edge["redundant"]) for edge in reference_edges),
+            "strongest_reference_edge": _strongest_edge(reference_edges, pdb_id),
+            "internal_edge_count": len(internal_edges),
+            "internal_redundant_edge_count": sum(
+                bool(edge["redundant"]) for edge in internal_edges
+            ),
+            "strongest_internal_edge": _strongest_edge(internal_edges, pdb_id),
+        }
+        # dict, 当前 PDB 的前置资格, 贪心状态, 拒绝见证和测试视图成员身份.
+        selection_summary = {
+            "base_eligible": not exclusion_reasons_by_pdb[pdb_id],
+            "exclusion_reasons": exclusion_reasons_by_pdb[pdb_id],
+            "greedy_rank": None if state is None else state["greedy_rank"],
+            "independent_accepted": False if state is None else state["accepted"],
+            "rejected_by": rejected_by,
+            "rejection_edge": rejection_edge,
+            "test_0": pdb_id in test_0_rank,
+            "test_0_rank": test_0_rank.get(pdb_id),
+            "test_1": pdb_id in test_1_rank,
+            "test_1_rank": test_1_rank.get(pdb_id),
+        }
+        # dict, 一个冻结 held-out PDB 的完整 schema v1 身份证.
+        identity_record = {
+            "schema": IDENTITY_SCHEMA,
+            "schema_version": IDENTITY_SCHEMA_VERSION,
+            "pdb_id": pdb_id,
+            "emdb_ids": base_record["emdb_ids"],
+            "first_map_release": base_record["first_map_release"],
+            "quality": base_record["quality"],
+            "assets": base_record["assets"],
+            "ligands": base_record["ligands"],
+            "sequence": base_record["sequence"],
+            "redundancy": redundancy_summary,
+            "selection": selection_summary,
+        }
+        identities.append(identity_record)
 
     _write_jsonl(output_root / "held_out_identity.jsonl", identities)
     # dict, test_0/test_1 共享的冗余参数和随机身份.
@@ -377,6 +402,7 @@ def finalize_identity_views(
     exclusion_counts = Counter(
         reason for reasons in exclusion_reasons_by_pdb.values() for reason in reasons
     )
+    # dict, 冗余边, 前置资格, 独立集和两个测试视图的最终规模.
     summary = {
         **edge_summary,
         "held_out_pdb_count": len(held_out_ids),

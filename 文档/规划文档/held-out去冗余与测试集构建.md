@@ -15,7 +15,7 @@ ESM2、Luca、CryoAtom2 的真实 smoke，残基—原子映射、残基内原�
 - protein 是全部 `polypeptide*`；RNA、DNA 和 DNA/RNA hybrid 分别保留自然类别；其余 polymer 记录为 `other`，但不参与本轮比对。
 - 自然 FASTA 不改写序列。用于核酸比对的派生 FASTA 把 `U` 转成 `T`，使 RNA 与 DNA 的相同碱基可直接比较。
 - protein 长度至少 30 aa、RNA/DNA/hybrid 长度至少 20 nt 才参与序列比对和 PDB coverage 分母。短链仍保存在目录和身份证统计中。
-- 真实 smoke 从本地目录选择少量 protein、nucleic acid 和多 chain entity 代表，逐 entity 对照 RCSB 官方 `/fasta/entry/<pdb_id>/download` 结果。任何序列不一致都作为 smoke 失败报告。
+- 真实 smoke 从本地目录选择少量 PDB，优先覆盖 protein 与 nucleic acid，逐 entity 对照 RCSB 官方 `/fasta/entry/<pdb_id>/download` 结果。任何 entity identity 或序列不一致都作为 smoke 失败；本轮不把官方 header 中的 author chain 文本当作 `label_asym_id` 验收来源。
 
 ## chain 高重复边
 
@@ -23,7 +23,7 @@ MMseqs2 使用真实 alignment identity，即 `--alignment-mode 3 --seq-id-mode 
 
 - protein：identity 至少 0.30，双向 coverage 至少 0.80。
 - RNA、DNA 和 hybrid：统一作为核酸比较，identity 至少 0.80，双向 coverage 至少 0.80。
-- entity 命中展开为其全部 `label_asym_id` chain 对。一个 PDB 对内的 chain coverage 必须通过一对一二分图匹配计算，不能让同一条 chain 重复覆盖多条 chain。
+- 一条 entity 命中在科学定义上连接两侧全部 `label_asym_id` chain copies。实现以 entity 的 chain copy 数作为容量求解数学等价的二分图匹配，只展开最终匹配见证，不物化高拷贝 entity 的完整笛卡尔积。一个 PDB 对内不能让同一条 chain 重复覆盖多条 chain。
 
 每个 PDB 对分别计算三个最优匹配：最大 chain 数、最大 A 侧匹配残基数、最大 B 侧匹配残基数。由此得到 `chain_A`、`chain_B`、`residue_A`、`residue_B` 四个双向 coverage。
 
@@ -58,6 +58,6 @@ MMseqs2 使用真实 alignment identity，即 `--alignment-mode 3 --seq-id-mode 
 
 ## 执行边界
 
-执行分成两个显式阶段：第一阶段用 12 个数组任务解析序列和审计 held-out，随后单任务合并目录、生成 FASTA 并运行 RCSB 官方 FASTA smoke；第二阶段用 12 个数组任务运行 protein 与 nucleic MMseqs2，随后单任务生成关系、身份证和测试视图。每个数组元素使用 8 CPU，不建立自动依赖、自动重试或多层状态机。
+执行有两组产物、四个显式步骤：目录数组、目录合并与 RCSB smoke、MMseqs2 数组、关系/身份证/测试视图合并。两个数组步骤各使用 12 个任务，每个数组元素使用 8 CPU。步骤间不建立自动依赖、自动重试或多层状态机。
 
 只有 held-out 中未预期的序列处理失败计入重跑门槛。失败数不超过 74 时保留失败清单并继续；达到 75 时停止正式发布并先诊断。质量不通过、资产不通过、短链和零可比 chain 都是预期状态，不计入该门槛。

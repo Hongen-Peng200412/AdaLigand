@@ -100,10 +100,10 @@ def test_official_fasta_comparison_is_per_entity_and_detects_mismatch() -> None:
     assert [row["equal"] for row in mismatch["entities"]] == [True, False]
 
 
-def test_official_smoke_selection_covers_protein_nucleic_and_multichain_roles() -> None:
-    """三个 smoke 身份依次覆盖 protein, 核酸和多 chain entity, 且彼此不同."""
+def test_official_smoke_selection_covers_protein_nucleic_and_stable_supplement() -> None:
+    """三个 smoke 身份优先覆盖 protein 和核酸, 再稳定补足互异 PDB."""
 
-    # dict[str,list[dict]], 三个 PDB 分别只满足一个优先 smoke 角色.
+    # dict[str, list[dict]], 前两个 PDB 分别满足 protein 和核酸角色, 第三个用于补足.
     entities_by_pdb = {
         "1aaa": [{"sequence_class": "protein", "label_asym_ids": ["A"]}],
         "1bbb": [{"sequence_class": "rna", "label_asym_ids": ["B"]}],
@@ -148,7 +148,7 @@ def test_training_asset_audit_accepts_exact_80_cube_and_rejects_short_cube(
                 voxel_size_xyz=voxel_size,
                 origin_xyz=origin,
             )
-        # tuple[int,int,int,int], 单通道完整体数组的 `(1,Z,Y,X)` 形状.
+        # tuple[int, int, int, int], 单通道完整体数组的 `(1, Z, Y, X)` 形状.
         full_shape = (1, *shape_zyx)
         np.lib.format.open_memmap(density_root / "exp.npy", mode="w+", dtype=np.float32, shape=full_shape)
         np.lib.format.open_memmap(density_root / "sim.npy", mode="w+", dtype=np.float32, shape=full_shape)

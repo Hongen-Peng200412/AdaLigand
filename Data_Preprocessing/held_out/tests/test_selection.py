@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from held_out_pipeline.selection import (
+    _strongest_edge,
     finalize_identity_views,
     greedy_independent_set,
     sample_test_0,
@@ -74,7 +75,7 @@ def make_edge(pdb_A: str, pdb_B: str, relation: str = "held_out_internal") -> di
 def test_greedy_selection_is_pairwise_independent_not_connected_component_collapse() -> None:
     """A-B 与 B-C 冲突不产生 A-C 冲突, 输出只拒绝已接受的直接邻居."""
 
-    # dict[str,dict], 三节点路径图在固定随机顺序下的贪心接受状态.
+    # dict[str, dict], 三节点路径图在固定随机顺序下的贪心接受状态.
     states = greedy_independent_set(["a", "b", "c"], [("a", "b"), ("b", "c")], 3407)
     # set[str], 输出中的两两无直接冲突 PDB identity.
     accepted = {pdb_id for pdb_id, state in states.items() if state["accepted"]}
@@ -97,6 +98,38 @@ def test_test_0_sampling_is_deterministic_and_without_replacement() -> None:
     second = sample_test_0(reversed(pdb_ids), 10, 3407)
     assert first == second
     assert len(first) == len(set(first)) == 10
+
+
+def test_strongest_edge_prioritizes_redundant_witness_in_and_mode() -> None:
+    """and 模式存在冗余边时, 单项 coverage 更高的非冗余边不能替代排除见证."""
+
+    # dict, chain 单项为 0.99 但 residue 未过阈值的非冗余参考边.
+    nonredundant_edge = make_edge("a", "x", relation="reference")
+    nonredundant_edge.update(
+        {
+            "chain_A": 0.99,
+            "chain_B": 0.1,
+            "residue_A": 0.49,
+            "residue_B": 0.1,
+            "chain_pass": True,
+            "residue_pass": False,
+            "redundant": False,
+        }
+    )
+    # dict, chain 与 residue 两级都恰好达到 0.5 的冗余参考边.
+    redundant_edge = make_edge("a", "y", relation="reference")
+    redundant_edge.update(
+        {
+            "residue_A": 0.5,
+            "residue_B": 0.5,
+            "residue_pass": True,
+        }
+    )
+    # dict, 身份证应保存真正触发 reference_redundant 的 Y 边.
+    witness = _strongest_edge([nonredundant_edge, redundant_edge], "a")
+    assert witness is not None
+    assert witness["other_pdb_id"] == "y"
+    assert witness["redundant"]
 
 
 def test_finalize_keeps_zero_comparable_chain_and_test_1_is_test_0_subset(
@@ -158,9 +191,9 @@ def test_finalize_keeps_zero_comparable_chain_and_test_1_is_test_0_subset(
     )
     # list[str] (2,), 未应用 occurrence 数过滤的固定种子 test_0.
     test_0 = json.loads((output_root / "test_0.json").read_text(encoding="utf-8"))["pdb_ids"]
-    # list[str], 只从 test_0 派生的 `(1,100)` occurrence 子集.
+    # list[str], 只从 test_0 派生的 `(1, 100)` occurrence 子集.
     test_1 = json.loads((output_root / "test_1.json").read_text(encoding="utf-8"))["pdb_ids"]
-    # dict[str,dict], 四个 PDB 的最终统一身份证索引.
+    # dict[str, dict], 四个 PDB 的最终统一身份证索引.
     identities = {
         row["pdb_id"]: row
         for row in (
