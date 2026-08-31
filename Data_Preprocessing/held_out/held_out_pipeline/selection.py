@@ -136,23 +136,24 @@ def sample_test_0(full_test_pdb_ids: Iterable[str], sample_size: int, seed: int)
 
     输入参数:
         - full_test_pdb_ids: Iterable[str], 贪心极大独立集 full_test 中的 PDB identities.
-        - sample_size: int, 要抽取的 test_0 PDB 数.
+        - sample_size: int, test_0 的目标数量上限.
         - seed: int, 全局 SeedSequence entropy; 本入口固定使用 `spawn_key=(1,)`.
 
     返回值:
-        - test_0_pdb_ids: 长度 sample_size 的 list[str], 按无放回随机抽取顺序保存的 PDB identities.
+        - test_0_pdb_ids: 长度为 sample_size 与去重后 full_test PDB 数中较小值的 list[str], 按无放回随机抽取顺序保存的 PDB identities.
 
     输入集合先排序去重, 再固定使用 `SeedSequence(seed, spawn_key=(1,))`; 返回顺序就是随机抽取顺序.
+    full_test 少于目标数量时返回其全部成员, 不为凑数放宽冗余条件.
     """
 
     # list[str] (N_full_test,), full_test 去重排序后的稳定 PDB identity 顺序; N_full_test 是去重后的 PDB 数.
     sorted_ids = sorted(set(full_test_pdb_ids))
-    if len(sorted_ids) < sample_size:
-        raise ValueError(f"full_test 只有 {len(sorted_ids)} 个 PDB, 不足 {sample_size} 个.")
+    # int, test_0 实际抽取数; N_test0 = min(sample_size, N_full_test).
+    actual_sample_size = min(sample_size, len(sorted_ids))
     # Generator, test_0 抽样专用随机子流; 不受贪心顺序消费量影响.
     random_generator = np.random.default_rng(np.random.SeedSequence(seed, spawn_key=(1,)))
-    # ndarray int64 (sample_size,), 无放回随机排列的前 sample_size 个索引.
-    draw_indices = random_generator.permutation(len(sorted_ids))[:sample_size]
+    # int64 ndarray, (N_test0,), 无放回随机排列中用于索引 sorted_ids 的前 N_test0 个数值索引.
+    draw_indices = random_generator.permutation(len(sorted_ids))[:actual_sample_size]
     return [sorted_ids[index] for index in draw_indices]
 
 
@@ -235,7 +236,7 @@ def finalize_identity_views(
         - mode: str, 取 or 或 and; 只组合 chain_pass 与 residue_pass.
         - threshold: float, chain 和 residue 两级共用的包含边界, 取值位于 `(0, 1]`.
         - seed: int, 贪心顺序和 test_0 抽样使用的 SeedSequence entropy.
-        - test_0_size: int, test_0 固定抽取的 PDB 数.
+        - test_0_size: int, test_0 固定抽取的目标数量上限.
 
     返回字段:
         - summary: dict, 保留 :func:`build_redundancy_edges` summary 并增加最终视图规模.
@@ -296,7 +297,7 @@ def finalize_identity_views(
             - name: str, 固定为 test_0.
             - occurrence_filter: None, 表示不按 occurrence 数过滤.
             - parent: str, 固定为 full_test.
-            - pdb_ids: 长度 test_0_size 的 list[str], 按固定随机抽样顺序保存的 PDB identities.
+            - pdb_ids: 长度为 test_0_size 与 summary.full_test_count 中较小值的 list[str], 按固定随机抽样顺序保存的 PDB identities.
         - `test_1.json`: dict; 只从 test_0 应用 occurrence 数过滤的保序子集.
             - schema_version: int, 与 test_0 相同.
             - pdb_coverage_mode: str, 与 test_0 相同.
@@ -309,7 +310,9 @@ def finalize_identity_views(
         - `stage2/summary.json`: dict; 字段与函数返回值相同.
         - `stage2/_COMPLETE`: 空文件; 本函数正常执行到末尾时写出, 不作为后续代码门控.
 
-    选择顺序固定为质量, 资产, 序列成功, 无参考冗余, held-out 内部贪心极大独立集 full_test, 固定种子抽取 `test_0_size` 项, 最后仅对 `test_0` 应用 occurrence 总数 `(1, 100)` 过滤得到 `test_1`.
+    选择顺序固定为质量, 资产, 序列成功, 无参考冗余, held-out 内部贪心极大独立集 full_test,
+    固定种子抽取至多 `test_0_size` 项, 最后仅对 `test_0` 应用 occurrence 总数 `(1, 100)` 过滤得到
+    `test_1`. full_test 少于目标数量时 test_0 取其全部成员, 不改变 full_test 或冗余参数.
 
     完成标记只记录本步骤正常执行到末尾, 不参与失败率或步骤间门控.
     """
@@ -382,7 +385,7 @@ def finalize_identity_views(
     ]
     # dict[str, int], full_test PDB 到贪心接受顺序中紧凑排名的映射.
     full_test_rank = {pdb_id: rank for rank, pdb_id in enumerate(full_test_ids)}
-    # list[str] (N_test0,), 不应用 occurrence 数过滤的固定随机身份; N_test0=test_0_size.
+    # list[str], (N_test0,), 不应用 occurrence 数过滤的固定随机 PDB identities; N_test0 = min(test_0_size, N_full_test).
     test_0_ids = sample_test_0(full_test_ids, test_0_size, seed)
     # dict[str, int], test_0 PDB 到随机抽取顺序的映射.
     test_0_rank = {pdb_id: rank for rank, pdb_id in enumerate(test_0_ids)}

@@ -11,7 +11,7 @@ pdb_split_root="${data_root}/stage1_preparation_box_pool_3/split/pdb_split"
 output_root=/storage/penghongen/AdaLigand/held_out
 # int, 贪心独立集和 test_0 抽样共享 entropy, 但使用两个独立 spawn_key.
 seed=3407
-# int, test_0 的固定目标 PDB 数; 独立集不足时 finalize 明确失败.
+# int, test_0 的固定目标数量上限; full_test 不足 200 个时取其全部成员.
 test_0_size=200
 
 source /home/penghongen/anaconda3/etc/profile.d/conda.sh
