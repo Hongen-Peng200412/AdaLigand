@@ -100,6 +100,20 @@ def test_test_0_sampling_is_deterministic_and_without_replacement() -> None:
     assert len(first) == len(set(first)) == 10
 
 
+def test_test_0_sampling_uses_all_full_test_members_below_target() -> None:
+    """full_test 少于目标数量时, test_0 保留全部成员且不放宽来源集合."""
+
+    # list[str], (4,), 小于 200 项目标上限的完整合成 full_test identity.
+    pdb_ids = ["a", "b", "c", "d"]
+    # list[str], (4,), 正序输入经独立随机子流得到的全成员固定顺序.
+    first = sample_test_0(pdb_ids, 200, 3407)
+    # list[str], (4,), 反序输入经排序去重后得到的同一全成员固定顺序.
+    second = sample_test_0(reversed(pdb_ids), 200, 3407)
+    assert first == second
+    assert len(first) == len(set(first)) == len(pdb_ids)
+    assert set(first) == set(pdb_ids)
+
+
 def test_strongest_edge_prioritizes_redundant_witness_in_and_mode() -> None:
     """and 模式存在冗余边时, 单项 coverage 更高的非冗余边不能替代排除见证."""
 
@@ -174,7 +188,7 @@ def test_finalize_builds_maximal_full_test_and_nested_views(
         }
 
     monkeypatch.setattr("held_out_pipeline.selection.build_redundancy_edges", fake_build_edges)
-    # dict, 使用固定边和 test_0_size=2 得到的三个最终视图汇总.
+    # dict, 使用固定边和大于 full_test 规模的 test_0_size=200 得到的三个最终视图汇总.
     summary = finalize_identity_views(
         output_root,
         split_paths[0],
@@ -185,7 +199,7 @@ def test_finalize_builds_maximal_full_test_and_nested_views(
         "or",
         0.5,
         3407,
-        2,
+        200,
     )
     # dict, 不应用 occurrence 数过滤的完整贪心极大独立集视图.
     full_test_view = json.loads((output_root / "full_test.json").read_text(encoding="utf-8"))
@@ -195,7 +209,7 @@ def test_finalize_builds_maximal_full_test_and_nested_views(
     test_1_view = json.loads((output_root / "test_1.json").read_text(encoding="utf-8"))
     # list[str], 按贪心接受顺序保存的 full_test PDB identities.
     full_test = full_test_view["pdb_ids"]
-    # list[str] (2,), 按固定随机抽样顺序保存的 test_0 PDB identities.
+    # list[str], (N_full_test,), 按固定随机抽样顺序保存的全部 full_test PDB identities.
     test_0 = test_0_view["pdb_ids"]
     # list[str], 从 test_0 保序过滤得到的 test_1 PDB identities.
     test_1 = test_1_view["pdb_ids"]
@@ -224,6 +238,7 @@ def test_finalize_builds_maximal_full_test_and_nested_views(
         for pdb_id in eligible_set - full_test_set
     )
     assert set(test_1) <= set(test_0) <= full_test_set
+    assert set(test_0) == full_test_set
     assert all(1 < identities[pdb_id]["ligands"]["total_count"] < 100 for pdb_id in test_1)
     assert identities["d"]["selection"]["base_eligible"]
     assert identities["d"]["selection"]["full_test"]
@@ -234,5 +249,9 @@ def test_finalize_builds_maximal_full_test_and_nested_views(
         identities[pdb_id]["selection"]["full_test_rank"] == rank
         for rank, pdb_id in enumerate(full_test)
     )
+    assert all(
+        identities[pdb_id]["selection"]["test_0_rank"] == rank
+        for rank, pdb_id in enumerate(test_0)
+    )
     assert summary["full_test_count"] == len(full_test)
-    assert summary["test_0_count"] == 2
+    assert summary["test_0_count"] == len(full_test)
