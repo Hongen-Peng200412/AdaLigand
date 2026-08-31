@@ -250,9 +250,9 @@ def _maximum_matching(
     if not chains_A or not chains_B or not evidence_by_entity_pair:
         return []
 
-    # dict[str, list[dict]], (N_entity_A,), A 侧 entity identity 到可互换 chain copies 的映射.
+    # dict[str, list[dict]], 初始为空; 分组完成后含 N_entity_A 个 A 侧 entity identity 及其可互换 chain copies.
     chains_by_entity_A: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    # dict[str, list[dict]], (N_entity_B,), B 侧 entity identity 到可互换 chain copies 的映射.
+    # dict[str, list[dict]], 初始为空; 分组完成后含 N_entity_B 个 B 侧 entity identity 及其可互换 chain copies.
     chains_by_entity_B: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for chain in chains_A:
         chains_by_entity_A[str(chain["entity_id"])].append(chain)
@@ -279,14 +279,14 @@ def _maximum_matching(
     row_by_entity_B = {
         entity_id: len(entity_ids_A) + index for index, entity_id in enumerate(entity_ids_B)
     }
-    # list[int], (2*N_edge,), 稀疏矩阵行坐标; 每条边各占用一个 A entity 和 B entity 容量.
+    # list[int], 初始为空; 遍历结束后长度为 2*N_edge, 每条边各占用一个 A entity 和 B entity 容量.
     constraint_rows: list[int] = []
-    # list[int], (2*N_edge,), 稀疏矩阵列坐标; 同一 edge 变量在两侧约束行各出现一次.
+    # list[int], 初始为空; 遍历结束后长度为 2*N_edge, 同一 edge 变量在两侧约束行各出现一次.
     constraint_columns: list[int] = []
     for edge_index, ((entity_A, entity_B), _evidence) in enumerate(entity_edges):
         constraint_rows.extend((row_by_entity_A[entity_A], row_by_entity_B[entity_B]))
         constraint_columns.extend((edge_index, edge_index))
-    # csr_matrix float64 (N_entity_A + N_entity_B, N_edge), 每列在两侧各消耗一个容量.
+    # csr_matrix float64, (N_entity_A + N_entity_B, N_edge), 每列在两侧各消耗一个容量.
     constraint_matrix = coo_matrix(
         (
             np.ones(len(constraint_rows), dtype=np.float64),
@@ -294,13 +294,13 @@ def _maximum_matching(
         ),
         shape=(len(entity_ids_A) + len(entity_ids_B), len(entity_edges)),
     ).tocsr()
-    # ndarray float64 (N_entity_A + N_entity_B,), 以浮点传给求解器的整数 chain copy 容量.
+    # ndarray float64, (N_entity_A + N_entity_B,), 以浮点传给求解器的整数 chain copy 容量.
     entity_capacities = np.asarray(
         [len(chains_by_entity_A[entity_id]) for entity_id in entity_ids_A]
         + [len(chains_by_entity_B[entity_id]) for entity_id in entity_ids_B],
         dtype=np.float64,
     )
-    # ndarray float64 (N_edge,), 随 objective 取 1, A 长度或 B 长度的每对 chain 正权重.
+    # ndarray float64, (N_edge,), 随 objective 取 1, A 长度或 B 长度的每对 chain 正权重.
     objective_weights = np.asarray(
         [
             1.0
@@ -312,7 +312,7 @@ def _maximum_matching(
         ],
         dtype=np.float64,
     )
-    # ndarray float64 (N_edge,), 以浮点传给求解器的单边整数流量上限.
+    # ndarray float64, (N_edge,), 以浮点传给求解器的单边整数流量上限.
     upper_bounds = np.asarray(
         [
             min(len(chains_by_entity_A[entity_A]), len(chains_by_entity_B[entity_B]))
@@ -333,12 +333,12 @@ def _maximum_matching(
     )
     if not optimization.success or optimization.x is None:
         raise RuntimeError(f"entity 容量匹配求解失败: {optimization.message}")
-    # ndarray int64 (N_edge,), 每条 entity edge 实际承载的 chain 匹配数.
+    # ndarray int64, (N_edge,), 每条 entity edge 实际承载的 chain 匹配数.
     flow_by_edge = np.rint(optimization.x).astype(np.int64)
     # Counter[str], 构造见证时每个 entity 已经消费的稳定 chain copy 数.
     used_chain_count_A: Counter[str] = Counter()
     used_chain_count_B: Counter[str] = Counter()
-    # list[dict], (M,), M 条不复用 label_asym chain 的直接匹配见证.
+    # list[dict], 初始为空; 展开结束后含 M 条不复用 label_asym chain 的直接匹配见证.
     matching: list[dict[str, Any]] = []
     for ((entity_A, entity_B), evidence), flow_count in zip(
         entity_edges, flow_by_edge.tolist()
@@ -639,7 +639,7 @@ def run_mmseqs_shard(
     temporary_root = output_root / "stage2" / "mmseqs_tmp"
     result_root.mkdir(parents=True, exist_ok=True)
     temporary_root.mkdir(parents=True, exist_ok=True)
-    # list[dict], (2,), protein 和 nucleic 命令, 状态及结果路径.
+    # list[dict], 初始为空; 循环结束后含 2 条 protein/nucleic 命令, 状态及结果路径.
     command_records: list[dict[str, Any]] = []
     for sequence_kind, search_type, identity_threshold in (
         ("protein", 1, PROTEIN_IDENTITY_THRESHOLD),
@@ -744,7 +744,7 @@ def build_pdb_edge_evidence(
             - summary.raw_qualifying_alignment_count: int, 通过类别 identity 和双向 0.80 coverage 的原始 TSV 行数.
             - summary.oriented_entity_hit_count: int, 定向并按 entity 对去重后的命中数.
             - summary.pdb_edge_count: int, 至少含一条定向 entity 命中的 PDB 对数.
-            - summary.relation_counts: dict[str, int], reference 和 held_out_internal 两类 PDB 对数.
+            - summary.relation_counts: dict[str, int], reference 和 held_out_internal 两类 PDB 对数; 仅保存实际出现的类别, 零计数类别不写键.
 
     落盘产物:
         - `qualifying_entity_hits.jsonl`: JSONL; 每行使用 :func:`_orient_hit` 返回的 oriented_hit 字段.
@@ -794,7 +794,7 @@ def build_pdb_edge_evidence(
                 if oriented_result is None:
                     continue
                 # tuple[str, str, str], relation 与定向后 PDB A/B identity 组成的 PDB 对主键.
-                # dict, 与同一 PDB A/B 方向一致的 entity identity, 长度和 alignment coverage.
+                # dict, 使用 :func:`_orient_hit` 的 oriented_hit 完整字段契约并与 PDB A/B 方向一致.
                 pair_key, oriented_hit = oriented_result
                 # tuple[str, ...], relation, PDB A/B 和 entity A/B 的去重主键.
                 entity_pair_key = (

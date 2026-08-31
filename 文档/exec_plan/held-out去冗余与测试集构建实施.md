@@ -19,9 +19,11 @@
 - 旧根目录 `or + 0.5` 参数文件只在八组全部通过独立验收后精确移除；不建立兼容副本、硬链接或符号链接。新 `held_out_05_or` 必须与旧文件逐字节 `cmp` 一致。
 - 主代理第一遍按文件顺序检查本轮全部修改函数的职责、位置、调用关系、嵌套与 Docstring；期间让共享边构造入口只返回 summary, 明确 `redundancy -> shared evidence -> selection` 的单向依赖, 并增加共享字段不随 split 漂移的测试。
 - 主代理第二遍逐行核对三个科学函数和 split 产物构造中的非标量变量、形状符号、参数语义与 shell 变量注释；补全 `N_edge/N_held_out/N_full_test/N_test0/N_test1` 等符号, 拆开关键路径变量说明, 并确认本轮代码注释不含中文标点。
-- 两遍自查后的 Windows 全套回归为 `21 passed, 1 skipped`；唯一跳过项仍是本机未安装 Gemmi。`compileall`、两个新 CLI 帮助、五份 shell 语法、`git diff --check` 与代码注释标点扫描均通过。三类独立三轮核查、双线 Git、服务器重跑与八组验收尚未开始。
+- 两遍自查后的 Windows 全套回归为 `21 passed, 1 skipped`；唯一跳过项仍是本机未安装 Gemmi。`compileall`、两个新 CLI 帮助、五份 shell 语法、`git diff --check` 与代码注释标点扫描均通过。三类独立核查随后开始；双线 Git、服务器重跑与八组验收尚未开始。
 - 第 1/3 轮三路全面审查发现同一个实际入口回归：共享边证据为空时，非法 mode/threshold 不会进入逐边分类校验。修复在 `finalize_identity_views` 开头直接检查四种 mode 与 `(0, 1]` 阈值，并补回空证据零阈值回归；这属于参数契约，不读取失败率或决定发布。
 - 首轮其余修订只同步活动 shell README、上一轮/本轮 Git 事实与共享边字段 Docstring，并按注释 skill 改正空容器的当前形状、类型/形状逗号、shell seed/test_0_size 变量说明和一处测试措辞。修复后全套为 `22 passed, 1 skipped`；`compileall`、五份 shell 语法与 `git diff --check` 继续通过。
+- 第 2/3 轮三路全面审查未发现新的算法缺陷，并确认共享证据与旧 OR-0.5 的参数无关字段等价、旧新 OR-0.5 产物逐字节等价、四种模式和八数组映射符合契约。修订只校正累加器当前形状、矩阵轴、零计数类别缺键和测试视图长度等注释契约，并把主规格中的参考范围明确为成功进入序列目录的参考 PDB；14,017 仍是参考身份基准，实际失败数由 Stage1 summary 量化，不增加失败率门控。
+- 第二轮修订后的 Windows 全套回归为 `22 passed, 1 skipped`；唯一跳过项仍是本机未安装 Gemmi。`compileall`、五份 shell 语法、`git diff --check` 与代码注释标点扫描全部通过。
 
 ## 实现与本地验证
 
@@ -68,7 +70,7 @@
 ## Git 双线
 
 - 上一轮实现线最终端点为 `cf3e2e4`，学习历史与累计学习分支已经重建到 `Learn/CUMULATIVE@0e01739`，两端 tree 等价。
-- 本轮实现线从 `0e01739` 建立，独立审查前基线为 `c6d6696`；首轮审查修复将追加独立提交，不改写基线。`Learn/held-out-split-matrix` 尚待在实现端点稳定后按“文档契约 -> 共享边证据 -> 参数化 selection/CLI/shell -> 测试”的理解顺序重建，再核对端点 tree 和同套测试并推进 `Learn/CUMULATIVE`。
+- 本轮实现线从 `0e01739` 建立，独立审查前基线为 `c6d6696`；首轮审查修复已保存为独立提交 `0ab822f`，实现顺序为 `c6d6696 -> 0ab822f`，没有改写基线。`Learn/held-out-split-matrix` 尚待在实现端点稳定后按“文档契约 -> 共享边证据 -> 参数化 selection/CLI/shell -> 测试”的理解顺序重建，再核对端点 tree 和同套测试并推进 `Learn/CUMULATIVE`。
 
 ## 服务器执行与验收
 

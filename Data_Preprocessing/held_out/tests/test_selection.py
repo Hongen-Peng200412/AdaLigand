@@ -230,7 +230,7 @@ def test_finalize_builds_maximal_full_test_and_nested_views(
     )
     # list[str], 按贪心接受顺序保存的 full_test PDB identities.
     full_test = full_test_view["pdb_ids"]
-    # list[str], (N_full_test,), 按固定随机抽样顺序保存的全部 full_test PDB identities.
+    # list[str], (N_full_test,), N_full_test 为当前合成 full_test 成员数; 按固定随机抽样顺序保存全部成员.
     test_0 = test_0_view["pdb_ids"]
     # list[str], 从 test_0 保序过滤得到的 test_1 PDB identities.
     test_1 = test_1_view["pdb_ids"]

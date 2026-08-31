@@ -52,7 +52,7 @@ MMseqs2 使用真实 alignment identity，即 `--alignment-mode 3 --seq-id-mode 
 1. `map_resolution < 4.0` 且 `cc_contour > 0.65`；
 2. Stage1 当前资产契约完整，完整图三个维度均至少为 80；
 3. mmCIF 序列解析成功；零可比 chain 不属于失败；
-4. 与 14,017 个已暴露参考 PDB 没有当前参数下的冗余边。
+4. 与成功进入序列目录的已暴露参考 PDB 没有当前参数下的冗余边；参考身份基准共 14,017 个，实际失败数见 Stage1 summary。
 
 在剩余 held-out 冲突图上，以 `SeedSequence(3407, spawn_key=(0,))` 产生固定贪心顺序，依次接受与已有成员均不冲突的 PDB。遍历全部合格 PDB 后，完整接受集合写为 `full_test`。任意两个成员之间均无冗余边；每个拒绝项都保存一个已接受的直接冲突邻居，因此再加入任何一个被拒绝 PDB 都会破坏独立性。`full_test` 由此是极大独立集，但不保证是基数最大的独立集。
 

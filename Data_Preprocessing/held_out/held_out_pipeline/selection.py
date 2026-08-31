@@ -89,7 +89,7 @@ def greedy_independent_set(
     每个未接受候选都保存一个已接受的直接冲突邻居, 因此接受集合是极大独立集; 本算法不保证它是基数最大的独立集.
     """
 
-    # list[str], (N,), 去重, 排序后的统一资格 PDB identity.
+    # list[str], (N,), N 为去重后的合格 PDB 数; 内容是排序后的统一资格 PDB identity.
     sorted_ids = sorted(set(eligible_pdb_ids))
     # set[str], 过滤内部边两端是否仍属于当前选择域.
     eligible_set = set(sorted_ids)
@@ -245,7 +245,7 @@ def finalize_identity_views(
             - summary.oriented_entity_hit_count: int, 定向并按 entity 对去重后的高重复命中数.
             - summary.pdb_edge_count: int, 共享 PDB 边证据数 N_edge.
             - summary.redundant_pdb_edge_count: int, 当前 mode/threshold 下 redundant=True 的 PDB 边数.
-            - summary.relation_counts: dict[str, int], reference 与 held_out_internal 两类 PDB 边数.
+            - summary.relation_counts: dict[str, int], reference 与 held_out_internal 两类 PDB 边数; 仅保存实际出现的类别, 零计数类别不写键.
             - summary.mode: str, 当前 chain, residue, or 或 and 判定模式.
             - summary.threshold: float, 当前 PDB coverage 包含边界, 取值位于 `(0, 1]`.
             - summary.held_out_pdb_count: int, 冻结 held-out PDB 数.
@@ -253,7 +253,7 @@ def finalize_identity_views(
             - summary.full_test_count: int, held-out 内部贪心极大独立集 PDB 数.
             - summary.test_0_count: int, 未应用 occurrence 数过滤的 test_0 PDB 数.
             - summary.test_1_count: int, 从 test_0 应用严格 `(1, 100)` 过滤后的 PDB 数.
-            - summary.exclusion_reason_counts: dict[str, int], 四种前置排除原因各自出现的 PDB 数.
+            - summary.exclusion_reason_counts: dict[str, int], 四种前置排除原因各自出现的 PDB 数; 仅保存实际出现的类别, 零计数类别不写键.
             - summary.seed: int, 当前固定随机 entropy.
 
     落盘产物:
@@ -320,7 +320,7 @@ def finalize_identity_views(
             - name: str, 固定为 test_1.
             - occurrence_filter: str, 固定为 `1 < total_count < 100`.
             - parent: str, 固定为 test_0.
-            - pdb_ids: list[str], 从 test_0.pdb_ids 保序过滤得到的 PDB identities.
+            - pdb_ids: 长度 N_test1 的 list[str], 从 test_0.pdb_ids 保序过滤得到的 PDB identities.
         - `summary.json`: dict; 字段与函数返回值相同.
         - `_COMPLETE`: 空文件; 本函数正常执行到末尾时写出, 不作为后续代码门控.
 
@@ -434,7 +434,7 @@ def finalize_identity_views(
     # dict[str, int], (N_test1,), 继承 test_0 相对顺序后的 test_1 紧凑排名.
     test_1_rank = {pdb_id: rank for rank, pdb_id in enumerate(test_1_ids)}
 
-    # list[dict], (N_held_out,), 最终统一身份证; 正式 N_held_out=2497.
+    # list[dict], 初始为空; 循环结束后含 N_held_out 条最终统一身份证, 正式 N_held_out=2497.
     identities: list[dict[str, Any]] = []
     for pdb_id in sorted(held_out_ids):
         # dict, 当前 held-out PDB 的质量, 资产, 配体与序列基础事实.
