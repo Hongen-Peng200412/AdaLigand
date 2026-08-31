@@ -70,7 +70,7 @@
 ## Git 双线
 
 - 上一轮实现线最终端点为 `cf3e2e4`，学习历史与累计学习分支已经重建到 `Learn/CUMULATIVE@0e01739`，两端 tree 等价。
-- 本轮实现线从 `0e01739` 建立，独立审查前基线为 `c6d6696`；首轮审查修复已保存为独立提交 `0ab822f`，实现顺序为 `c6d6696 -> 0ab822f`，没有改写基线。`Learn/held-out-split-matrix` 尚待在实现端点稳定后按“文档契约 -> 共享边证据 -> 参数化 selection/CLI/shell -> 测试”的理解顺序重建，再核对端点 tree 和同套测试并推进 `Learn/CUMULATIVE`。
+- 本轮实现线从 `0e01739` 建立，独立审查前基线为 `c6d6696`；首轮参数契约修复为 `0ab822f`，第二轮注释与文档契约修订为 `bd6e146`，实现及审查修订顺序为 `c6d6696 -> 0ab822f -> bd6e146`，没有改写基线。`Learn/held-out-split-matrix` 尚待在实现端点稳定后按“文档契约 -> 共享边证据 -> 参数化 selection/CLI/shell -> 测试”的理解顺序重建，再核对端点 tree 和同套测试并推进 `Learn/CUMULATIVE`。
 
 ## 服务器执行与验收
 
