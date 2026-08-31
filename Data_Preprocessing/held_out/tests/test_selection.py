@@ -56,7 +56,7 @@ def make_base_record(pdb_id: str, ligand_count: int, comparable_chains: int = 1)
 
 
 def make_edge(pdb_A: str, pdb_B: str, relation: str = "held_out_internal") -> dict[str, object]:
-    """建立当前参数下判为冗余的 PDB 边."""
+    """建立尚未应用 PDB coverage 参数的共享边证据."""
 
     return {
         "relation": relation,
@@ -66,9 +66,6 @@ def make_edge(pdb_A: str, pdb_B: str, relation: str = "held_out_internal") -> di
         "chain_B": 0.5,
         "residue_A": 0.4,
         "residue_B": 0.4,
-        "chain_pass": True,
-        "residue_pass": False,
-        "redundant": True,
     }
 
 
@@ -136,7 +133,9 @@ def test_strongest_edge_prioritizes_redundant_witness_in_and_mode() -> None:
         {
             "residue_A": 0.5,
             "residue_B": 0.5,
+            "chain_pass": True,
             "residue_pass": True,
+            "redundant": True,
         }
     )
     # dict, 身份证应保存真正触发 reference_redundant 的 Y 边.
@@ -148,12 +147,13 @@ def test_strongest_edge_prioritizes_redundant_witness_in_and_mode() -> None:
 
 def test_finalize_builds_maximal_full_test_and_nested_views(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
     """full_test 是包含零可比 chain 的极大独立集, 两个派生视图保持嵌套."""
 
-    # Path, 最终身份视图的合成输出根; 运行入口不读取完成标记作为门控.
-    output_root = tmp_path / "output"
+    # Path, 合成基础事实和边证据的共享根; 运行入口不读取完成标记作为门控.
+    shared_output_root = tmp_path / "shared"
+    # Path, 当前 or/0.5 参数组合的独立产物目录.
+    split_output_root = shared_output_root / "split" / "held_out_05_or"
     # list[dict] (4,), occurrence 数覆盖 test_1 两个边界外侧并含一个零可比 chain PDB.
     base_records = [
         make_base_record("a", 10),
@@ -161,52 +161,44 @@ def test_finalize_builds_maximal_full_test_and_nested_views(
         make_base_record("c", 101),
         make_base_record("d", 5, comparable_chains=0),
     ]
-    write_jsonl(output_root / "held_out_base.jsonl", base_records)
+    write_jsonl(shared_output_root / "held_out_base.jsonl", base_records)
     # Path, 四个冻结 held-out PDB identity 的合成 split.
     held_out_path = tmp_path / "held.json"
     write_json(held_out_path, ["a", "b", "c", "d"])
-    # list[Path] (3,), 空的 train/validation/calibration 暴露参考 split.
-    split_paths = []
-    for name in ("train", "validation", "calibration"):
-        path = tmp_path / f"{name}.json"
-        write_json(path, [])
-        split_paths.append(path)
-    # list[dict] (2,), A-B-C 路径形内部冗余边.
+    # list[dict] (2,), A-B-C 路径形内部共享边证据.
     edges = [make_edge("a", "b"), make_edge("b", "c")]
-
-    def fake_build_edges(*_args, **_kwargs):
-        """返回固定内部冲突链, 避免单元测试调用 MMseqs2."""
-
-        return edges, {
+    write_jsonl(shared_output_root / "pdb_edge_evidence.jsonl", edges)
+    write_json(
+        shared_output_root / "stage2" / "edge_summary.json",
+        {
             "raw_qualifying_alignment_count": 2,
             "oriented_entity_hit_count": 2,
             "pdb_edge_count": 2,
-            "redundant_pdb_edge_count": 2,
             "relation_counts": {"held_out_internal": 2},
-            "mode": "or",
-            "threshold": 0.5,
-        }
-
-    monkeypatch.setattr("held_out_pipeline.selection.build_redundancy_edges", fake_build_edges)
+        },
+    )
     # dict, 使用固定边和大于 full_test 规模的 test_0_size=200 得到的三个最终视图汇总.
     summary = finalize_identity_views(
-        output_root,
-        split_paths[0],
-        split_paths[1],
-        split_paths[2],
+        shared_output_root,
+        split_output_root,
         held_out_path,
-        1,
         "or",
         0.5,
         3407,
         200,
     )
     # dict, 不应用 occurrence 数过滤的完整贪心极大独立集视图.
-    full_test_view = json.loads((output_root / "full_test.json").read_text(encoding="utf-8"))
+    full_test_view = json.loads(
+        (split_output_root / "full_test.json").read_text(encoding="utf-8")
+    )
     # dict, 从 full_test 固定种子抽取且不应用 occurrence 数过滤的 test_0 视图.
-    test_0_view = json.loads((output_root / "test_0.json").read_text(encoding="utf-8"))
+    test_0_view = json.loads(
+        (split_output_root / "test_0.json").read_text(encoding="utf-8")
+    )
     # dict, 只从 test_0 派生的 `(1, 100)` occurrence 子集视图.
-    test_1_view = json.loads((output_root / "test_1.json").read_text(encoding="utf-8"))
+    test_1_view = json.loads(
+        (split_output_root / "test_1.json").read_text(encoding="utf-8")
+    )
     # list[str], 按贪心接受顺序保存的 full_test PDB identities.
     full_test = full_test_view["pdb_ids"]
     # list[str], (N_full_test,), 按固定随机抽样顺序保存的全部 full_test PDB identities.
@@ -218,9 +210,18 @@ def test_finalize_builds_maximal_full_test_and_nested_views(
         row["pdb_id"]: row
         for row in (
             json.loads(line)
-            for line in (output_root / "held_out_identity.jsonl").read_text(encoding="utf-8").splitlines()
+            for line in (split_output_root / "held_out_identity.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
         )
     }
+    # list[dict] (2,), split 内由共享证据加回 or/0.5 判定字段的完整边.
+    decided_edges = [
+        json.loads(line)
+        for line in (split_output_root / "redundancy_edges.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
     # set[str], full_test PDB identities, 用于独立性和极大性检查.
     full_test_set = set(full_test)
     # set[str], 四个基础条件全部通过的合成 PDB identities.
@@ -255,3 +256,30 @@ def test_finalize_builds_maximal_full_test_and_nested_views(
     )
     assert summary["full_test_count"] == len(full_test)
     assert summary["test_0_count"] == len(full_test)
+    assert summary["redundant_pdb_edge_count"] == 2
+    assert all(edge["pdb_coverage_mode"] == "or" for edge in decided_edges)
+    assert all(edge["redundant"] for edge in decided_edges)
+    # set[str] (5,), split 相对共享边证据增加的全部参数化字段.
+    decision_fields = {
+        "pdb_coverage_mode",
+        "pdb_coverage_threshold",
+        "chain_pass",
+        "residue_pass",
+        "redundant",
+    }
+    assert [
+        {key: value for key, value in edge.items() if key not in decision_fields}
+        for edge in decided_edges
+    ] == edges
+    assert (split_output_root / "summary.json").is_file()
+    assert (split_output_root / "_COMPLETE").is_file()
+    for filename in (
+        "redundancy_edges.jsonl",
+        "held_out_identity.jsonl",
+        "full_test.json",
+        "test_0.json",
+        "test_1.json",
+        "summary.json",
+        "_COMPLETE",
+    ):
+        assert not (shared_output_root / filename).exists()

@@ -10,6 +10,17 @@
 - 已核实 MMseqs2 `fident` 是 `[0,1]` 的 identical-match fraction，`pident` 才是百分数；正式 TSV 因此使用 `fident` 并按 `0.30/0.80` 读取。
 - 已核实现有冻结输入：完整 PDB 22,386，暴露参考 14,017，held-out 2,497；正式数据根为 `/storage/penghongen/AdaLigand/Ori_Data`。
 
+## 八组合 split 追加执行
+
+- 2026-08-31，用户要求在原 `or + 0.5` 产物之外，同时生成 `0.5/0.6 × chain/residue/or/and` 八组结果；所有参数相关文件统一进入 `held_out/split/held_out_<05|06>_<mode>/`。
+- 本轮从 `Learn/CUMULATIVE@0e01739` 建立隔离实现分支 `codex/held-out-split-matrix`。实现把原 finalize 拆为一次共享边证据合并和八个轻量 split：共享根写 `pdb_edge_evidence.jsonl`、`stage2/edge_summary.json`，split 目录各自写冗余边、身份证、三个测试视图、summary 与完成事实。
+- `classify_pdb_redundancy` 支持 `chain`、`residue`、`or`、`and` 四种模式；0.5 与 0.6 都使用包含边界。三个 matching 及四个双向 coverage 不随这些参数重算。
+- `held_out_finalize.sh` 改为共享边证据任务；新增 `held_out_split_array.sh`，数组索引 0-7 显式对应八个目录。两项任务不建立自动依赖，先人工确认共享边任务终态，再提交 split 数组；正式提交为每任务 8 CPU、32 GB 内存。
+- 旧根目录 `or + 0.5` 参数文件只在八组全部通过独立验收后精确移除；不建立兼容副本、硬链接或符号链接。新 `held_out_05_or` 必须与旧文件逐字节 `cmp` 一致。
+- 主代理第一遍按文件顺序检查本轮全部修改函数的职责、位置、调用关系、嵌套与 Docstring；期间让共享边构造入口只返回 summary, 明确 `redundancy -> shared evidence -> selection` 的单向依赖, 并增加共享字段不随 split 漂移的测试。
+- 主代理第二遍逐行核对三个科学函数和 split 产物构造中的非标量变量、形状符号、参数语义与 shell 变量注释；补全 `N_edge/N_held_out/N_full_test/N_test0/N_test1` 等符号, 拆开关键路径变量说明, 并确认本轮代码注释不含中文标点。
+- 两遍自查后的 Windows 全套回归为 `21 passed, 1 skipped`；唯一跳过项仍是本机未安装 Gemmi。`compileall`、两个新 CLI 帮助、五份 shell 语法、`git diff --check` 与代码注释标点扫描均通过。三类独立三轮核查、双线 Git、服务器重跑与八组验收尚未开始。
+
 ## 实现与本地验证
 
 - 已新增 `Data_Preprocessing/held_out/`，按 `catalog -> redundancy -> selection` 三条科学代码链和一个薄 CLI 组织；四个 shell 分别对应目录数组、目录合并、MMseqs2 数组和最终发布，没有自动依赖或重试。
@@ -58,6 +69,6 @@
 
 ## 服务器执行与验收
 
-正式输出根固定为 `/storage/penghongen/AdaLigand/held_out`。MMseqs2 已安装；目录数组 Job `366076`、目录合并与官方 FASTA smoke Job `366090`、MMseqs2 数组 Job `366094` 均已完成。首次 finalize Job `366110` 在完整写出 PDB 边后因旧的固定 200 契约失败；修复后的 finalize 与最终结果验收尚待重跑。
+正式输出根固定为 `/storage/penghongen/AdaLigand/held_out`。MMseqs2 已安装；目录数组 Job `366076`、目录合并与官方 FASTA smoke Job `366090`、MMseqs2 数组 Job `366094` 均已完成。首次 finalize Job `366110` 在完整写出 PDB 边后因旧的固定 200 契约失败；修复版 finalize Job `366127` 已完成，项目外审计 Job `366153` 已通过。
 
-计划与实现的当前差异只有 test_0 数量语义：原计划把 200 当作必须达到的数量，实际 full_test 只有 124 个，且不能在不破坏嵌套与冗余契约的前提下补足。因此实现与计划统一改为“至多 200 个”；服务器重跑完成前，本任务仍处于执行中。
+旧 `or + 0.5` 正式结果为 622,986 条 PDB 边、388,797 条冗余边、315 个基础合格 PDB、124 个 full_test/test_0 成员和 108 个 test_1 成员。当前开放事项是追加八组合 split、完成逐组合验收并在全部通过后移除根目录旧参数副本。

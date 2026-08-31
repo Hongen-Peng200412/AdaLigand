@@ -1,10 +1,10 @@
 """运行 MMseqs2 并把 entity 命中转换为 PDB 双向 coverage.
 
-主要入口是 :func:`run_mmseqs_shard` 与 :func:`build_redundancy_edges`. 前者只运行一个 FASTA query 分片; 后者读取全部真实 alignment, 在 entity 容量图上求最大 chain 数, 最大 A 侧残基数和最大 B 侧残基数的一对一匹配, 再展开被选中的 label asym chain 见证.
+主要入口是 :func:`run_mmseqs_shard` 与 :func:`build_pdb_edge_evidence`. 前者只运行一个 FASTA query 分片; 后者读取全部真实 alignment, 在 entity 容量图上求最大 chain 数, 最大 A 侧残基数和最大 B 侧残基数的一对一匹配, 再展开被选中的 label asym chain 见证.
 
 本模块不读取质量, 资产或配体计数, 也不选择测试集.
 
-全部输入 FASTA 与输出 TSV/JSONL 都位于调用方 `output_root` 下. MMseqs2 TSV 一行对应一条 entity alignment; qualifying hit JSONL 一行对应一个定向 entity 对; redundancy edge JSONL 一行对应一个 PDB 对. :func:`calculate_pdb_edge` 定义单条 PDB 边的完整字段.
+全部输入 FASTA 与输出 TSV/JSONL 都位于调用方 `output_root` 下. MMseqs2 TSV 一行对应一条 entity alignment; `qualifying_entity_hits.jsonl` 一行对应一个定向 entity 对; `pdb_edge_evidence.jsonl` 一行对应一个尚未应用 coverage 参数的 PDB 对; `stage2/edge_summary.json` 保存三层关系规模. :func:`calculate_pdb_edge` 定义单条共享证据的完整字段.
 """
 
 from __future__ import annotations
@@ -140,7 +140,7 @@ def classify_pdb_redundancy(
     chain_B: float,
     residue_A: float,
     residue_B: float,
-    mode: Literal["or", "and"],
+    mode: Literal["chain", "residue", "or", "and"],
     threshold: float,
 ) -> dict[str, bool]:
     """按 chain 与 residue 两级 coverage 组合 PDB 冗余判定.
@@ -150,18 +150,18 @@ def classify_pdb_redundancy(
         - chain_B: float, B 侧 comparable chain 被一对一匹配覆盖的比例.
         - residue_A: float, A 侧 comparable 残基被最大权匹配覆盖的比例.
         - residue_B: float, B 侧 comparable 残基被最大权匹配覆盖的比例.
-        - mode: str, 取 or 或 and; 只组合 chain_pass 与 residue_pass.
+        - mode: str, 取 chain, residue, or 或 and; 前两者只使用对应层级, 后两者组合两个层级.
         - threshold: float, chain 和 residue 两级共用的包含边界, 取值位于 `(0, 1]`.
 
     返回字段:
         - chain_pass: bool, max(chain_A, chain_B) 是否达到 threshold.
         - residue_pass: bool, max(residue_A, residue_B) 是否达到 threshold.
-        - redundant: bool, mode 对 chain_pass 和 residue_pass 的组合结果.
+        - redundant: bool, mode 选取或组合 chain_pass 与 residue_pass 的结果.
 
     四个 coverage 输入位于 `[0, 1]`. mode 不改变 A/B 方向 coverage.
     """
 
-    if mode not in {"or", "and"}:
+    if mode not in {"chain", "residue", "or", "and"}:
         raise ValueError(f"未知 PDB coverage mode: {mode}")
     if not 0.0 < threshold <= 1.0:
         raise ValueError(f"PDB coverage threshold 必须位于 (0, 1]: {threshold}")
@@ -169,8 +169,15 @@ def classify_pdb_redundancy(
     chain_pass = max(chain_A, chain_B) >= threshold
     # bool, 任一 PDB 方向的残基覆盖达到当前 PDB 阈值.
     residue_pass = max(residue_A, residue_B) >= threshold
-    # bool, 用户可切换的 chain/residue 两级聚合结果; 默认 mode=or.
-    redundant = chain_pass or residue_pass if mode == "or" else chain_pass and residue_pass
+    # bool, 当前模式选取单一 coverage 层级或组合 chain/residue 两级判断的结果.
+    if mode == "chain":
+        redundant = chain_pass
+    elif mode == "residue":
+        redundant = residue_pass
+    elif mode == "or":
+        redundant = chain_pass or residue_pass
+    else:
+        redundant = chain_pass and residue_pass
     return {
         "chain_pass": chain_pass,
         "residue_pass": residue_pass,
@@ -359,20 +366,23 @@ def calculate_pdb_edge(
     chains_A: list[dict[str, Any]],
     chains_B: list[dict[str, Any]],
     evidence_by_entity_pair: dict[tuple[str, str], dict[str, Any]],
-    mode: Literal["or", "and"],
-    threshold: float,
 ) -> dict[str, Any]:
-    """计算一个 PDB 对的四个 coverage, 三个最优匹配和当前冗余布尔值.
+    """计算一个 PDB 对的四个 coverage 与三个最优匹配证据.
+
+    形状符号:
+        - C_A: A 侧 comparable label asym chain 数.
+        - C_B: B 侧 comparable label asym chain 数.
+        - M_chain: 最大 chain 数匹配包含的 chain 对数.
+        - M_residue_A: 最大 A 侧残基数匹配包含的 chain 对数.
+        - M_residue_B: 最大 B 侧残基数匹配包含的 chain 对数.
 
     输入参数:
         - relation: str, `reference` 或 `held_out_internal`.
         - pdb_A: str, 已固定方向的 A 侧 PDB identity.
         - pdb_B: str, 已固定方向的 B 侧 PDB identity.
-        - chains_A: list[dict], A 侧全部 comparable chain instances; 字段使用 :func:`_maximum_matching` 契约.
-        - chains_B: list[dict], B 侧全部 comparable chain instances; 字段使用 :func:`_maximum_matching` 契约.
+        - chains_A: 长度 C_A 的 list[dict], A 侧全部 comparable chain instances; 字段使用 :func:`_maximum_matching` 契约.
+        - chains_B: 长度 C_B 的 list[dict], B 侧全部 comparable chain instances; 字段使用 :func:`_maximum_matching` 契约.
         - evidence_by_entity_pair: dict[tuple[str, str], dict], 使用 :func:`_maximum_matching` 的 entity 比对证据字段契约.
-        - mode: str, 取 or 或 and; 只组合 chain_pass 与 residue_pass.
-        - threshold: float, chain 和 residue 两级共用的包含边界, 取值位于 `(0, 1]`.
 
     返回字段:
         - relation: str, 输入关系类别.
@@ -386,27 +396,21 @@ def calculate_pdb_edge(
         - chain_B: float, 最大 cardinality 匹配数除以 B 侧 comparable chain 数.
         - residue_A: float, A 侧最大权匹配残基数除以 A 侧 comparable 残基数.
         - residue_B: float, B 侧最大权匹配残基数除以 B 侧 comparable 残基数.
-        - chain_matching: list[dict], 最大化匹配 chain 数的直接见证; 每项使用 :func:`_maximum_matching` 返回字段.
-        - residue_A_matching: list[dict], 最大化 A 侧匹配残基数的直接见证; 每项使用 :func:`_maximum_matching` 返回字段.
-        - residue_B_matching: list[dict], 最大化 B 侧匹配残基数的直接见证; 每项使用 :func:`_maximum_matching` 返回字段.
-        - pdb_coverage_mode: str, 当前 or/and 组合模式.
-        - pdb_coverage_threshold: float, 当前 PDB coverage 包含边界.
-        - chain_pass: bool, max(chain_A, chain_B) 是否达到当前阈值.
-        - residue_pass: bool, max(residue_A, residue_B) 是否达到当前阈值.
-        - redundant: bool, 当前 mode 对 chain_pass 和 residue_pass 的组合结果.
-
-    chain 分母是每侧全部 comparable chain instance 数; residue 分母是这些 chain 的沉积全长序列长度之和. 三个匹配分别求解, 不能把某一个 matching 同时用于三个统计目标.
+        - chain_matching: 长度 M_chain 的 list[dict], 最大化匹配 chain 数的直接见证; 每项使用 :func:`_maximum_matching` 返回字段.
+        - residue_A_matching: 长度 M_residue_A 的 list[dict], 最大化 A 侧匹配残基数的直接见证; 每项使用 :func:`_maximum_matching` 返回字段.
+        - residue_B_matching: 长度 M_residue_B 的 list[dict], 最大化 B 侧匹配残基数的直接见证; 每项使用 :func:`_maximum_matching` 返回字段.
+    chain 分母是每侧全部 comparable chain instance 数; residue 分母是这些 chain 的沉积全长序列长度之和. 三个匹配分别求解, 不能把某一个 matching 同时用于三个统计目标. 本函数不应用 PDB coverage 模式或阈值, 因此结果可以被多个 split 复用.
     """
 
-    # list[dict], 使匹配 chain 对数量最大的见证集合.
+    # list[dict] (M_chain,), 使匹配 chain 对数量最大的见证集合.
     chain_matching = _maximum_matching(
         chains_A, chains_B, evidence_by_entity_pair, "chain"
     )
-    # list[dict], 使已覆盖 A 侧 chain 全长残基数最大的见证集合.
+    # list[dict] (M_residue_A,), 使已覆盖 A 侧 chain 全长残基数最大的见证集合.
     residue_A_matching = _maximum_matching(
         chains_A, chains_B, evidence_by_entity_pair, "residue_A"
     )
-    # list[dict], 使已覆盖 B 侧 chain 全长残基数最大的见证集合.
+    # list[dict] (M_residue_B,), 使已覆盖 B 侧 chain 全长残基数最大的见证集合.
     residue_B_matching = _maximum_matching(
         chains_A, chains_B, evidence_by_entity_pair, "residue_B"
     )
@@ -430,15 +434,6 @@ def calculate_pdb_edge(
         if total_residues_B
         else 0.0
     )
-    # dict[str, bool], 当前 mode 和 threshold 下的 chain/residue 两级判断.
-    decision = classify_pdb_redundancy(
-        chain_A_coverage,
-        chain_B_coverage,
-        residue_A_coverage,
-        residue_B_coverage,
-        mode,
-        threshold,
-    )
     return {
         "relation": relation,
         "pdb_A": pdb_A,
@@ -454,9 +449,6 @@ def calculate_pdb_edge(
         "chain_matching": chain_matching,
         "residue_A_matching": residue_A_matching,
         "residue_B_matching": residue_B_matching,
-        "pdb_coverage_mode": mode,
-        "pdb_coverage_threshold": threshold,
-        **decision,
     }
 
 
@@ -724,17 +716,20 @@ def run_mmseqs_shard(
     return summary
 
 
-def build_redundancy_edges(
+def build_pdb_edge_evidence(
     output_root: Path,
     train_pdb_path: Path,
     validation_pdb_path: Path,
     calibration_pdb_path: Path,
     held_out_pdb_path: Path,
     alignment_shard_count: int,
-    mode: Literal["or", "and"],
-    threshold: float,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """合并 MMseqs2 命中并构建 reference 与 held-out internal PDB 冗余边.
+) -> dict[str, Any]:
+    """合并 MMseqs2 命中并构建不依赖 coverage 参数的 PDB 边证据.
+
+    形状符号:
+        - N_entity: 完整序列目录中的 polymer entity 数.
+        - N_oriented_hit: 定向并按 PDB/entity A/B identity 去重后的高重复 entity 对数.
+        - N_pdb_edge: 至少含一条高重复 entity 命中的 PDB 对数.
 
     输入参数:
         - output_root: Path, stage1 序列目录和 stage2 MMseqs2 TSV 的共享产物根.
@@ -743,34 +738,26 @@ def build_redundancy_edges(
         - calibration_pdb_path: Path, calibration 暴露参考 PDB JSON 列表.
         - held_out_pdb_path: Path, 冻结 held-out PDB JSON 列表.
         - alignment_shard_count: int, 必须读取的 protein/nucleic TSV 分片数.
-        - mode: str, 取 or 或 and; 只组合 chain_pass 与 residue_pass.
-        - threshold: float, chain 和 residue 两级共用的包含边界, 取值位于 `(0, 1]`.
 
     返回字段:
-        - edges: list[dict], 按 relation 与 PDB A/B 排序的 :func:`calculate_pdb_edge` 结果.
-        - summary: dict, 当前 alignment 合并和 PDB 冗余边规模.
+        - summary: dict, 当前 alignment 合并和 PDB 边证据规模.
             - summary.raw_qualifying_alignment_count: int, 通过类别 identity 和双向 0.80 coverage 的原始 TSV 行数.
             - summary.oriented_entity_hit_count: int, 定向并按 entity 对去重后的命中数.
             - summary.pdb_edge_count: int, 至少含一条定向 entity 命中的 PDB 对数.
-            - summary.redundant_pdb_edge_count: int, 当前 mode 和 threshold 下 redundant=True 的 PDB 对数.
             - summary.relation_counts: dict[str, int], reference 和 held_out_internal 两类 PDB 对数.
-            - summary.mode: str, 当前 PDB coverage 组合模式.
-            - summary.threshold: float, 当前 PDB coverage 包含边界.
 
     落盘产物:
         - `qualifying_entity_hits.jsonl`: JSONL; 每行使用 :func:`_orient_hit` 返回的 oriented_hit 字段.
-        - `redundancy_edges.jsonl`: JSONL; 每行使用 :func:`calculate_pdb_edge` 返回字段.
+        - `pdb_edge_evidence.jsonl`: JSONL; 每行使用 :func:`calculate_pdb_edge` 返回字段.
+        - `stage2/edge_summary.json`: dict; 字段与函数返回的 summary 相同.
 
     原始 TSV 按行处理; 同一 entity 对的双向或重复 alignment 只保留 identity 较高, 再取最小双向 coverage 较高的一条, 精确并列时保留固定输入顺序中的首条. entity hit 以 chain copy 数作为容量求解, 只在 matching 结果中展开直接 chain 见证.
     """
 
-    if mode not in {"or", "and"}:
-        raise ValueError(f"未知 PDB coverage mode: {mode}")
-    if not 0.0 < threshold <= 1.0:
-        raise ValueError(f"PDB coverage threshold 必须位于 (0, 1]: {threshold}")
     # list[dict] (N_entity,), stage1 写出的完整 polymer entity 目录.
     entities = _read_jsonl(output_root / "sequence_catalog.jsonl")
-    # 两个索引分别解析 alignment header 和建立 PDB coverage 分母.
+    # dict[str, dict] (N_entity,), 大写 sequence_id 到完整 polymer entity 目录记录的映射.
+    # dict[str, list[dict]], 小写 PDB identity 到全部 comparable label asym chain 的映射.
     entity_by_sequence_id, chains_by_pdb = _build_chain_tables(entities)
     # set[str], 2,497 个日期留出 PDB identity.
     held_out_ids = {
@@ -789,7 +776,7 @@ def build_redundancy_edges(
     result_root = output_root / "stage2" / "mmseqs"
     # int, 通过真实 identity 和双向 0.80 coverage 的原始 alignment 数.
     raw_hit_count = 0
-    # dict[tuple, dict], 固定 A/B 方向后每个 entity 对保留的最佳 alignment.
+    # dict[tuple, dict] (N_oriented_hit,), 固定 A/B 方向后每个 entity 对保留的最佳 alignment.
     oriented_hits_by_entity_pair: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
     for shard_index in range(alignment_shard_count):
         # tuple[tuple[Path, str], ...], 当前分片的 protein 与 nucleic TSV 及类别.
@@ -806,6 +793,8 @@ def build_redundancy_edges(
                 )
                 if oriented_result is None:
                     continue
+                # tuple[str, str, str], relation 与定向后 PDB A/B identity 组成的 PDB 对主键.
+                # dict, 与同一 PDB A/B 方向一致的 entity identity, 长度和 alignment coverage.
                 pair_key, oriented_hit = oriented_result
                 # tuple[str, ...], relation, PDB A/B 和 entity A/B 的去重主键.
                 entity_pair_key = (
@@ -838,7 +827,7 @@ def build_redundancy_edges(
                 if hit_score > previous_score:
                     oriented_hits_by_entity_pair[entity_pair_key] = oriented_hit
 
-    # list[dict], 去重且稳定排序的高重复 entity 对.
+    # list[dict] (N_oriented_hit,), 去重且按 relation, PDB A/B, entity A/B 稳定排序的高重复 entity 对.
     oriented_hits = sorted(
         oriented_hits_by_entity_pair.values(),
         key=lambda hit: (
@@ -851,7 +840,7 @@ def build_redundancy_edges(
     )
     _write_jsonl(output_root / "qualifying_entity_hits.jsonl", oriented_hits)
 
-    # dict[PDB pair, dict[entity pair, evidence]], 以 chain copy 数为容量的 entity 二分图.
+    # dict[PDB pair, dict[entity pair, evidence]] (N_pdb_edge,), 每个 PDB 对对应一个以 chain copy 数为容量的 entity 二分图.
     evidence_by_pdb_pair: dict[
         tuple[str, str, str], dict[tuple[str, str], dict[str, Any]]
     ] = defaultdict(dict)
@@ -874,10 +863,10 @@ def build_redundancy_edges(
             "coverage_B": float(hit["coverage_B"]),
         }
 
-    # list[dict], 至少含一条高重复 chain 边的完整 PDB 对关系.
-    edges: list[dict[str, Any]] = []
+    # list[dict] (N_pdb_edge,), 至少含一条高重复 chain 边且尚未应用 PDB 判定参数的证据.
+    pdb_edge_evidence: list[dict[str, Any]] = []
     for relation, pdb_A, pdb_B in sorted(evidence_by_pdb_pair):
-        edges.append(
+        pdb_edge_evidence.append(
             calculate_pdb_edge(
                 relation,
                 pdb_A,
@@ -885,19 +874,17 @@ def build_redundancy_edges(
                 chains_by_pdb.get(pdb_A, []),
                 chains_by_pdb.get(pdb_B, []),
                 evidence_by_pdb_pair[(relation, pdb_A, pdb_B)],
-                mode,
-                threshold,
             )
         )
-    _write_jsonl(output_root / "redundancy_edges.jsonl", edges)
-    # dict, alignment, entity hit, PDB edge 的规模和当前 PDB 判定参数.
+    _write_jsonl(output_root / "pdb_edge_evidence.jsonl", pdb_edge_evidence)
+    # dict, alignment, entity hit 与共享 PDB edge evidence 的规模.
     summary = {
         "raw_qualifying_alignment_count": raw_hit_count,
         "oriented_entity_hit_count": len(oriented_hits),
-        "pdb_edge_count": len(edges),
-        "redundant_pdb_edge_count": sum(bool(edge["redundant"]) for edge in edges),
-        "relation_counts": dict(sorted(Counter(str(edge["relation"]) for edge in edges).items())),
-        "mode": mode,
-        "threshold": threshold,
+        "pdb_edge_count": len(pdb_edge_evidence),
+        "relation_counts": dict(
+            sorted(Counter(str(edge["relation"]) for edge in pdb_edge_evidence).items())
+        ),
     }
-    return edges, summary
+    _write_json(output_root / "stage2" / "edge_summary.json", summary)
+    return summary
