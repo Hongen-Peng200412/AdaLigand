@@ -182,7 +182,7 @@ def test_three_matching_objectives_are_solved_separately() -> None:
 def test_pdb_modes_select_or_combine_chain_and_residue_levels() -> None:
     """四种 mode 只选取或组合两级判断, 阈值和 A/B 方向保持独立."""
 
-    # dict[str, bool], 只有 chain 层级达到 0.5 时的共同基础判定.
+    # dict[str, bool], 只有 chain 层级达到 0.5 时的 chain 模式判定字段.
     chain_only = classify_pdb_redundancy(0.5, 0.0, 0.1, 0.1, "chain", 0.5)
     assert chain_only == {"chain_pass": True, "residue_pass": False, "redundant": True}
     assert not classify_pdb_redundancy(0.5, 0.0, 0.1, 0.1, "residue", 0.5)[

@@ -2,7 +2,7 @@
 
 ## Held-out 去冗余
 
-`held_out_catalog_array.sh`、`held_out_catalog_finalize.sh`、`held_out_mmseqs_array.sh` 与 `held_out_finalize.sh` 依次完成序列目录分片、目录合并与官方 FASTA smoke、MMseqs2 分片和身份证/测试视图发布。四步必须显式提交；数组范围固定为 `0-11`，每个数组元素建议 `--cpus 8`。完整命令与产物契约见 `Data_Preprocessing/held_out/README.md`。
+五步依次使用 `held_out_catalog_array.sh`、`held_out_catalog_finalize.sh`、`held_out_mmseqs_array.sh`、`held_out_finalize.sh` 和 `held_out_split_array.sh`，完成序列目录分片、目录合并与官方 FASTA smoke、MMseqs2 分片、共享 PDB 边证据合并和八组合 split 发布。五步必须显式提交；数组配置依次为 `0-11`、无数组、`0-11`、无数组和 `0-7`。每个数组元素建议 `--cpus 8`；完整命令与产物契约见 `Data_Preprocessing/held_out/README.md`。
 
 ## Stage3 PocketXMol Phase 1
 

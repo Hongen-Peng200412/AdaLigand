@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from held_out_pipeline.selection import (
     _strongest_edge,
     finalize_identity_views,
@@ -79,7 +81,7 @@ def test_greedy_selection_is_maximal_without_connected_component_collapse() -> N
     assert not ({"a", "b"} <= accepted)
     assert not ({"b", "c"} <= accepted)
     assert len(accepted) == 2
-    # list[dict] (1,), 路径图中唯一被更早直接邻居拒绝的状态.
+    # list[dict], (1,), 路径图中唯一被更早直接邻居拒绝的状态.
     rejected = [state for state in states.values() if not state["accepted"]]
     assert len(rejected) == 1
     assert rejected[0]["rejected_by"] in accepted
@@ -88,9 +90,9 @@ def test_greedy_selection_is_maximal_without_connected_component_collapse() -> N
 def test_test_0_sampling_is_deterministic_and_without_replacement() -> None:
     """独立抽样子流对同一集合稳定, 且不产生重复 PDB."""
 
-    # list[str] (20,), 输入顺序可反转的合成 full_test identity.
+    # list[str], (20,), 输入顺序可反转的合成 full_test identity.
     pdb_ids = [f"p{index}" for index in range(20)]
-    # list[str] (10,), 同一排序集合和固定抽样子流产生的两次无放回结果.
+    # list[str], (10,), 同一排序集合和固定抽样子流产生的两次无放回结果.
     first = sample_test_0(pdb_ids, 10, 3407)
     second = sample_test_0(reversed(pdb_ids), 10, 3407)
     assert first == second
@@ -145,6 +147,33 @@ def test_strongest_edge_prioritizes_redundant_witness_in_and_mode() -> None:
     assert witness["redundant"]
 
 
+def test_finalize_rejects_zero_threshold_when_shared_edge_evidence_is_empty(
+    tmp_path: Path,
+) -> None:
+    """共享边证据为空时, split 入口仍拒绝契约之外的零阈值."""
+
+    # Path, 不含 PDB 边的合成共享产物根.
+    shared_output_root = tmp_path / "shared"
+    write_jsonl(shared_output_root / "pdb_edge_evidence.jsonl", [])
+    # Path, 非法参数不得写入任何产物的目标 split 目录.
+    split_output_root = shared_output_root / "split" / "invalid"
+    # Path, 空 held-out PDB identity 列表.
+    held_out_path = tmp_path / "held.json"
+    write_json(held_out_path, [])
+
+    with pytest.raises(ValueError, match=r"\(0, 1\]"):
+        finalize_identity_views(
+            shared_output_root,
+            split_output_root,
+            held_out_path,
+            "or",
+            0.0,
+            3407,
+            200,
+        )
+    assert not (split_output_root / "_COMPLETE").exists()
+
+
 def test_finalize_builds_maximal_full_test_and_nested_views(
     tmp_path: Path,
 ) -> None:
@@ -154,7 +183,7 @@ def test_finalize_builds_maximal_full_test_and_nested_views(
     shared_output_root = tmp_path / "shared"
     # Path, 当前 or/0.5 参数组合的独立产物目录.
     split_output_root = shared_output_root / "split" / "held_out_05_or"
-    # list[dict] (4,), occurrence 数覆盖 test_1 两个边界外侧并含一个零可比 chain PDB.
+    # list[dict], (4,), occurrence 数覆盖 test_1 两个边界外侧并含一个零可比 chain PDB.
     base_records = [
         make_base_record("a", 10),
         make_base_record("b", 1),
@@ -165,7 +194,7 @@ def test_finalize_builds_maximal_full_test_and_nested_views(
     # Path, 四个冻结 held-out PDB identity 的合成 split.
     held_out_path = tmp_path / "held.json"
     write_json(held_out_path, ["a", "b", "c", "d"])
-    # list[dict] (2,), A-B-C 路径形内部共享边证据.
+    # list[dict], (2,), A-B-C 路径形内部共享边证据.
     edges = [make_edge("a", "b"), make_edge("b", "c")]
     write_jsonl(shared_output_root / "pdb_edge_evidence.jsonl", edges)
     write_json(
@@ -215,7 +244,7 @@ def test_finalize_builds_maximal_full_test_and_nested_views(
             .splitlines()
         )
     }
-    # list[dict] (2,), split 内由共享证据加回 or/0.5 判定字段的完整边.
+    # list[dict], (2,), split 内由共享证据加回 or/0.5 判定字段的完整边.
     decided_edges = [
         json.loads(line)
         for line in (split_output_root / "redundancy_edges.jsonl")
@@ -259,7 +288,7 @@ def test_finalize_builds_maximal_full_test_and_nested_views(
     assert summary["redundant_pdb_edge_count"] == 2
     assert all(edge["pdb_coverage_mode"] == "or" for edge in decided_edges)
     assert all(edge["redundant"] for edge in decided_edges)
-    # set[str] (5,), split 相对共享边证据增加的全部参数化字段.
+    # set[str], (5,), split 相对共享边证据增加的全部参数化字段.
     decision_fields = {
         "pdb_coverage_mode",
         "pdb_coverage_threshold",

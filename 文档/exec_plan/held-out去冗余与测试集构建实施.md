@@ -13,13 +13,15 @@
 ## 八组合 split 追加执行
 
 - 2026-08-31，用户要求在原 `or + 0.5` 产物之外，同时生成 `0.5/0.6 × chain/residue/or/and` 八组结果；所有参数相关文件统一进入 `held_out/split/held_out_<05|06>_<mode>/`。
-- 本轮从 `Learn/CUMULATIVE@0e01739` 建立隔离实现分支 `codex/held-out-split-matrix`。实现把原 finalize 拆为一次共享边证据合并和八个轻量 split：共享根写 `pdb_edge_evidence.jsonl`、`stage2/edge_summary.json`，split 目录各自写冗余边、身份证、三个测试视图、summary 与完成事实。
+- 本轮从 `Learn/CUMULATIVE@0e01739` 建立隔离实现分支 `codex/held-out-split-matrix`。共同基点主工作区只有用户要求保留且不纳入 Git 的 `Data_Preprocessing/held_out/详细日志记录.md`；隔离 worktree 没有夹带该文件。实现把原 finalize 拆为一次共享边证据合并和八个轻量 split：共享根写 `pdb_edge_evidence.jsonl`、`stage2/edge_summary.json`，split 目录各自写冗余边、身份证、三个测试视图、summary 与完成事实。
 - `classify_pdb_redundancy` 支持 `chain`、`residue`、`or`、`and` 四种模式；0.5 与 0.6 都使用包含边界。三个 matching 及四个双向 coverage 不随这些参数重算。
 - `held_out_finalize.sh` 改为共享边证据任务；新增 `held_out_split_array.sh`，数组索引 0-7 显式对应八个目录。两项任务不建立自动依赖，先人工确认共享边任务终态，再提交 split 数组；正式提交为每任务 8 CPU、32 GB 内存。
 - 旧根目录 `or + 0.5` 参数文件只在八组全部通过独立验收后精确移除；不建立兼容副本、硬链接或符号链接。新 `held_out_05_or` 必须与旧文件逐字节 `cmp` 一致。
 - 主代理第一遍按文件顺序检查本轮全部修改函数的职责、位置、调用关系、嵌套与 Docstring；期间让共享边构造入口只返回 summary, 明确 `redundancy -> shared evidence -> selection` 的单向依赖, 并增加共享字段不随 split 漂移的测试。
 - 主代理第二遍逐行核对三个科学函数和 split 产物构造中的非标量变量、形状符号、参数语义与 shell 变量注释；补全 `N_edge/N_held_out/N_full_test/N_test0/N_test1` 等符号, 拆开关键路径变量说明, 并确认本轮代码注释不含中文标点。
 - 两遍自查后的 Windows 全套回归为 `21 passed, 1 skipped`；唯一跳过项仍是本机未安装 Gemmi。`compileall`、两个新 CLI 帮助、五份 shell 语法、`git diff --check` 与代码注释标点扫描均通过。三类独立三轮核查、双线 Git、服务器重跑与八组验收尚未开始。
+- 第 1/3 轮三路全面审查发现同一个实际入口回归：共享边证据为空时，非法 mode/threshold 不会进入逐边分类校验。修复在 `finalize_identity_views` 开头直接检查四种 mode 与 `(0, 1]` 阈值，并补回空证据零阈值回归；这属于参数契约，不读取失败率或决定发布。
+- 首轮其余修订只同步活动 shell README、上一轮/本轮 Git 事实与共享边字段 Docstring，并按注释 skill 改正空容器的当前形状、类型/形状逗号、shell seed/test_0_size 变量说明和一处测试措辞。修复后全套为 `22 passed, 1 skipped`；`compileall`、五份 shell 语法与 `git diff --check` 继续通过。
 
 ## 实现与本地验证
 
@@ -65,7 +67,8 @@
 
 ## Git 双线
 
-- 实现线已提交独立审查前基线 `5ac2c97`、第一轮修复 `131991f`、第二轮修复 `d832f47`、`full_test` 补充 `d7072e0` 和窄口径修复 `6f07be8`。Learn 历史仍待按人类理解顺序重建并核对 tree 等价。
+- 上一轮实现线最终端点为 `cf3e2e4`，学习历史与累计学习分支已经重建到 `Learn/CUMULATIVE@0e01739`，两端 tree 等价。
+- 本轮实现线从 `0e01739` 建立，独立审查前基线为 `c6d6696`；首轮审查修复将追加独立提交，不改写基线。`Learn/held-out-split-matrix` 尚待在实现端点稳定后按“文档契约 -> 共享边证据 -> 参数化 selection/CLI/shell -> 测试”的理解顺序重建，再核对端点 tree 和同套测试并推进 `Learn/CUMULATIVE`。
 
 ## 服务器执行与验收
 

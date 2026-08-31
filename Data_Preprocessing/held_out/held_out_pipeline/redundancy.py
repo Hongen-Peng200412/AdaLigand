@@ -105,7 +105,7 @@ def parse_mmseqs_rows(
             text = line.strip()
             if not text:
                 continue
-            # list[str] (9,), 当前 alignment 的固定 TSV 字段.
+            # list[str], (9,), 当前 alignment 的固定 TSV 字段.
             columns = text.split("\t")
             if len(columns) != 9:
                 raise ValueError(f"{path}:{line_number} 应有 9 列, 实际 {len(columns)} 列.")
@@ -250,9 +250,9 @@ def _maximum_matching(
     if not chains_A or not chains_B or not evidence_by_entity_pair:
         return []
 
-    # dict[str, list[dict]] (N_entity_A,), A 侧 entity identity 到可互换 chain copies 的映射.
+    # dict[str, list[dict]], (N_entity_A,), A 侧 entity identity 到可互换 chain copies 的映射.
     chains_by_entity_A: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    # dict[str, list[dict]] (N_entity_B,), B 侧 entity identity 到可互换 chain copies 的映射.
+    # dict[str, list[dict]], (N_entity_B,), B 侧 entity identity 到可互换 chain copies 的映射.
     chains_by_entity_B: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for chain in chains_A:
         chains_by_entity_A[str(chain["entity_id"])].append(chain)
@@ -261,7 +261,7 @@ def _maximum_matching(
     for chain_group in (*chains_by_entity_A.values(), *chains_by_entity_B.values()):
         chain_group.sort(key=lambda chain: str(chain["chain_id"]))
 
-    # list[tuple] (N_edge,), 每项为 `(entity_A, entity_B)` 主键及 A/B sequence_id, 长度, 类别, identity, coverage evidence.
+    # list[tuple], (N_edge,), 每项为 `(entity_A, entity_B)` 主键及 A/B sequence_id, 长度, 类别, identity, coverage evidence.
     entity_edges = [
         (entity_pair, evidence)
         for entity_pair, evidence in sorted(evidence_by_entity_pair.items())
@@ -269,19 +269,19 @@ def _maximum_matching(
     ]
     if not entity_edges:
         return []
-    # list[str] (N_entity_A,), 容量约束矩阵 A 侧的稳定 entity 行顺序.
+    # list[str], (N_entity_A,), 容量约束矩阵 A 侧的稳定 entity 行顺序.
     entity_ids_A = sorted(chains_by_entity_A)
-    # list[str] (N_entity_B,), 容量约束矩阵 B 侧的稳定 entity 行顺序.
+    # list[str], (N_entity_B,), 容量约束矩阵 B 侧的稳定 entity 行顺序.
     entity_ids_B = sorted(chains_by_entity_B)
-    # dict[str, int] (N_entity_A,), A 侧 entity identity 到约束矩阵前半行号的映射.
+    # dict[str, int], (N_entity_A,), A 侧 entity identity 到约束矩阵前半行号的映射.
     row_by_entity_A = {entity_id: index for index, entity_id in enumerate(entity_ids_A)}
-    # dict[str, int] (N_entity_B,), B 侧 entity identity 到约束矩阵后半行号的映射.
+    # dict[str, int], (N_entity_B,), B 侧 entity identity 到约束矩阵后半行号的映射.
     row_by_entity_B = {
         entity_id: len(entity_ids_A) + index for index, entity_id in enumerate(entity_ids_B)
     }
-    # list[int] (2*N_edge,), 稀疏矩阵行坐标; 每条边各占用一个 A entity 和 B entity 容量.
+    # list[int], (2*N_edge,), 稀疏矩阵行坐标; 每条边各占用一个 A entity 和 B entity 容量.
     constraint_rows: list[int] = []
-    # list[int] (2*N_edge,), 稀疏矩阵列坐标; 同一 edge 变量在两侧约束行各出现一次.
+    # list[int], (2*N_edge,), 稀疏矩阵列坐标; 同一 edge 变量在两侧约束行各出现一次.
     constraint_columns: list[int] = []
     for edge_index, ((entity_A, entity_B), _evidence) in enumerate(entity_edges):
         constraint_rows.extend((row_by_entity_A[entity_A], row_by_entity_B[entity_B]))
@@ -338,7 +338,7 @@ def _maximum_matching(
     # Counter[str], 构造见证时每个 entity 已经消费的稳定 chain copy 数.
     used_chain_count_A: Counter[str] = Counter()
     used_chain_count_B: Counter[str] = Counter()
-    # list[dict] (M,), M 条不复用 label_asym chain 的直接匹配见证.
+    # list[dict], (M,), M 条不复用 label_asym chain 的直接匹配见证.
     matching: list[dict[str, Any]] = []
     for ((entity_A, entity_B), evidence), flow_count in zip(
         entity_edges, flow_by_edge.tolist()
@@ -402,15 +402,15 @@ def calculate_pdb_edge(
     chain 分母是每侧全部 comparable chain instance 数; residue 分母是这些 chain 的沉积全长序列长度之和. 三个匹配分别求解, 不能把某一个 matching 同时用于三个统计目标. 本函数不应用 PDB coverage 模式或阈值, 因此结果可以被多个 split 复用.
     """
 
-    # list[dict] (M_chain,), 使匹配 chain 对数量最大的见证集合.
+    # list[dict], (M_chain,), 使匹配 chain 对数量最大的见证集合.
     chain_matching = _maximum_matching(
         chains_A, chains_B, evidence_by_entity_pair, "chain"
     )
-    # list[dict] (M_residue_A,), 使已覆盖 A 侧 chain 全长残基数最大的见证集合.
+    # list[dict], (M_residue_A,), 使已覆盖 A 侧 chain 全长残基数最大的见证集合.
     residue_A_matching = _maximum_matching(
         chains_A, chains_B, evidence_by_entity_pair, "residue_A"
     )
-    # list[dict] (M_residue_B,), 使已覆盖 B 侧 chain 全长残基数最大的见证集合.
+    # list[dict], (M_residue_B,), 使已覆盖 B 侧 chain 全长残基数最大的见证集合.
     residue_B_matching = _maximum_matching(
         chains_A, chains_B, evidence_by_entity_pair, "residue_B"
     )
@@ -639,7 +639,7 @@ def run_mmseqs_shard(
     temporary_root = output_root / "stage2" / "mmseqs_tmp"
     result_root.mkdir(parents=True, exist_ok=True)
     temporary_root.mkdir(parents=True, exist_ok=True)
-    # list[dict] (2,), protein 和 nucleic 命令, 状态及结果路径.
+    # list[dict], (2,), protein 和 nucleic 命令, 状态及结果路径.
     command_records: list[dict[str, Any]] = []
     for sequence_kind, search_type, identity_threshold in (
         ("protein", 1, PROTEIN_IDENTITY_THRESHOLD),
@@ -754,9 +754,9 @@ def build_pdb_edge_evidence(
     原始 TSV 按行处理; 同一 entity 对的双向或重复 alignment 只保留 identity 较高, 再取最小双向 coverage 较高的一条, 精确并列时保留固定输入顺序中的首条. entity hit 以 chain copy 数作为容量求解, 只在 matching 结果中展开直接 chain 见证.
     """
 
-    # list[dict] (N_entity,), stage1 写出的完整 polymer entity 目录.
+    # list[dict], (N_entity,), stage1 写出的完整 polymer entity 目录.
     entities = _read_jsonl(output_root / "sequence_catalog.jsonl")
-    # dict[str, dict] (N_entity,), 大写 sequence_id 到完整 polymer entity 目录记录的映射.
+    # dict[str, dict], (N_entity,), 大写 sequence_id 到完整 polymer entity 目录记录的映射.
     # dict[str, list[dict]], 小写 PDB identity 到全部 comparable label asym chain 的映射.
     entity_by_sequence_id, chains_by_pdb = _build_chain_tables(entities)
     # set[str], 2,497 个日期留出 PDB identity.
@@ -776,7 +776,7 @@ def build_pdb_edge_evidence(
     result_root = output_root / "stage2" / "mmseqs"
     # int, 通过真实 identity 和双向 0.80 coverage 的原始 alignment 数.
     raw_hit_count = 0
-    # dict[tuple, dict] (N_oriented_hit,), 固定 A/B 方向后每个 entity 对保留的最佳 alignment.
+    # dict[tuple, dict], 初始为空; 扫描全部 TSV 后含 N_oriented_hit 个固定方向 entity 对的最佳 alignment.
     oriented_hits_by_entity_pair: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
     for shard_index in range(alignment_shard_count):
         # tuple[tuple[Path, str], ...], 当前分片的 protein 与 nucleic TSV 及类别.
@@ -827,7 +827,7 @@ def build_pdb_edge_evidence(
                 if hit_score > previous_score:
                     oriented_hits_by_entity_pair[entity_pair_key] = oriented_hit
 
-    # list[dict] (N_oriented_hit,), 去重且按 relation, PDB A/B, entity A/B 稳定排序的高重复 entity 对.
+    # list[dict], (N_oriented_hit,), 去重且按 relation, PDB A/B, entity A/B 稳定排序的高重复 entity 对.
     oriented_hits = sorted(
         oriented_hits_by_entity_pair.values(),
         key=lambda hit: (
@@ -840,7 +840,7 @@ def build_pdb_edge_evidence(
     )
     _write_jsonl(output_root / "qualifying_entity_hits.jsonl", oriented_hits)
 
-    # dict[PDB pair, dict[entity pair, evidence]] (N_pdb_edge,), 每个 PDB 对对应一个以 chain copy 数为容量的 entity 二分图.
+    # dict[PDB pair, dict[entity pair, evidence]], 初始为空; 聚合结束后含 N_pdb_edge 个以 chain copy 数为容量的 entity 二分图.
     evidence_by_pdb_pair: dict[
         tuple[str, str, str], dict[tuple[str, str], dict[str, Any]]
     ] = defaultdict(dict)
@@ -863,7 +863,7 @@ def build_pdb_edge_evidence(
             "coverage_B": float(hit["coverage_B"]),
         }
 
-    # list[dict] (N_pdb_edge,), 至少含一条高重复 chain 边且尚未应用 PDB 判定参数的证据.
+    # list[dict], 初始为空; 循环结束后含 N_pdb_edge 条尚未应用 PDB 判定参数的 PDB 边证据.
     pdb_edge_evidence: list[dict[str, Any]] = []
     for relation, pdb_A, pdb_B in sorted(evidence_by_pdb_pair):
         pdb_edge_evidence.append(

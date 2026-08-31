@@ -89,7 +89,7 @@ def greedy_independent_set(
     每个未接受候选都保存一个已接受的直接冲突邻居, 因此接受集合是极大独立集; 本算法不保证它是基数最大的独立集.
     """
 
-    # list[str] (N,), 去重, 排序后的统一资格 PDB identity.
+    # list[str], (N,), 去重, 排序后的统一资格 PDB identity.
     sorted_ids = sorted(set(eligible_pdb_ids))
     # set[str], 过滤内部边两端是否仍属于当前选择域.
     eligible_set = set(sorted_ids)
@@ -101,7 +101,7 @@ def greedy_independent_set(
             neighbors[pdb_B].add(pdb_A)
     # Generator, 贪心顺序专用随机子流; 与 test_0 抽样子流相互独立.
     random_generator = np.random.default_rng(np.random.SeedSequence(seed, spawn_key=(0,)))
-    # list[str] (N,), 对排序身份做一次固定种子全排列后的贪心访问顺序.
+    # list[str], (N,), 对排序身份做一次固定种子全排列后的贪心访问顺序.
     random_order = [sorted_ids[index] for index in random_generator.permutation(len(sorted_ids))]
     # set[str], 已接受且两两无冲突的当前独立集.
     accepted_ids: set[str] = set()
@@ -146,7 +146,7 @@ def sample_test_0(full_test_pdb_ids: Iterable[str], sample_size: int, seed: int)
     full_test 少于目标数量时返回其全部成员, 不为凑数放宽冗余条件.
     """
 
-    # list[str] (N_full_test,), full_test 去重排序后的稳定 PDB identity 顺序; N_full_test 是去重后的 PDB 数.
+    # list[str], (N_full_test,), full_test 去重排序后的稳定 PDB identity 顺序; N_full_test 是去重后的 PDB 数.
     sorted_ids = sorted(set(full_test_pdb_ids))
     # int, test_0 实际抽取数; N_test0 = min(sample_size, N_full_test).
     actual_sample_size = min(sample_size, len(sorted_ids))
@@ -257,7 +257,7 @@ def finalize_identity_views(
             - summary.seed: int, 当前固定随机 entropy.
 
     落盘产物:
-        - `redundancy_edges.jsonl`: JSONL; 每行是共享证据加当前参数与判定字段.
+        - `redundancy_edges.jsonl`: JSONL; 每行继承 :func:`calculate_pdb_edge` 的完整返回契约, 再增加当前参数与判定字段.
             - pdb_coverage_mode: str, 当前 chain, residue, or 或 and 判定模式.
             - pdb_coverage_threshold: float, 当前 PDB coverage 包含边界.
             - chain_pass: bool, max(chain_A, chain_B) 是否达到当前阈值.
@@ -331,12 +331,16 @@ def finalize_identity_views(
     完成标记只记录本步骤正常执行到末尾, 不参与失败率或步骤间门控.
     """
 
-    # list[dict] (N_edge,), 不含 mode, threshold 或判定布尔值的共享 PDB 边证据.
+    if mode not in {"chain", "residue", "or", "and"}:
+        raise ValueError(f"未知 PDB coverage mode: {mode}")
+    if not 0.0 < threshold <= 1.0:
+        raise ValueError(f"PDB coverage threshold 必须位于 (0, 1]: {threshold}")
+    # list[dict], (N_edge,), 不含 mode, threshold 或判定布尔值的共享 PDB 边证据.
     edge_evidence = _read_jsonl(shared_output_root / "pdb_edge_evidence.jsonl")
-    # list[dict] (N_edge,), 当前 split 的完整 PDB 关系, 三组 matching 和参数化判定.
+    # list[dict], 初始为空; 循环结束后含 N_edge 条带三组 matching 和参数化判定的 PDB 关系.
     edges: list[dict[str, Any]] = []
     for evidence in edge_evidence:
-        # dict, 共享证据文件当前行的 PDB A/B identity, 四个 coverage 与三组 matching.
+        # dict, 当前 :func:`calculate_pdb_edge` 证据; 含 relation, PDB A/B, 四个分母, 四个 coverage 和三组 matching.
         # dict[str, bool], 当前 mode/threshold 对四个双向 coverage 的判定结果.
         decision = classify_pdb_redundancy(
             float(evidence["chain_A"]),
@@ -359,11 +363,11 @@ def finalize_identity_views(
     edge_summary = json.loads(
         (shared_output_root / "stage2" / "edge_summary.json").read_text(encoding="utf-8")
     )
-    # list[dict] (N_held_out,), stage1 基础事实; 正式 N_held_out=2497.
+    # list[dict], (N_held_out,), stage1 基础事实; 正式 N_held_out=2497.
     base_records = _read_jsonl(shared_output_root / "held_out_base.jsonl")
-    # dict[str, dict] (N_held_out,), PDB identity 到唯一基础身份证的映射.
+    # dict[str, dict], (N_held_out,), PDB identity 到唯一基础身份证的映射.
     base_by_pdb = {str(record["pdb_id"]): record for record in base_records}
-    # set[str] (N_held_out,), 冻结 held-out PDB identity 基准.
+    # set[str], (N_held_out,), 冻结 held-out PDB identity 基准.
     held_out_ids = {
         str(pdb_id).strip().lower()
         for pdb_id in json.loads(held_out_pdb_path.read_text(encoding="utf-8"))
@@ -411,26 +415,26 @@ def finalize_identity_views(
     ]
     # dict[str, dict], 每个统一资格 PDB 的固定种子贪心接受或拒绝状态.
     greedy_states = greedy_independent_set(eligible_ids, conflict_pairs, seed)
-    # list[str] (N_full_test,), 完整贪心极大独立集; N_full_test 是贪心接受的 PDB 数, 任意两个成员之间没有当前冗余边.
+    # list[str], (N_full_test,), 完整贪心极大独立集; N_full_test 是贪心接受的 PDB 数, 任意两个成员之间没有当前冗余边.
     full_test_ids = [
         pdb_id for pdb_id, state in greedy_states.items() if bool(state["accepted"])
     ]
-    # dict[str, int] (N_full_test,), full_test PDB 到贪心接受顺序中紧凑排名的映射.
+    # dict[str, int], (N_full_test,), full_test PDB 到贪心接受顺序中紧凑排名的映射.
     full_test_rank = {pdb_id: rank for rank, pdb_id in enumerate(full_test_ids)}
-    # list[str] (N_test0,), 不应用 occurrence 数过滤的固定随机 PDB identities; N_test0 = min(test_0_size, N_full_test).
+    # list[str], (N_test0,), 不应用 occurrence 数过滤的固定随机 PDB identities; N_test0 = min(test_0_size, N_full_test).
     test_0_ids = sample_test_0(full_test_ids, test_0_size, seed)
-    # dict[str, int] (N_test0,), test_0 PDB 到随机抽取顺序的映射.
+    # dict[str, int], (N_test0,), test_0 PDB 到随机抽取顺序的映射.
     test_0_rank = {pdb_id: rank for rank, pdb_id in enumerate(test_0_ids)}
-    # list[str] (N_test1,), test_0 中 total occurrence 严格位于 `(1, 100)` 的子集.
+    # list[str], (N_test1,), test_0 中 total occurrence 严格位于 `(1, 100)` 的子集.
     test_1_ids = [
         pdb_id
         for pdb_id in test_0_ids
         if bool(base_by_pdb[pdb_id]["ligands"]["strict_1_100_passed"])
     ]
-    # dict[str, int] (N_test1,), 继承 test_0 相对顺序后的 test_1 紧凑排名.
+    # dict[str, int], (N_test1,), 继承 test_0 相对顺序后的 test_1 紧凑排名.
     test_1_rank = {pdb_id: rank for rank, pdb_id in enumerate(test_1_ids)}
 
-    # list[dict] (N_held_out,), 最终统一身份证; 正式 N_held_out=2497.
+    # list[dict], (N_held_out,), 最终统一身份证; 正式 N_held_out=2497.
     identities: list[dict[str, Any]] = []
     for pdb_id in sorted(held_out_ids):
         # dict, 当前 held-out PDB 的质量, 资产, 配体与序列基础事实.
@@ -446,7 +450,7 @@ def finalize_identity_views(
         # dict | None, 当前 PDB 与 rejected_by 的四个 coverage 直接见证.
         rejection_edge = None
         if rejected_by is not None:
-            # list[dict] (1,), 当前拒绝 PDB 对的 redundant 内部关系.
+            # list[dict], (1,), 当前拒绝 PDB 对的 redundant 内部关系.
             matching_edges = [
                 edge
                 for edge in internal_edges
