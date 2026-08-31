@@ -54,7 +54,7 @@ MMseqs2 使用真实 alignment identity，即 `--alignment-mode 3 --seq-id-mode 
 
 在剩余 held-out 冲突图上，以 `SeedSequence(3407, spawn_key=(0,))` 产生固定贪心顺序，依次接受与已有成员均不冲突的 PDB。遍历全部合格 PDB 后，完整接受集合写为 `full_test`。任意两个成员之间均无冗余边；每个拒绝项都保存一个已接受的直接冲突邻居，因此再加入任何一个被拒绝 PDB 都会破坏独立性。`full_test` 由此是极大独立集，但不保证是基数最大的独立集。
 
-从 `full_test` 用 `SeedSequence(3407, spawn_key=(1,))` 无放回抽取 200 个 PDB 得到 `test_0`。`test_1` 只保留 `test_0` 中总 occurrence 数严格满足 `1 < n < 100` 的 PDB，因此 `test_1 ⊆ test_0 ⊆ full_test`。`full_test` 与 `test_0` 都不按 occurrence 数过滤；`test_1` 数量不预设。
+从 `full_test` 用 `SeedSequence(3407, spawn_key=(1,))` 无放回抽取至多 200 个 PDB 得到 `test_0`；full_test 少于 200 个时取其全部成员。`test_1` 只保留 `test_0` 中总 occurrence 数严格满足 `1 < n < 100` 的 PDB，因此 `test_1 ⊆ test_0 ⊆ full_test`。`full_test` 与 `test_0` 都不按 occurrence 数过滤；`test_1` 数量不预设。
 
 ## 执行边界
 

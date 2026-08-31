@@ -140,10 +140,10 @@ bash 训练与运行/submit_task.sh --sh held_out_finalize.sh --resource cpu --c
 | 文件 | 字段 |
 | --- | --- |
 | `full_test.json` | `schema_version`、`pdb_coverage_mode`、`pdb_coverage_threshold`、`seed`、`name="full_test"`、`occurrence_filter=null`、按贪心接受顺序保存的全部 `pdb_ids`。该集合两两无内部冗余边；每个未进入集合的合格 PDB 都与一个已进入成员直接冲突，因此它是极大独立集，但不声称是基数最大的独立集。 |
-| `test_0.json` | 同一版本与选择参数、`name="test_0"`、`occurrence_filter=null`、`parent="full_test"`、从 full_test 无放回抽取的 200 个 `pdb_ids`。 |
+| `test_0.json` | 同一版本与选择参数、`name="test_0"`、`occurrence_filter=null`、`parent="full_test"`、从 full_test 无放回抽取的至多 200 个 `pdb_ids`；full_test 少于 200 个时取其全部成员。 |
 | `test_1.json` | 同一版本与选择参数、`name="test_1"`、`occurrence_filter="1 < total_count < 100"`、`parent="test_0"`、从 test_0 保序过滤得到的 `pdb_ids`。 |
 
-三个视图满足 `test_1 ⊆ test_0 ⊆ full_test`。`full_test` 与 `test_0` 都不应用 occurrence 数过滤。
+三个视图满足 `test_1 ⊆ test_0 ⊆ full_test`。`full_test` 与 `test_0` 都不应用 occurrence 数过滤；200 只是 test_0 的目标数量上限，不会为凑数放宽冗余条件。
 
 ### 汇总与完成标记
 
