@@ -1,4 +1,4 @@
-"""提供 held-out 去冗余的四个显式命令行步骤."""
+"""提供 held-out 去冗余的五个显式命令行步骤."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ import json
 from pathlib import Path
 
 from held_out_pipeline.catalog import finalize_catalog, run_catalog_shard
-from held_out_pipeline.redundancy import run_mmseqs_shard
+from held_out_pipeline.redundancy import build_pdb_edge_evidence, run_mmseqs_shard
 from held_out_pipeline.selection import finalize_identity_views
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    """构建四个子命令及其显式参数, 不保存运行环境默认路径."""
+    """构建五个子命令及其显式参数, 不保存运行环境默认路径."""
 
     parser = argparse.ArgumentParser(description="AdaLigand held-out 序列去冗余与测试集构建.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -47,17 +47,30 @@ def _build_parser() -> argparse.ArgumentParser:
     mmseqs_shard.add_argument("--shard-index", type=int, required=True)
     mmseqs_shard.add_argument("--threads", type=int, required=True)
 
-    finalize = subparsers.add_parser("finalize", help="生成 PDB 关系, 身份证和测试视图.")
-    finalize.add_argument("--output-root", type=Path, required=True)
-    finalize.add_argument("--train-pdb", type=Path, required=True)
-    finalize.add_argument("--validation-pdb", type=Path, required=True)
-    finalize.add_argument("--calibration-pdb", type=Path, required=True)
-    finalize.add_argument("--held-out-pdb", type=Path, required=True)
-    finalize.add_argument("--alignment-shard-count", type=int, required=True)
-    finalize.add_argument("--pdb-coverage-mode", choices=("or", "and"), required=True)
-    finalize.add_argument("--pdb-coverage-threshold", type=float, required=True)
-    finalize.add_argument("--seed", type=int, required=True)
-    finalize.add_argument("--test-0-size", type=int, required=True)
+    edge_finalize = subparsers.add_parser(
+        "edge-finalize", help="从全部 MMseqs2 分片生成共享 PDB 边证据."
+    )
+    edge_finalize.add_argument("--output-root", type=Path, required=True)
+    edge_finalize.add_argument("--train-pdb", type=Path, required=True)
+    edge_finalize.add_argument("--validation-pdb", type=Path, required=True)
+    edge_finalize.add_argument("--calibration-pdb", type=Path, required=True)
+    edge_finalize.add_argument("--held-out-pdb", type=Path, required=True)
+    edge_finalize.add_argument("--alignment-shard-count", type=int, required=True)
+
+    split_finalize = subparsers.add_parser(
+        "split-finalize", help="从共享 PDB 边证据生成一个参数化 split."
+    )
+    split_finalize.add_argument("--shared-output-root", type=Path, required=True)
+    split_finalize.add_argument("--split-output-root", type=Path, required=True)
+    split_finalize.add_argument("--held-out-pdb", type=Path, required=True)
+    split_finalize.add_argument(
+        "--pdb-coverage-mode",
+        choices=("chain", "residue", "or", "and"),
+        required=True,
+    )
+    split_finalize.add_argument("--pdb-coverage-threshold", type=float, required=True)
+    split_finalize.add_argument("--seed", type=int, required=True)
+    split_finalize.add_argument("--test-0-size", type=int, required=True)
     return parser
 
 
@@ -99,14 +112,20 @@ def main() -> None:
             arguments.shard_index,
             arguments.threads,
         )
-    else:
-        summary = finalize_identity_views(
+    elif arguments.command == "edge-finalize":
+        summary = build_pdb_edge_evidence(
             arguments.output_root,
             arguments.train_pdb,
             arguments.validation_pdb,
             arguments.calibration_pdb,
             arguments.held_out_pdb,
             arguments.alignment_shard_count,
+        )
+    else:
+        summary = finalize_identity_views(
+            arguments.shared_output_root,
+            arguments.split_output_root,
+            arguments.held_out_pdb,
             arguments.pdb_coverage_mode,
             arguments.pdb_coverage_threshold,
             arguments.seed,

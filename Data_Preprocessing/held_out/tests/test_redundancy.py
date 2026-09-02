@@ -11,7 +11,6 @@ import pytest
 from held_out_pipeline.redundancy import (
     _build_chain_tables,
     _orient_hit,
-    build_redundancy_edges,
     calculate_pdb_edge,
     classify_pdb_redundancy,
     parse_mmseqs_rows,
@@ -19,24 +18,11 @@ from held_out_pipeline.redundancy import (
 )
 
 
-def test_build_edges_rejects_zero_pdb_threshold_even_without_candidate_edges(
-    tmp_path: Path,
-) -> None:
-    """零阈值不属于公开契约, 不能因候选边为空而绕过校验."""
+def test_redundancy_classifier_rejects_zero_pdb_threshold() -> None:
+    """零阈值不属于公开判定契约."""
 
-    # Path, 校验应在读取任何目录或 split 文件之前发生的占位路径.
-    missing_split = tmp_path / "missing.json"
     with pytest.raises(ValueError, match=r"\(0, 1\]"):
-        build_redundancy_edges(
-            tmp_path,
-            missing_split,
-            missing_split,
-            missing_split,
-            missing_split,
-            1,
-            "or",
-            0.0,
-        )
+        classify_pdb_redundancy(0.5, 0.5, 0.5, 0.5, "or", 0.0)
 
 
 def make_chain(chain_id: str, length: int) -> dict[str, object]:
@@ -120,7 +106,7 @@ def test_mmseqs_parser_uses_inclusive_identity_and_both_coverages(tmp_path: Path
         "Q4\tT4\t0.40\t0.90\t0.799\t30\t30\t30\t1\n",
         encoding="utf-8",
     )
-    # list[dict] (1,), 只有 identity=0.30 且 qcov=tcov=0.80 的边界命中.
+    # list[dict], (1,), 只有 identity=0.30 且 qcov=tcov=0.80 的边界命中.
     hits = list(parse_mmseqs_rows(result_path, "protein"))
     assert [(hit["query"], hit["target"]) for hit in hits] == [("Q1", "T1")]
 
@@ -137,12 +123,17 @@ def test_chain_matching_never_reuses_one_target_chain() -> None:
         ("A2", "B1"): make_evidence("A2", "B1", 50, 80),
     }
     # dict, 三个一对一目标及四个方向 coverage 的聚合结果.
-    edge = calculate_pdb_edge(
-        "held_out_internal", "a", "b", chains_A, chains_B, evidence, "or", 0.5
-    )
+    edge = calculate_pdb_edge("held_out_internal", "a", "b", chains_A, chains_B, evidence)
     assert len(edge["chain_matching"]) == 1
     assert edge["chain_A"] == 0.5
     assert edge["chain_B"] == 1.0
+    assert not {
+        "pdb_coverage_mode",
+        "pdb_coverage_threshold",
+        "chain_pass",
+        "residue_pass",
+        "redundant",
+    } & set(edge)
 
 
 def test_many_chain_copies_use_entity_capacity_without_cartesian_evidence() -> None:
@@ -150,7 +141,7 @@ def test_many_chain_copies_use_entity_capacity_without_cartesian_evidence() -> N
 
     # int, 单个 entity 在 A/B 两侧各自映射的高拷贝 chain 数.
     copy_count = 2000
-    # list[dict] (copy_count,), A/B 两侧共享 entity identity 的可互换 chain copies.
+    # list[dict], (copy_count,), A/B 两侧共享 entity identity 的可互换 chain copies.
     chains_A = [
         {**make_chain(f"A{index:04d}", 100), "entity_id": "EA", "sequence_id": "A_EA"}
         for index in range(copy_count)
@@ -159,12 +150,10 @@ def test_many_chain_copies_use_entity_capacity_without_cartesian_evidence() -> N
         {**make_chain(f"B{index:04d}", 80), "entity_id": "EB", "sequence_id": "B_EB"}
         for index in range(copy_count)
     ]
-    # dict[tuple, dict] (1,), 一条 entity hit 表示两组 chain copies 间的完全二分图.
+    # dict[tuple, dict], (1,), 一条 entity hit 表示两组 chain copies 间的完全二分图.
     evidence = {("EA", "EB"): make_evidence("EA", "EB", 100, 80)}
     # dict, entity 容量求解后展开出的三组各含 2,000 条 chain matching.
-    edge = calculate_pdb_edge(
-        "held_out_internal", "a", "b", chains_A, chains_B, evidence, "or", 0.5
-    )
+    edge = calculate_pdb_edge("held_out_internal", "a", "b", chains_A, chains_B, evidence)
     assert len(edge["chain_matching"]) == copy_count
     assert len({match["chain_A"] for match in edge["chain_matching"]}) == copy_count
     assert len({match["chain_B"] for match in edge["chain_matching"]}) == copy_count
@@ -184,27 +173,34 @@ def test_three_matching_objectives_are_solved_separately() -> None:
         ("A1", "B2"): make_evidence("A1", "B2", 100, 100),
     }
     # dict, B 残基目标应选 100 aa 的 B2, chain 目标只要求一条边.
-    edge = calculate_pdb_edge("reference", "a", "b", chains_A, chains_B, evidence, "or", 0.5)
+    edge = calculate_pdb_edge("reference", "a", "b", chains_A, chains_B, evidence)
     assert edge["residue_B_matching"][0]["chain_B"] == "B2"
     assert edge["residue_B"] == 100 / 110
     assert edge["chain_B"] == 0.5
 
 
-def test_pdb_or_and_modes_combine_chain_and_residue_levels() -> None:
-    """mode 只切换 chain/residue 两级聚合, 阈值和 A/B 方向保持独立."""
+def test_pdb_modes_select_or_combine_chain_and_residue_levels() -> None:
+    """四种 mode 只选取或组合两级判断, 阈值和 A/B 方向保持独立."""
 
+    # dict[str, bool], 只有 chain 层级达到 0.5 时的 chain 模式判定字段.
+    chain_only = classify_pdb_redundancy(0.5, 0.0, 0.1, 0.1, "chain", 0.5)
+    assert chain_only == {"chain_pass": True, "residue_pass": False, "redundant": True}
+    assert not classify_pdb_redundancy(0.5, 0.0, 0.1, 0.1, "residue", 0.5)[
+        "redundant"
+    ]
     assert classify_pdb_redundancy(0.5, 0.0, 0.1, 0.1, "or", 0.5)["redundant"]
     assert not classify_pdb_redundancy(0.5, 0.0, 0.1, 0.1, "and", 0.5)["redundant"]
     # dict[str, bool], chain 和 residue 分别由不同方向达到阈值的 and 判定.
     crossed = classify_pdb_redundancy(0.5, 0.0, 0.0, 0.5, "and", 0.5)
     assert crossed == {"chain_pass": True, "residue_pass": True, "redundant": True}
     assert not classify_pdb_redundancy(0.499, 0.0, 0.499, 0.0, "or", 0.5)["redundant"]
+    assert classify_pdb_redundancy(0.6, 0.0, 0.0, 0.6, "and", 0.6)["redundant"]
 
 
 def test_chain_table_excludes_short_entities_and_internal_hit_orientation_swaps_sides() -> None:
     """短 entity 不进入 coverage 分母, 反向 held-out hit 定向后同步交换 entity 与 coverage."""
 
-    # list[dict] (3,), A PDB 含两条可比 chain 和一条短链, Z PDB 含一条可比 chain.
+    # list[dict], (3,), A PDB 含两条可比 chain 和一条短链, Z PDB 含一条可比 chain.
     entities = [
         {
             "sequence_id": "1AAA_1",
@@ -268,13 +264,13 @@ def test_matching_objectives_equal_brute_force_on_random_small_domains() -> None
     # Generator, 随机小图回归测试的固定数据子流.
     random_generator = np.random.default_rng(np.random.SeedSequence(20260830))
     for _ in range(25):
-        # list[int] (4,), A/B 两侧合成 chain 的全长残基数.
+        # list[int], (4,), A/B 两侧合成 chain 的全长残基数.
         lengths_A = random_generator.integers(1, 150, size=4).tolist()
         lengths_B = random_generator.integers(1, 150, size=4).tolist()
-        # list[dict] (4,), 由当前随机长度建立的 A/B chain 表.
+        # list[dict], (4,), 由当前随机长度建立的 A/B chain 表.
         chains_A = [make_chain(f"A{index}", int(length)) for index, length in enumerate(lengths_A)]
         chains_B = [make_chain(f"B{index}", int(length)) for index, length in enumerate(lengths_B)]
-        # ndarray bool (4, 4), 独立概率 0.45 采样的 chain 二分图邻接矩阵.
+        # ndarray bool, (4, 4), 第一轴索引 chains_A, 第二轴索引 chains_B; True 表示该 chain 对存在高重复边.
         edge_mask = random_generator.random((4, 4)) < 0.45
         # dict[tuple, dict], 邻接矩阵中 True 位置对应的高重复 chain 见证.
         evidence = {
@@ -290,7 +286,7 @@ def test_matching_objectives_equal_brute_force_on_random_small_domains() -> None
         }
         # dict, SciPy 三目标最大权匹配和对应 PDB coverage.
         edge = calculate_pdb_edge(
-            "held_out_internal", "a", "b", chains_A, chains_B, evidence, "or", 0.5
+            "held_out_internal", "a", "b", chains_A, chains_B, evidence
         )
         # set[tuple[str, str]], 交给独立穷举器的无权 chain 边集合.
         edge_pairs = set(evidence)
@@ -334,7 +330,7 @@ def test_mmseqs_command_requests_real_identity_and_bidirectional_coverage(
 
     monkeypatch.setattr("held_out_pipeline.redundancy.subprocess.run", fake_run)
     run_mmseqs_shard(Path("/tools/mmseqs"), output_root, 0, 8)
-    # list[list[str]] (2,), protein 和 nucleic 的正式 easy-search 参数.
+    # list[list[str]], (2,), protein 和 nucleic 的正式 easy-search 参数.
     easy_search_commands = [command for command in commands if command[1] == "easy-search"]
     assert len(easy_search_commands) == 2
     assert [

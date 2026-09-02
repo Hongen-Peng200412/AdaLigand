@@ -143,15 +143,21 @@ def parse_mmcif_entities(mmcif_path: Path, pdb_id: str) -> list[dict[str, Any]]:
 
     返回值:
         - entities: list[dict[str, Any]], 每个 `_entity_poly.entity_id` 一条, 按 entity_id 字典序排列.
-            - entities[*].sequence_id: str, 大写 `<PDB_ID>_<entity_id>` FASTA identity.
-            - entities[*].pdb_id: str, 小写 PDB identity.
-            - entities[*].entity_id: str, 当前 PDB 内的 polymer entity identity.
-            - entities[*].polymer_type: str, 原始 `_entity_poly.type`.
-            - entities[*].sequence_class: str, protein, rna, dna, hybrid 或 other.
-            - entities[*].sequence: str, 仅删除空白并转为大写的沉积规范全长序列.
-            - entities[*].length: int, sequence 字符数.
-            - entities[*].label_asym_ids: list[str], 指向当前 entity 的全部 label asym chain identities.
-            - entities[*].comparable: bool, 是否达到类别长度边界并进入比对与 PDB coverage 分母.
+            - entities[*].sequence_id: str, 大写 `<PDB_ID>_<entity_id>` 格式的 FASTA 序列标识, 如 `1ABC_1`.
+            - entities[*].pdb_id: str, 小写 PDB 条目标识, 如 `1abc`.
+            - entities[*].entity_id: str, 当前 PDB 内的 polymer entity 标识, 如 `1`.
+            - entities[*].polymer_type: str, 原始 `_entity_poly.type`, 如 `polypeptide(L)`.
+            - entities[*].sequence_class: str, 归一化后的序列类别, 如 `protein`; 可取 `protein`, `rna`, `dna`, `hybrid` 或 `other`.
+            - entities[*].sequence: str, 仅删除空白并转为大写的沉积规范全长序列, 如原始 `"a c d"` 得到 `"ACD"`.
+            - entities[*].length: int, sequence 字符数, 如 `sequence="ACD"` 时为 `3`.
+            - entities[*].label_asym_ids: list[str], 指向当前 entity 的全部 label asym chain 标识, 如 `["A", "B"]` 表示该分子有 A 和 B 两个结构副本.
+            - entities[*].comparable: bool, 是否达到类别长度边界并进入比对与 PDB coverage 分母, 如长度为 3 的 protein 为 `False`.
+
+    例子:
+        - 假设 `pdb_id="1abc"`, `_entity_poly` 含有蛋白质 `(entity_id=1, type=polypeptide(L), sequence="a c d")` 和 RNA `(entity_id=2, type=polyribonucleotide, sequence="A U G")`; `_struct_asym` 含有 `A -> 1`, `B -> 1`, `C -> 2` 和 `H -> 9`.
+        - 返回的第一项为 `{"sequence_id": "1ABC_1", "pdb_id": "1abc", "entity_id": "1", "polymer_type": "polypeptide(L)", "sequence_class": "protein", "sequence": "ACD", "length": 3, "label_asym_ids": ["A", "B"], "comparable": False}`.
+        - 返回的第二项为 `{"sequence_id": "1ABC_2", "pdb_id": "1abc", "entity_id": "2", "polymer_type": "polyribonucleotide", "sequence_class": "rna", "sequence": "AUG", "length": 3, "label_asym_ids": ["C"], "comparable": False}`.
+        - entity 1 只定义一条完整序列; A 和 B 是该分子在沉积结构中的两个 chain 副本, 因此共用一条 `sequence_id="1ABC_1"`. H 指向的 entity 9 没有 `_entity_poly` 记录, 所以不返回. 两条示例序列都保留在目录中, 但长度没有达到 protein 30 aa 或核酸 20 nt 的比对边界, 所以 `comparable=False`.
 
     科学边界:
         - 序列只来自 `_entity_poly.pdbx_seq_one_letter_code_can`.

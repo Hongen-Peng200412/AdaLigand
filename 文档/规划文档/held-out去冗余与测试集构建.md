@@ -34,23 +34,25 @@ MMseqs2 使用真实 alignment identity，即 `--alignment-mode 3 --seq-id-mode 
 - `chain_pass = max(chain_A, chain_B) >= t`；
 - `residue_pass = max(residue_A, residue_B) >= t`。
 
-聚合模式可在命令行切换为 `or` 或 `and`：
+判定模式可在命令行切换为四种：
 
+- `chain`：`chain_pass`；
+- `residue`：`residue_pass`；
 - `or`：`chain_pass or residue_pass`；
 - `and`：`chain_pass and residue_pass`。
 
-第一版固定运行 `mode=or`、`t=0.5`，但实现不得把模式或阈值写死。关系文件保存四个原始 coverage、三组最优匹配和当前参数下的布尔判定，使未来改变判定参数时不需要重新解释 chain 匹配含义。
+第一批正式产物同时运行 `t=0.5/0.6` 与四种模式，共八个 split。共享根只保存四个原始 coverage 和三组最优匹配；每个 split 再保存自己的 mode、threshold 和布尔判定。改变判定参数不需要重跑 MMseqs2 或重新求解 chain matching。
 
 ## Held-out 身份证与选择
 
-2,497 个 held-out PDB 全部进入统一 JSONL 身份证。每条记录包含 PDB/EMDB/日期、`map_resolution`、`cc_contour`、资产状态、六类配体计数、polymer/entity/chain/residue 统计、序列状态、参考集与 held-out 内部冗余摘要、贪心接受或拒绝状态，以及三个测试视图标记。完整 PDB 对关系单独保存在冗余边文件，身份证只保存摘要和直接见证。
+每个参数 split 的 JSONL 身份证都包含全部 2,497 个 held-out PDB。每条记录包含 PDB/EMDB/日期、`map_resolution`、`cc_contour`、资产状态、六类配体计数、polymer/entity/chain/residue 统计、序列状态、参考集与 held-out 内部冗余摘要、贪心接受或拒绝状态，以及三个测试视图标记。完整 PDB 对关系单独保存在该 split 的冗余边文件，身份证只保存摘要和直接见证。
 
 正式候选依次要求：
 
 1. `map_resolution < 4.0` 且 `cc_contour > 0.65`；
 2. Stage1 当前资产契约完整，完整图三个维度均至少为 80；
 3. mmCIF 序列解析成功；零可比 chain 不属于失败；
-4. 与 14,017 个已暴露参考 PDB 没有当前参数下的冗余边。
+4. 与成功进入序列目录的已暴露参考 PDB 没有当前参数下的冗余边；参考身份基准共 14,017 个，实际失败数见 Stage1 summary。
 
 在剩余 held-out 冲突图上，以 `SeedSequence(3407, spawn_key=(0,))` 产生固定贪心顺序，依次接受与已有成员均不冲突的 PDB。遍历全部合格 PDB 后，完整接受集合写为 `full_test`。任意两个成员之间均无冗余边；每个拒绝项都保存一个已接受的直接冲突邻居，因此再加入任何一个被拒绝 PDB 都会破坏独立性。`full_test` 由此是极大独立集，但不保证是基数最大的独立集。
 
@@ -58,6 +60,8 @@ MMseqs2 使用真实 alignment identity，即 `--alignment-mode 3 --seq-id-mode 
 
 ## 执行边界
 
-执行有两组产物、四个显式步骤：目录数组、目录合并与 RCSB smoke、MMseqs2 数组、关系/身份证/测试视图合并。两个数组步骤各使用 12 个任务，每个数组元素使用 8 CPU。步骤间不建立自动依赖、自动重试或多层状态机。
+执行有共享事实与参数 split 两类产物、五个显式步骤：目录数组、目录合并与 RCSB smoke、MMseqs2 数组、共享 PDB 边证据合并、八组合 split 数组。目录和 MMseqs2 数组各使用 12 个任务，split 数组使用 8 个任务；每个数组元素默认使用 8 CPU。步骤间不建立自动依赖、自动重试或多层状态机。
+
+共享根固定为 `/storage/penghongen/AdaLigand/held_out`。参数相关产物全部位于 `split/held_out_<05|06>_<chain|residue|or|and>/`，每个目录独立保存 `redundancy_edges.jsonl`、`held_out_identity.jsonl`、`full_test.json`、`test_0.json`、`test_1.json`、`summary.json` 和只记录写完事实的 `_COMPLETE`。共享根不保留这些文件的兼容副本。
 
 失败率只用于运行后的人工验收，不写成代码门控。held-out 中未预期的序列处理失败不超过 74 个时不因这些失败修改代码或重跑；达到 75 个时先诊断，再决定是否修改代码与重跑。质量不通过、资产不通过、短链和零可比 chain 都是预期状态，不计入该失败率。
