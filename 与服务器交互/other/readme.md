@@ -66,6 +66,14 @@ adaligand_stage1.egg-info/
 & ".\与服务器交互\other\Invoke-PasswordSsh.ps1" -Command "hostname"
 ```
 
+通过 master 直接检查计算节点：
+
+```powershell
+& ".\与服务器交互\other\Invoke-PasswordSsh.ps1" `
+  -TargetHostName "gnode09" `
+  -Command "hostname; nvidia-smi; ps -ef; squeue"
+```
+
 把 LF 行尾的本地 bash 脚本交给服务器执行：
 
 ```powershell
