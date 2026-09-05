@@ -5,6 +5,8 @@
 本模块不读取质量, 资产或配体计数, 也不选择测试集.
 
 全部输入 FASTA 与输出 TSV/JSONL 都位于调用方 `output_root` 下. MMseqs2 TSV 一行对应一条 entity alignment; `qualifying_entity_hits.jsonl` 一行对应一个定向 entity 对; `pdb_edge_evidence.jsonl` 一行对应一个尚未应用 coverage 参数的 PDB 对; `stage2/edge_summary.json` 保存三层关系规模. :func:`calculate_pdb_edge` 定义单条共享证据的完整字段.
+
+—————————— 使用了 "“带容量的二分图最大权匹配”，也叫 bipartite b-matching" ——————————
 """
 
 from __future__ import annotations
@@ -203,31 +205,31 @@ def _maximum_matching(
 
     输入参数:
         - chains_A: 长度 C_A 的 list[dict], A 侧 comparable label asym chains.
-            - chains_A[*].chain_id: str, A 侧 label_asym_id.
-            - chains_A[*].entity_id: str, 当前 A 侧 chain 所属的 entity_id.
-            - chains_A[*].sequence_id: str, 当前 A 侧 entity 的 FASTA identity.
-            - chains_A[*].length: int, 当前 A 侧 chain 的沉积序列长度, 单位 aa 或 nt.
-            - chains_A[*].sequence_class: str, 当前 A 侧 chain 的 polymer 类别.
+            - chains_A[*].chain_id: str, A 侧 mmCIF `_struct_asym.id` 定义的 label_asym_id, 如 `"A"`.
+            - chains_A[*].entity_id: str, 当前 A 侧 chain 所属的 polymer entity 标识, 如 `1`.
+            - chains_A[*].sequence_id: str, 当前 A 侧 entity 的 `<PDB_ID>_<entity_id>` FASTA 序列标识, 如 `1ABC_1`.
+            - chains_A[*].length: int, 当前 A 侧 chain 的沉积序列长度, 如蛋白质序列含 100 aa 时为 `100`.
+            - chains_A[*].sequence_class: str, 当前 A 侧 chain 的归一化 polymer 类别, 如 `"protein"`; 可取 `"protein"`, `"rna"`, `"dna"` 或 `"hybrid"`.
         - chains_B: 长度 C_B 的 list[dict], B 侧 comparable label asym chains.
-            - chains_B[*].chain_id: str, B 侧 label_asym_id.
-            - chains_B[*].entity_id: str, 当前 B 侧 chain 所属的 entity_id.
-            - chains_B[*].sequence_id: str, 当前 B 侧 entity 的 FASTA identity.
-            - chains_B[*].length: int, 当前 B 侧 chain 的沉积序列长度, 单位 aa 或 nt.
-            - chains_B[*].sequence_class: str, 当前 B 侧 chain 的 polymer 类别.
+            - chains_B[*].chain_id: str, B 侧 mmCIF `_struct_asym.id` 定义的 label_asym_id, 如 `"X"`.
+            - chains_B[*].entity_id: str, 当前 B 侧 chain 所属的 polymer entity 标识, 如 `5`.
+            - chains_B[*].sequence_id: str, 当前 B 侧 entity 的 `<PDB_ID>_<entity_id>` FASTA 序列标识, 如 `2DEF_5`.
+            - chains_B[*].length: int, 当前 B 侧 chain 的沉积序列长度, 如蛋白质序列含 98 aa 时为 `98`.
+            - chains_B[*].sequence_class: str, 当前 B 侧 chain 的归一化 polymer 类别, 如 `"protein"`; 可取 `"protein"`, `"rna"`, `"dna"` 或 `"hybrid"`.
         - evidence_by_entity_pair: dict[tuple[str, str], dict], 高重复 entity 边和对应序列比对证据.
-            - key[0]: str, A 侧 entity_id.
-            - key[1]: str, B 侧 entity_id.
-            - value.entity_A: str, A 侧 entity_id.
-            - value.entity_B: str, B 侧 entity_id.
-            - value.sequence_id_A: str, A 侧 `<PDB_ID>_<entity_id>`.
-            - value.sequence_id_B: str, B 侧 `<PDB_ID>_<entity_id>`.
+            - key[0]: str, A 侧 entity_id, 如键 `("1", "5")` 中的 `"1"`.
+            - key[1]: str, B 侧 entity_id, 如键 `("1", "5")` 中的 `"5"`.
+            - value.entity_A: str, A 侧 entity_id, 如 `"1"`.
+            - value.entity_B: str, B 侧 entity_id, 如 `"5"`.
+            - value.sequence_id_A: str, A 侧 `<PDB_ID>_<entity_id>`, 如 `"1ABC_1"`.
+            - value.sequence_id_B: str, B 侧 `<PDB_ID>_<entity_id>`, 如 `"2DEF_5"`.
             - value.length_A: int, A 侧 entity 沉积序列长度, 单位 aa 或 nt.
             - value.length_B: int, B 侧 entity 沉积序列长度, 单位 aa 或 nt.
             - value.sequence_kind: str, protein 或 nucleic.
-            - value.identity: float, MMseqs2 真实序列 identity, 取值位于 `[0, 1]`.
-            - value.coverage_A: float, alignment 覆盖 A 侧 entity 全长的比例, 取值位于 `[0, 1]`.
-            - value.coverage_B: float, alignment 覆盖 B 侧 entity 全长的比例, 取值位于 `[0, 1]`.
-        - objective: str, 取 chain, residue_A 或 residue_B; 单位权重依次为 1, length_A, length_B.
+            - value.identity: float, MMseqs2 真实序列 identity, 取值位于 `[0, 1]`, 如 `0.95` 表示比对区域内 95% 的残基或核苷酸相同.
+            - value.coverage_A: float, alignment 覆盖 A 侧 entity 全长的比例, 取值位于 `[0, 1]`, 如 `0.98` 表示覆盖 A 侧全长的 98%.
+            - value.coverage_B: float, alignment 覆盖 B 侧 entity 全长的比例, 取值位于 `[0, 1]`, 如 `0.97` 表示覆盖 B 侧全长的 97%.
+        - objective: str, 取 `"chain"`, `"residue_A"` 或 `"residue_B"`; 当一条边的 `length_A=100` 且 `length_B=98` 时, 单位权重依次为 1, 100, 98.
 
     返回字段:
         - matching: 长度 M 的 list[dict], 不复用两侧 label asym chain 的直接匹配见证.
@@ -244,7 +246,13 @@ def _maximum_matching(
             - matching[*].coverage_A: float, alignment 覆盖 A 侧 entity 全长的比例.
             - matching[*].coverage_B: float, alignment 覆盖 B 侧 entity 全长的比例.
 
-    同一 entity 的 chain 具有相同序列和长度, 一条 entity 命中等价于两侧 chain copies 的完全二分图. entity 的 chain 数作为整数容量, 每单位流量代表一对 chain. 求解只展开最终 matching, 不物化 `C_A * C_B` 条候选边.
+    例子:
+        - 假设 `chains_A` 含 A 和 B 两条 chain, 两者都属于 `entity_id="1"` 且使用 `sequence_id="1ABC_1"`; `chains_B` 含 X 和 Y 两条 chain, 两者都属于 `entity_id="5"` 且使用 `sequence_id="2DEF_5"`.
+        - 假设 `evidence_by_entity_pair` 只有键 `("1", "5")`, 其值为 `{"entity_A": "1", "entity_B": "5", "sequence_id_A": "1ABC_1", "sequence_id_B": "2DEF_5", "length_A": 100, "length_B": 98, "sequence_kind": "protein", "identity": 0.95, "coverage_A": 0.98, "coverage_B": 0.97}`.
+        - 当 `objective="chain"` 时, entity 1 和 entity 5 的容量均为 2, 因此这条 entity 边承载 2 单位整数流量; 返回值可展开为 A-X 和 B-Y 两条 matching, 每条 matching 都含对应 chain 标识及上述 entity 比对证据.
+        - 这里的完全二分图是 A-X、A-Y、B-X、B-Y 四条候选 chain 边; 求解器只保存一条容量为 2 的 entity 边, 最后才展开实际采用的 A-X 和 B-Y, 因而不物化全部 `C_A * C_B` 候选边.
+
+    同一 entity 的 chain 具有相同序列和长度, 一条 entity 命中等价于两侧 chain copies 的完全二分图. entity 的 chain 数作为整数容量, 每单位流量代表一对 chain.
     """
 
     if not chains_A or not chains_B or not evidence_by_entity_pair:
@@ -276,17 +284,26 @@ def _maximum_matching(
     # dict[str, int], (N_entity_A,), A 侧 entity identity 到约束矩阵前半行号的映射.
     row_by_entity_A = {entity_id: index for index, entity_id in enumerate(entity_ids_A)}
     # dict[str, int], (N_entity_B,), B 侧 entity identity 到约束矩阵后半行号的映射.
-    row_by_entity_B = {
-        entity_id: len(entity_ids_A) + index for index, entity_id in enumerate(entity_ids_B)
-    }
+    row_by_entity_B = {entity_id: len(entity_ids_A) + index for index, entity_id in enumerate(entity_ids_B)}
+
+
+    #   --- 变元 x(k): k从1到len(entity_edges), x(k)代表 entity_i 和 entity_j 之间取用的边数——————若第k条边连接(i,j)对应的 entity ------
     # list[int], 初始为空; 遍历结束后长度为 2*N_edge, 每条边各占用一个 A entity 和 B entity 容量.
     constraint_rows: list[int] = []
     # list[int], 初始为空; 遍历结束后长度为 2*N_edge, 同一 edge 变量在两侧约束行各出现一次.
     constraint_columns: list[int] = []
+
+    # 嵌套解包每项 `((entity_A, entity_B), evidence)` 并取得从 0 开始的边编号, 如第一项 `(("1", "5"), evidence)` 得到 `edge_index=0`, `entity_A="1"`, `entity_B="5"`.
+    # edge_index 实际才是变元的下标
     for edge_index, ((entity_A, entity_B), _evidence) in enumerate(entity_edges):
-        constraint_rows.extend((row_by_entity_A[entity_A], row_by_entity_B[entity_B]))
+        # `extend((a, b))` 把 a、b 两个整数分别追加到列表; 如两个 entity 的约束行号为 0 和 3 时, `[].extend((0, 3))` 得到 `[0, 3]`.
+        constraint_rows.extend((row_by_entity_A[entity_A], row_by_entity_B[entity_B]))  # 边(entity_A, entity_B)连接的链对应的0开始下标
+        # 当前 entity 边同时出现在上述两个约束行, 因而把同一个边编号追加两次; 如 `edge_index=0` 时, `[].extend((0, 0))` 得到 `[0, 0]`.
         constraint_columns.extend((edge_index, edge_index))
-    # csr_matrix float64, (N_entity_A + N_entity_B, N_edge), 每列在两侧各消耗一个容量.
+
+    # csr_matrix float64, (N_entity_A + N_entity_B, N_edge)： 
+    # N_edge 个变量, 第i个代表 edge_index=i 所对应的边
+    # N_entity_A + N_entity_B 个针对两次端点的约束. 对i<N_entity_A, 第i个变量代表对 "entity_i 的占有链数" 的限制.
     constraint_matrix = coo_matrix(
         (
             np.ones(len(constraint_rows), dtype=np.float64),
@@ -340,9 +357,7 @@ def _maximum_matching(
     used_chain_count_B: Counter[str] = Counter()
     # list[dict], 初始为空; 展开结束后含 M 条不复用 label_asym chain 的直接匹配见证.
     matching: list[dict[str, Any]] = []
-    for ((entity_A, entity_B), evidence), flow_count in zip(
-        entity_edges, flow_by_edge.tolist()
-    ):
+    for ((entity_A, entity_B), evidence), flow_count in zip(entity_edges, flow_by_edge.tolist()):
         for _ in range(flow_count):
             # dict, 当前 entity edge 下一条尚未使用的 A/B chain copy.
             chain_A = chains_by_entity_A[entity_A][used_chain_count_A[entity_A]]
@@ -392,10 +407,12 @@ def calculate_pdb_edge(
         - comparable_chain_count_B: int, chain_B 的 coverage 分母.
         - comparable_residue_count_A: int, residue_A 的沉积序列长度分母.
         - comparable_residue_count_B: int, residue_B 的沉积序列长度分母.
+
         - chain_A: float, 最大 cardinality 匹配数除以 A 侧 comparable chain 数.
         - chain_B: float, 最大 cardinality 匹配数除以 B 侧 comparable chain 数.
         - residue_A: float, A 侧最大权匹配残基数除以 A 侧 comparable 残基数.
         - residue_B: float, B 侧最大权匹配残基数除以 B 侧 comparable 残基数.
+
         - chain_matching: 长度 M_chain 的 list[dict], 最大化匹配 chain 数的直接见证; 每项使用 :func:`_maximum_matching` 返回字段.
         - residue_A_matching: 长度 M_residue_A 的 list[dict], 最大化 A 侧匹配残基数的直接见证; 每项使用 :func:`_maximum_matching` 返回字段.
         - residue_B_matching: 长度 M_residue_B 的 list[dict], 最大化 B 侧匹配残基数的直接见证; 每项使用 :func:`_maximum_matching` 返回字段.
@@ -455,7 +472,7 @@ def calculate_pdb_edge(
 def _build_chain_tables(
     entities: Iterable[dict[str, Any]],
 ) -> tuple[dict[str, dict[str, Any]], dict[str, list[dict[str, Any]]]]:
-    """建立 sequence_id 到 entity 以及 PDB 到可比 chain instance 的两个索引.
+    """建立 sequence_id("1ABC_1", global 唯一) 到 entity 以及 PDB 到可比 chain instance 的两个索引.
 
     输入参数:
         - entities: Iterable[dict], 使用序列目录字段契约的 polymer entities.

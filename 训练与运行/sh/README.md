@@ -1,8 +1,6 @@
 # 任务脚本目录
 
-## Held-out 去冗余
-
-五步依次使用 `held_out_catalog_array.sh`、`held_out_catalog_finalize.sh`、`held_out_mmseqs_array.sh`、`held_out_finalize.sh` 和 `held_out_split_array.sh`，完成序列目录分片、目录合并与官方 FASTA smoke、MMseqs2 分片、共享 PDB 边证据合并和八组合 split 发布。五步必须显式提交；数组配置依次为 `0-11`、无数组、`0-11`、无数组和 `0-7`。每个数组元素建议 `--cpus 8`；完整命令与产物契约见 `Data_Preprocessing/held_out/README.md`。
+本目录只保存需要作为 AdaLigand 项目级入口的任务脚本。单一数据任务的脚本放在对应任务目录的 `sh/` 中，避免不同数据链的入口在这里堆积。
 
 ## Stage3 PocketXMol Phase 1
 
