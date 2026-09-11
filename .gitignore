@@ -1,6 +1,7 @@
 # 忽略 Python 缓存
 __pycache__/
 *.pyc
+可视化套件/Stage1/tests_output/
 *.py[cod]
 *$py.class
 
