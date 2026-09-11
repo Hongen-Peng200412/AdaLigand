@@ -1,0 +1,7 @@
+name: adaligand-stage1-pymol
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy=1.26
+  - pymol-open-source=3.1
