@@ -27,7 +27,7 @@
 
 1. 合成数据单元测试检查分组、默认可见性、受体坐标、GT 坐标、预测体素中心坐标、`isolevel` 和局部 `isomesh`。
 2. 服务器独立 PyMOL Conda 环境用真实 `unet_c1` 产物生成一个 `.pse`，并保留正式 release、launch 和运行命令。
-3. 同一个服务器环境用真实 `Find_*` 产物生成一个 `.pse`，以证明入口未与 `unet_c1` 路径耦合。
+3. 同一个服务器环境用具备当前公共 blobs 与 evaluation 契约的真实 `Find_*` 产物生成一个 `.pse`，以证明入口未与 `unet_c1` 路径耦合。若服务器现有 `Find_*` 只保留旧版 `centered/components/probability` 文件，该验收等待相应模型生成公共契约产物，不在可视化层追加第二套旧版解析公式。
 4. 服务器会话下载到 Windows 后，本机 PyMOL 能直接打开，且输入树不需随会话一起下载。
 
 ## 非目标

@@ -98,3 +98,4 @@ bash 训练与运行/submit_task.sh \
 - GT 只显示沉积原子结构，不额外生成 GT 体素掩码。
 - 预测 blob 是体素几何对象，不伪造原子类型、化学键或配体身份。
 - 程序始终写入评估 NPZ 中的全部候选，不提供第二套 top-N 选择逻辑。
+- `Find_*` 必须已经生成当前公共 `blobs/F{alpha}_blobs.npz` 和 `evaluation/{evaluation_name}.npz` 契约。旧运行若只有 `centered/`、`components/` 和 `probability/`，需先用对应冻结模型的 Stage1 推理流程生成公共 blobs 与 evaluation；本可视化生成器不会猜测或改写旧产物。
