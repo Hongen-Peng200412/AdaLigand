@@ -4,11 +4,11 @@
 
 ## 输入与输出根
 
-正式任务使用 `/storage/penghongen/AdaLigand/held_out/split/held_out_06_chain/test_0.json` 的 `pdb_ids`；原始图对应关系取自 `/storage/penghongen/AdaLigand/Ori_Data/raw/pair_list.jsonl`，图文件取自同数据根 `raw/emdb_maps/emd_<编号>.map.gz`。例如 `EMD-52935` 对应 `emd_52935.map.gz`，此编号仅用于解释命名规则。
+test_0 任务使用 `/storage/penghongen/AdaLigand/held_out/split/held_out_06_chain/test_0.json` 的 `pdb_ids`；calibration 任务直接使用 `/storage/penghongen/AdaLigand/Ori_Data/stage1_preparation_box_pool_3/split/pdb_split/calibration.json` 的 JSON 列表，如 `["6bgi", "6dqn"]` 是格式片段。两种格式均保持清单原顺序。原始图对应关系取自 `/storage/penghongen/AdaLigand/Ori_Data/raw/pair_list.jsonl`，图文件取自同数据根 `raw/emdb_maps/emd_<编号>.map.gz`。例如 `EMD-52935` 对应 `emd_52935.map.gz`，此编号仅用于解释命名规则。
 
 完整序列取自 `/storage/penghongen/AdaLigand/held_out/sequence_catalog.jsonl`。一个 entity 表示一种聚合物分子，它可以在结构中有多个链副本。每个 entity 导出一条完整 FASTA；不按 `comparable` 删除短序列，不按坐标截断或修复未知字符。RNA/DNA 的 `X` 会被官方统一序列读取器忽略，本程序记录这些字符，不自行替换。
 
-输出根固定为 `/storage/penghongen/Adaligand_infered_receptor_data/cryoatom2/test_0_chain06`。以下为生成代码定义的预期结构，初始服务器检查时产物目录为空。两段展示同一个物理实验根。`<pdb_id>` 来自测试清单，如 `9ter`；`<run_stamp>` 来自提交系统的唯一执行名，例如构造值 `predict_job123_20260908T160000_a1`，重试生成不同名称。
+test_0 输出根为 `/storage/penghongen/Adaligand_infered_receptor_data/cryoatom2/test_0_chain06`，calibration 输出根为同级 `calibration`。下列目录树展示 test_0 的结构；calibration 使用完全相同的子目录和字段契约。两段展示同一个物理实验根。`<pdb_id>` 来自清单，如 `9ter`；`<run_stamp>` 来自提交系统的唯一执行名，例如构造值 `predict_job123_20260908T160000_a1`，重试生成不同名称。
 
 ```text
 ## <科学产物>
@@ -170,7 +170,7 @@
 
 ## 正式入口与代码阅读
 
-从服务器项目根 `/home/penghongen/My_Project/AdaLigand` 执行唯一正式提交命令：
+从服务器项目根 `/home/penghongen/My_Project/AdaLigand` 执行 test_0 正式提交命令：
 
 ```bash
 bash 测评数据代码/cryoatom2原始预测结构/submit.sh
@@ -179,5 +179,14 @@ bash 测评数据代码/cryoatom2原始预测结构/submit.sh
 该入口创建 3 个数组任务，每个 1 张 A100、8 核 CPU、96 GiB 内存，同时使用 `--pre_hold` 与 `--after_hold`，不传 `--time`。获得资源后等待 pre_lock 放行，预测结束后继续保留资源。显式请求内存使单卡任务可以共享节点，不使用分区默认的整节点内存。线程池设置为 8 核，不按系统总 CPU 数放大。Slurm 数组编号 0、1、2 分别决定 PDB 分片，每个分片内部顺序运行；三个分片之间无依赖，可同时执行，分别包含 60、60、59 个 PDB。
 
 阅读顺序：`submit.sh` 说明资源；`sh/predict.sh` 说明环境与输入位置；`predict.py` 的两个内部工具说明 JSON 发布与 CIF 基本检查，随后 `run_shard()` 贯穿单卡运行，`summarize()` 汇总全测试集；`tests/test_predict.py` 用文件与子进程替身覆盖失败、重试和格式验收。
+
+calibration 的正式提交命令为：
+
+```bash
+bash 测评数据代码/cryoatom2原始预测结构/submit_calibration.sh 0 h200g4
+bash 测评数据代码/cryoatom2原始预测结构/submit_calibration.sh 1 a100g2
+```
+
+`submit_calibration.sh` 的两个必填参数依次为分片编号和 QOS；两条命令分别请求 `nvlink` 分区中的 `h200g4`、`a100g2` QOS，数组编号 0、1 各申请 1 张 A800、16 核 CPU，内存使用分区默认值，不传 `--mem`，仅启用 `--after_hold`，不传 `--time`。两个任务相互独立；`sh/predict_calibration.sh` 固定环境和 calibration 输入输出，线程池上限均为 16。同一 `predict.py` 按清单 `[0::2]`、`[1::2]` 各运行 50 个 PDB，并保留全部序列与官方参数。资源结束后保留，需获得用户明确释放授权才删除 `after_lock`。calibration 的检查命令、提交身份和验收记录见[calibration 执行记录](../../文档/exec_plan/CryoAtom2校准集受体重建执行记录.md)。
 
 测试、门控及汇总命令和实际运行事件分别记录在[执行记录](../../文档/exec_plan/CryoAtom2测试集受体重建执行记录.md)，不拼入正式提交命令。

@@ -93,12 +93,15 @@ def example(tmp_path, monkeypatch):
     return SimpleNamespace(data=data, ids=ids, catalog=catalog, split=split, output=tmp_path / "results", scratch=tmp_path / "scratch", calls=calls, fail_ids=fail_ids, malformed_ids=malformed_ids)
 
 
-def test_three_shards_preserve_full_sequences_and_native_maps(example):
+@pytest.mark.parametrize("list_split,shard_count,expected_order", [(False, 3, ["1aaa", "4ddd", "2bbb", "5eee", "3ccc"]), (True, 2, ["1aaa", "3ccc", "5eee", "2bbb", "4ddd"])])
+def test_shards_preserve_full_sequences_and_native_maps(example, list_split, shard_count, expected_order):
+    if list_split:
+        example.split.write_text(json.dumps(example.ids), encoding="utf-8")
     original_maps = {p: p.read_bytes() for p in (example.data / "raw/emdb_maps").iterdir()}
-    for index in range(3):
-        assert batch.run_shard(example.split, example.data, example.catalog, example.output, example.scratch, index, 3, f"run_{index}") == 0
+    for index in range(shard_count):
+        assert batch.run_shard(example.split, example.data, example.catalog, example.output, example.scratch, index, shard_count, f"run_{index}") == 0
     observed = [Path(command[command.index("--output-dir") + 1]).parent.name for command in example.calls]
-    assert observed == ["1aaa", "4ddd", "2bbb", "5eee", "3ccc"]
+    assert observed == expected_order
     assert len(set(observed)) == 5
     log = example.output / "运行日志与统计/pdb/2bbb/run_1"
     assert (log / "rna.fasta").read_text(encoding="utf-8") == ">2BBB_1|Chains A, B\nAUXG\n"

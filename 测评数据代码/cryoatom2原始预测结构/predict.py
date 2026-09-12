@@ -69,7 +69,7 @@ def run_shard(split_file: Path, data_root: Path, sequence_catalog: Path, output_
     """在一张已分配 GPU 上顺序重建一个 PDB 分片, 单个 PDB 失败后继续.
 
     输入参数:
-        - split_file: Path, JSON object, pdb_ids 为按冻结顺序排列的小写 PDB 列表, 如 ["9ter", "30yu"].
+        - split_file: Path, JSON 列表或含 pdb_ids 的 JSON object; 列表按冻结顺序排列小写 PDB, 如 ["6bgi", "6dqn"], 两种格式不改变分片规则.
         - data_root: Path, AdaLigand Ori_Data 根, 读取 raw/pair_list.jsonl 和 raw/emdb_maps/emd_<编号>.map.gz; 对应记录的 pdb_id 为小写 PDB, 如 "9ter", emdb_id 为图编号, 如 "EMD-52935".
         - sequence_catalog: Path, JSONL; 每个 entity 含 pdb_id、sequence_id、sequence_class、sequence、label_asym_ids, 保留 comparable=false 的短序列.
         - output_root: Path, 同时容纳 cryoatom2_artifact 和 运行日志与统计 的实验根.
@@ -155,11 +155,12 @@ def run_shard(split_file: Path, data_root: Path, sequence_catalog: Path, output_
     返回值:
         - int, 本分片全部成功或跳过已成功 PDB 时为 0, 存在失败时为 1.
     """
+    split = json.loads(split_file.read_text(encoding="utf-8"))  # list[str] 或 dict, 分别对应 calibration 清单或含 pdb_ids 的测试清单.
     # list[str], 全测试集 PDB 身份; 分片只取位置, 不改变或重新抽样测试集.
-    pdb_ids = json.loads(split_file.read_text(encoding="utf-8"))["pdb_ids"]
+    pdb_ids = split if isinstance(split, list) else split["pdb_ids"]
     if len(set(pdb_ids)) != len(pdb_ids) or not 0 <= shard_index < shard_count:
         raise ValueError("PDB 清单重复或分片编号越界")
-    selected_ids = pdb_ids[shard_index::shard_count]  # list[str], 当前 GPU 的 PDB 顺序, 三个分片互不重叠.
+    selected_ids = pdb_ids[shard_index::shard_count]  # list[str], 当前 GPU 的 PDB 顺序, 所有分片互不重叠.
     # dict[str, list[dict]], 每个 PDB 的图对应记录与序列 entity; 保留列表以识别图对应歧义.
     pairs = {pdb_id: [] for pdb_id in selected_ids}
     entities = {pdb_id: [] for pdb_id in selected_ids}
@@ -280,7 +281,7 @@ def summarize(split_file: Path, output_root: Path) -> dict:
     """汇总全测试集并重读成功 CIF, 写出日志根下的 summary.json.
 
     输入参数:
-        - split_file: Path, 与正式运行相同的测试清单 JSON, pdb_ids 定义统计分母.
+        - split_file: Path, 与正式运行相同的 JSON 列表或含 pdb_ids 的 JSON object; 全部 PDB 定义统计分母, 如 ["6bgi", "6dqn"].
         - output_root: Path, 与正式运行相同的实验根, 不扫描目录推断测试集.
     返回与落盘字段:
         - total: int, 测试 PDB 总数.
@@ -298,7 +299,8 @@ def summarize(split_file: Path, output_root: Path) -> dict:
     副作用:
         - 只写 运行日志与统计/summary.json; 不修改逐 PDB 状态或结构. 原先成功但结构复核失败时仅在本汇总记 failed.
     """
-    pdb_ids = json.loads(split_file.read_text(encoding="utf-8"))["pdb_ids"]
+    split = json.loads(split_file.read_text(encoding="utf-8"))  # list[str] 或 dict, 与 run_shard 接受同一份源清单.
+    pdb_ids = split if isinstance(split, list) else split["pdb_ids"]
     log_root = output_root / "运行日志与统计"
     # dict, 全清单统计; pending 的 PDB 也保留, 不把成功子集误作测试集分母.
     summary = {"total": len(pdb_ids), "counts": {"pending": 0, "running": 0, "success": 0, "failed": 0}, "pdbs": []}
