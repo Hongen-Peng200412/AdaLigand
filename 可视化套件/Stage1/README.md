@@ -24,12 +24,13 @@
 
 ## 会话对象
 
-`.pse` 内的顶层组为 `stage1`，其下包含：
+`.pse` 使用互不嵌套的单层分组，避免服务器与 Windows 的不同 PyMOL 版本在读取嵌套组时丢失父子关系：
 
 - `density`：`density_exp_map` 保存完整实验密度，`density_exp_mesh` 是用 `contour_canonical` 创建的全图等值面。
-- `receptor`：从 `receptor_tokens.npz` 生成的独立受体分子对象。该源文件不保存作者链号和残基号，因此会话使用 `C{chain_index}` 与 `res_index + 1` 作为稳定的合成标识。
 - `ground_truth`：每个沉积配体实例是一个 `gt_occ_*` 分子对象，坐标来自 `ligand_coords.npz`，元素和化学键来自对应 `ligand_objects/*.npz`。
-- `predictions`：每个评估候选是一个 `pred_r*_b*_s*_{selected|unselected}` 对象。对象内每个体素中心是一个无键伪原子，以球面显示。`predictions_selected` 默认可见，`predictions_unselected` 已写入会话但默认隐藏。
+- `predictions`：直接包含全部 `pred_r*_b*_s*_{selected|unselected}` 预测实例。对象内每个体素中心是一个无键伪原子，以球面显示；名称以 `_selected` 结尾的实例默认可见，以 `_unselected` 结尾的实例默认隐藏，但二者均可在对象树中逐个显示或隐藏。
+
+`receptor` 是从 `receptor_tokens.npz` 生成的独立受体分子对象，不属于任何组。该源文件不保存作者链号和残基号，因此会话使用 `C{chain_index}` 与 `res_index + 1` 作为稳定的合成标识。
 
 预测对象名中的 `r`、`b`、`s` 分别是按冻结分数稳定降序的一基 rank、`source_blob_index` 和 `candidate_score`。完整精度的分数、rank 和 `candidate_selected` 同时写在该分子对象的 state title 中。
 

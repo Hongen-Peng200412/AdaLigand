@@ -73,22 +73,39 @@ class BuildSessionTest(unittest.TestCase):
             bond_type=np.asarray([0], dtype=np.uint8),
         )
 
-        occurrence = {
-            "candidate_id": 0,
-            "object_key": "CCD:LIG",
-            "type_tag": "small_molecule",
-            "components": [
-                {
-                    "index": 1,
-                    "ccd_id": "LIG",
-                    "auth_asym_id": "A",
-                    "auth_seq_id": "501",
-                    "icode": "",
-                }
-            ],
-        }
+        occurrences = [
+            {
+                "candidate_id": 0,
+                "object_key": "CCD:LIG",
+                "type_tag": "small_molecule",
+                "components": [
+                    {
+                        "index": 1,
+                        "ccd_id": "LIG",
+                        "auth_asym_id": "A",
+                        "auth_seq_id": "501",
+                        "icode": "",
+                    }
+                ],
+            },
+            {
+                "candidate_id": 1,
+                "object_key": "CCD:LIG",
+                "type_tag": "small_molecule",
+                "components": [
+                    {
+                        "index": 1,
+                        "ccd_id": "LIG",
+                        "auth_asym_id": "B",
+                        "auth_seq_id": "502",
+                        "icode": "",
+                    }
+                ],
+            },
+        ]
         (parse_dir / "occurrences.jsonl").write_text(
-            json.dumps(occurrence) + "\n", encoding="utf-8"
+            "".join(json.dumps(occurrence) + "\n" for occurrence in occurrences),
+            encoding="utf-8",
         )
         np.savez(
             parse_dir / "ligand_coords.npz",
@@ -96,6 +113,10 @@ class BuildSessionTest(unittest.TestCase):
                 [[15.0, 26.0, 38.0], [16.0, 26.0, 38.0]], dtype=np.float32
             ),
             present_0=np.asarray([True, True]),
+            coords_1=np.asarray(
+                [[17.0, 26.0, 38.0], [18.0, 26.0, 38.0]], dtype=np.float32
+            ),
+            present_1=np.asarray([True, True]),
         )
         atom_dtype = np.dtype(
             [
@@ -176,11 +197,23 @@ class BuildSessionTest(unittest.TestCase):
         self.assertIn("density_exp_mesh", object_names)
         self.assertIn("receptor", object_names)
         self.assertIn("gt_occ_0000_CCD_LIG", object_names)
+        self.assertIn("gt_occ_0001_CCD_LIG", object_names)
         self.assertIn("pred_r0001_b000009_s0p800000_selected", object_names)
         self.assertIn("pred_r0002_b000004_s0p200000_unselected", object_names)
-        all_names = set(cmd.get_names("all"))
-        self.assertTrue(
-            {"stage1", "density", "ground_truth", "predictions"}.issubset(all_names)
+        self.assertEqual(
+            set(cmd.get_names_of_type("object:group")),
+            {"density", "ground_truth", "predictions"},
+        )
+        self.assertEqual(
+            set(cmd.get_object_list("(ground_truth)")),
+            {"gt_occ_0000_CCD_LIG", "gt_occ_0001_CCD_LIG"},
+        )
+        self.assertEqual(
+            set(cmd.get_object_list("(predictions)")),
+            {
+                "pred_r0001_b000009_s0p800000_selected",
+                "pred_r0002_b000004_s0p200000_unselected",
+            },
         )
 
         density_extent = np.asarray(cmd.get_extent("density_exp_map"))
@@ -192,6 +225,18 @@ class BuildSessionTest(unittest.TestCase):
         enabled_names = set(cmd.get_names("objects", enabled_only=1))
         self.assertIn("pred_r0001_b000009_s0p800000_selected", enabled_names)
         self.assertNotIn("pred_r0002_b000004_s0p200000_unselected", enabled_names)
+        cmd.disable("gt_occ_0000_CCD_LIG")
+        self.assertNotIn(
+            "gt_occ_0000_CCD_LIG", set(cmd.get_names("objects", enabled_only=1))
+        )
+        self.assertIn(
+            "gt_occ_0001_CCD_LIG", set(cmd.get_names("objects", enabled_only=1))
+        )
+        cmd.disable("pred_r0001_b000009_s0p800000_selected")
+        cmd.enable("pred_r0002_b000004_s0p200000_unselected")
+        enabled_names = set(cmd.get_names("objects", enabled_only=1))
+        self.assertNotIn("pred_r0001_b000009_s0p800000_selected", enabled_names)
+        self.assertIn("pred_r0002_b000004_s0p200000_unselected", enabled_names)
         receptor_coordinates = np.asarray(cmd.get_coords("receptor", state=1))
         np.testing.assert_allclose(
             receptor_coordinates,
@@ -201,6 +246,13 @@ class BuildSessionTest(unittest.TestCase):
         np.testing.assert_allclose(
             gt_coordinates,
             np.asarray([[15.0, 26.0, 38.0], [16.0, 26.0, 38.0]]),
+        )
+        second_gt_coordinates = np.asarray(
+            cmd.get_coords("gt_occ_0001_CCD_LIG", state=1)
+        )
+        np.testing.assert_allclose(
+            second_gt_coordinates,
+            np.asarray([[17.0, 26.0, 38.0], [18.0, 26.0, 38.0]]),
         )
         selected_coordinates = np.asarray(
             cmd.get_coords("pred_r0001_b000009_s0p800000_selected", state=1)

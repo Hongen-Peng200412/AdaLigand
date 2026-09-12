@@ -569,9 +569,7 @@ def _load_predictions(
 
     PyMOL 副作用:
         - pred_r*_b*_s*_{selected|unselected}: PyMOL molecular object; 每个评估候选一个对象, 每个 blob 体素中心是一个无键伪原子.
-        - predictions_selected: PyMOL group; 包含 ``candidate_selected=True`` 的候选并默认可见.
-        - predictions_unselected: PyMOL group; 包含 ``candidate_selected=False`` 的候选并默认隐藏.
-        - predictions: PyMOL group; 包含上述两个状态组.
+        - predictions: PyMOL group; 直接包含全部候选对象, 入选候选默认可见, 未入选候选默认隐藏.
 
     返回值:
         - selected_names: list[str], 按 evaluation 冻结分数稳定降序排列的默认入选对象名.
@@ -684,9 +682,7 @@ def _load_predictions(
             unselected_names.append(object_name)
             cmd.disable(object_name)
 
-    cmd.group("predictions_selected", " ".join(selected_names))
-    cmd.group("predictions_unselected", " ".join(unselected_names))
-    cmd.group("predictions", "predictions_selected predictions_unselected")
+    cmd.group("predictions", " ".join(selected_names + unselected_names))
     return selected_names, unselected_names
 
 
@@ -697,7 +693,7 @@ def build_session(args: argparse.Namespace) -> None:
         - args: argparse.Namespace; 字段由 ``parse_args`` 定义, 其中 ``output`` 决定唯一写入路径.
 
     文件产物:
-        - args.output: PyMOL ``.pse``; 包含 ``stage1`` 顶层组、完整实验密度 map 与 mesh、受体、逐 occurrence GT 配体与逐 evaluation 候选 blob.
+        - args.output: PyMOL ``.pse``; 包含互不嵌套的 ``density``、``ground_truth`` 和 ``predictions`` 组、独立受体、逐 occurrence GT 配体与逐 evaluation 候选 blob.
 
     写入边界:
         - 输出先写到 ``args.output`` 同目录临时 `.pse`, 只有 ``cmd.save`` 成功后才用 ``os.replace`` 原子替换目标.
@@ -716,7 +712,7 @@ def build_session(args: argparse.Namespace) -> None:
     origin_center_xyz, voxel_size_xyz, _contour = _load_density(data_root, pdb_id)
     _load_receptor(data_root, pdb_id)
     _load_ground_truth(data_root, pdb_id)
-    _load_predictions(
+    selected_names, _unselected_names = _load_predictions(
         inference_root,
         args.producer,
         args.split,
@@ -726,8 +722,7 @@ def build_session(args: argparse.Namespace) -> None:
         origin_center_xyz,
         voxel_size_xyz,
     )
-    cmd.group("stage1", "density receptor ground_truth predictions")
-    cmd.orient("receptor or ground_truth or predictions_selected")
+    cmd.orient(" or ".join(["receptor", "ground_truth", *selected_names]))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = output_path.with_name(
