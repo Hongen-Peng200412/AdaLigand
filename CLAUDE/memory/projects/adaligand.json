@@ -6,6 +6,7 @@
     "A-G 完成并验收后，再进入 Stage1 重训"
   ],
   "progress": [
+    "2026-09-12：CryoAtom2 held_out_06_chain/test_0 全部179个PDB预测成功并完成最终验收，0失败、0运行中、0未开始；358份最终/raw CIF重新解析通过，完整序列、原始图来源、正式命令、冻结代码及60/60/59分片覆盖核对通过。产物根为/storage/penghongen/Adaligand_infered_receptor_data/cryoatom2/test_0_chain06/cryoatom2_artifact，summary.json与最终来源与覆盖验收.json位于同根的运行日志与统计。按用户最后授权，Job374480于01:18:11解除after_lock，01:18:20 COMPLETED 0:0；377521和377793交其他AI agent接管，本任务未释放且停止追踪。CryoAtom2双线端点仍等价，生产代码无后续修改；本轮不开展Find_1下游评估。完整交接见CLAUDE/memory/handoffs/2026-09-12-cryoatom2测试集179项验收完成.md。",
     "2026-09-11：CryoAtom2独立门控374469通过并以0:0完成。正式三个数组元素已全部核实并放行：374480_0→377521/gnode08，374480_1→377793/gnode05，374480_2→374480/gnode07，分别于master时间01:19、01:20、02:59放行pre_lock。三项使用release AdaLigand_9a152cd14d18并行处理60/60/59个PDB，各单卡A100/8 CPU/96G/无时间限制，after_hold保留。03:00统计快照复核6项两种CIF通过，随后第三项开始处理9lfa；全集179项尚未完成。接续见CLAUDE/memory/handoffs/2026-09-11-cryoatom2门控通过与正式任务放行.md。",
     "2026-09-08：用户追加授权后，CryoAtom2正式数组374480已提交，三个独立单卡A100任务各8 CPU/96G/无时间限制，pre_hold与after_hold均启用；独立门控374469保留。目标active，稳定排队按12次300秒组成一轮60分钟睡眠观察，不设置heartbeat。详见CLAUDE/memory/handoffs/2026-09-08-cryoatom2三单卡正式任务已提交.md。",
     "2026-09-08：CryoAtom2 test_0_chain06 的179项重建代码已上传，两遍自查、两轮三方向审查和双线Git验收通过；累计端点34a6481。独立门控374469仍PENDING(Priority)，预计9月13日开始，goal等待外部资源而blocked；正式三卡预测尚未提交。接续见CLAUDE/memory/handoffs/2026-09-08-cryoatom2实现完成与A100排队阻塞.md。",
