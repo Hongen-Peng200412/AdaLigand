@@ -1,6 +1,12 @@
 # CryoAtom2 calibration 100 项受体重建执行记录
 
-本记录实现用户 2026-09-12 授权的 calibration 原始结构预测。当前两个分片已经重新提交为 379402_0、379403_1，均在 nvlink 分区排队；正式入口不传 --mem，使用分区默认内存。验收目标是原清单 100 项完整覆盖，全部预测退出码为零，200 份最终/raw CIF 可解析、有原子且坐标有限，来源、实际命令、冻结代码与统计一致；结束后保留两张卡的 after_hold 资源。
+2026-09-14 10:54，calibration 原清单全部 100 个 PDB 已完成预测与最终验收：100 成功、0 失败，200 份最终/raw CIF 均可解析、非空、坐标有限，来源、完整序列、命令、冻结代码与统计一致。按用户 2026-09-13 最新授权，两个 50 项科学分片均由 379402 在同一单 A800/16 CPU 资源上分两次执行；379402 已回到 after_hold，379403 仍保留排队申请和专属跳过预测判断。没有释放或重新提交这两项申请。本任务完成结构生产与验收，不包含 Find_1 下游性能评估。
+
+## 当前有效 goal（2026-09-13 修订）
+
+完成原 calibration.json 的全部 100 个 PDB 预测与最终验收。保留 379402 已验收的分片 0 产物，使用同一 Job 的现有单 A800、16 CPU 资源，在新的执行身份下显式运行 `[1::2]` 的剩余 50 项。保留服务器脚本内 Job 379403 的 exit 0 判断，使其排到资源后只进入 after_hold/try_lock 等待，不重复预测。两项资源均不释放、不重新提交。科学输入、官方参数、产物与日志位置、最终 100 项/200 CIF 验收要求保持不变；按每轮 60 或 90 分钟、每次 300 秒静默等待，完成全量验收、日志、交接与 Git 核验后才标记完成。
+
+goal 工具不能修改既有目标正文；本节与用户最新授权构成执行方式修订，旧“两项各预测 50 项”的描述不再作为调度要求。最终验收与本节修订目标一致，完成状态见文末。
 
 本任务复用[测试集重建规格](../规划文档/CryoAtom2测试集受体重建.md)的科学与逐 PDB 产物契约；本次用户授权将输入改为 calibration、资源改为两个单卡 A800 任务。不重跑 test_0 的 179 项，不生成 Find_1 特征或性能指标。当前入口与字段见[代码 README](../../测评数据代码/cryoatom2原始预测结构/README.md)。
 
@@ -15,6 +21,8 @@
 
 ## 正式运行命令
 
+### 初次提交（已执行，不再重复）
+
 在服务器项目根 `/home/penghongen/My_Project/AdaLigand` 分别执行以下命令一次。旧申请 379399_0、379401_1 已按用户最新要求取消。以下两个正式命令已于 2026-09-12 12:00:27 成功执行，分别产生 379402_0、379403_1；每个 50 项，不得重复提交。
 
 ```bash
@@ -23,6 +31,18 @@ bash 测评数据代码/cryoatom2原始预测结构/submit_calibration.sh 1 a100
 ```
 
 该入口请求两个独立数组任务，各 1 张 A800、16 核 CPU，内存使用分区默认值、不传 --mem，`nvlink` 分区，两个必填参数分别指定分片编号与 QOS，分片 0 用 h200g4、分片 1 用 a100g2，仅 `--after_hold`，不设时间限制。`nvlinkg8`、`h200g4` 实为 QOS 名称；本次按 A800 硬件要求选择 `nvlink`。两个任务按原清单 `[0::2]`、`[1::2]` 各处理 50 项，彼此没有依赖。用户未授权释放本轮资源。
+
+### 复用 379402 执行原分片 1（本轮正式入口）
+
+2026-09-13 用户明确授权把原分片 1 的剩余 50 项交给已经完成分片 0 的 379402 执行，并保留 379402、379403 两项资源。379403 的服务器任务脚本已由侧对话加入专属 exit 0 判断；本任务不覆盖该判断，不再等待它承担预测。
+
+工作目录为 `/storage/penghongen/Adaligand_infered_receptor_data/cryoatom2/calibration/运行日志与统计/slurm/allocations`。在 379402 空闲且其动态命令已改为显式 `--shard-index 1 --shard-count 2` 后，以下正式启动命令已经执行一次，17:15 只读确认 try_lock 消失、after_lock 保留，控制器进入创建 release 的阶段；不得重复执行：
+
+```bash
+rm -- try_lock_379402
+```
+
+该命令仅触发已有控制器的下一次执行；不删除 `379402/after_lock_379402`，不重新申请 GPU。完整动态命令保存在日志根 `分片1复用动态命令.sh`，控制器还会在新的 launch 中保存相同内容。语法检查、状态检查和命令准备均不属于以上正式运行命令。
 
 ## 检查命令与已完成核验
 
@@ -48,9 +68,9 @@ sacctmgr show assoc where user=penghongen format=User,Account,Partition,QOS -P
 
 ## 计划与实现差异
 
-- 中性差异：沿用既有科学契约，按本次用户授权切换 calibration 清单、两分片和 A800/16 CPU/仅 after_hold；资源名称经实际 Slurm 配置落实为 partition=nvlink；分片 0 使用 h200g4，分片 1 按用户对其他 QOS 的明确授权使用 a100g2。
-- 有益或有害差异：目前未发现。
-- 未完成范围：100 项预测、最终结构和来源验收、完成交接。
+- 中性差异：沿用既有科学契约，输入改为 calibration 的 100 项列表，申请单 A800/16 CPU/after_hold，partition=nvlink，QOS 为 h200g4、a100g2。用户随后明确授权让 379402 通过两次执行分别完成两个 50 项科学分片，379403 排到资源后只跳过预测并等待；该变更已落盘并通过身份核对，不改变样本集合或科学参数。
+- 有益或有害差异：未发现偏离最新用户授权的科学或产物行为。
+- 未完成范围：本轮结构生产、100 项覆盖与来源/CIF 验收已完成。379403 尚未获得资源，保留其排队申请与专属退出判断；它不再承担预测，其排队不阻塞本轮结构验收。
 
 2026-09-12 主代理已完成两遍自查：第一遍按 predict.py、submit_calibration.sh、sh/predict_calibration.sh、tests/test_predict.py 的文件顺序检查修改函数职责、位置、调用、嵌套和 Docstring；只保留既有 run_shard/summarize 两个入口，没有新增包装函数。第二遍按中文注释 skill 和示例检查清单容器、原序切片、线程资源、输入输出与科学边界，将 list[str] 注释移到实际 pdb_ids 赋值前，修正旧注释中固定“三个分片”的表述。独立审查尚待完成。
 ## 提交前验证结论
@@ -107,3 +127,66 @@ submit_calibration.sh 只删除 --mem 96G，其余单卡 A800、16 CPU、无时�
 `正式提交资源核验.txt` 保存两个 Job 的完整 scontrol 结果。最终无卡检查保存为 `默认内存提交参数检查.txt`，检查两个分片的单卡/16 CPU/after_hold，以及没有 mem/time/dependency 参数。最后 submit_calibration.sh SHA256=`3dd07f08ab9265a510873e0e1e56f95c1b5784809727a97e2ba5d6bb29f48d3a`，另两份生产文件不变；日志根提交前代码摘要.json 是当前完整摘要。移除内存参数后主代理已核对一行差异、参数检查和实际 Slurm 结果，不重复已有 Python 回归或扩大独立审查范围。
 
 新有效交接为 `CLAUDE/memory/handoffs/2026-09-12-cryoatom2校准集双A800重新提交.md`，取代首分片交接中的待提交/旧 Job 状态。12:00 后开始按每轮 60 分钟、12 次 Start-Sleep -Seconds 300 的命令静默等待。goal 保持 active，尚无结构完成，不释放 after_hold。Git 仍为 Learn/CUMULATIVE 的原起点且按提交者时间唯一最新，本轮改动留工作区。
+
+
+## 分片 0 已实际启动
+
+2026-09-12 21:34 核对 379402_0 已在 gnode09 运行约48分钟，379403_1 仍 PENDING(Resources)。分片0的执行名为 predict_calibration_job379402_20260912T204608_a1，release 为 `slurm/releases/AdaLigand_d044b39abc20/AdaLigand`，完整内容摘要 d044b39abc20c794dc87a188e12771ac321303811d943c6609e9d880571166b0。launch 位于 `slurm/launches/379402/predict_calibration_job379402_20260912T204608_a1/launch.json`，确认 a800/1 GPU/16 CPU/array_spec=0。服务器 release manifest 的 Git 字段为空，不能声称它保存了 Git 提交；三个生产文件 SHA256 均与提交前代码摘要一致。
+
+运行身份 runs JSON 完整保存100项清单，shard_index=0、shard_count=2、CryoAtom2=2.1.1。节点实际进程读取冻结 release 的 predict.py，子进程使用原始图解压临时文件及日志目录的完整 FASTA。此时6bgi已成功（最终9602原子、1174残基；raw13029原子、1591残基），6rec正常计算，合计1成功/1运行/98未开始。输入源分别为emd_7095.map.gz、emd_4849.map.gz，序列entity分别1、18；进程与白名单线程环境另记服务器日志根分片0启动核验.json。此处是启动来源留证，不因首样本完成另写handoff。常规低频检查保存在日志根轮询记录.jsonl。
+
+## 分片 0 完成与局部验收
+
+2026-09-13 14:18 检查发现 379402_0 的 50 项全部 success，批处理输出“第 1 次执行成功”，提交系统已创建 `slurm/allocations/try_lock_379402`。`slurm/allocations/379402/after_lock_379402` 仍存在，Slurm RUNNING 此时表示保留资源，不再表示仍有预测计算。379403_1 仍 PENDING(Resources)，其 50 项尚未开始。没有释放、重启或借用已完成任务的资源。
+
+14:24 的独立检查逐一重新解析分片 0 的 100 份最终/raw CIF，全部非空、坐标有限，原子和残基计数与逐 PDB 状态一致。50 项 latest.json 与对应 status.json 完全一致，退出码均为零、error 均为 null。三份源文件 SHA256 与提交前核验一致；逐 PDB 原始压缩图路径、大小和修改时间一致；全部实体、FASTA 序列及含链副本的标题与源目录一致；实际命令只使用解压图、完整 FASTA 和既定官方参数，解压临时图均已清理，产物目录未残留 .log。
+
+本次是通过 SSH helper 执行环境 Python 的内联只读产物检查，仅新增 `运行日志与统计/分片0完成验收.json` 作为证据；不是正式预测命令。检查脚本初次把 FASTA 的解析 id 当成 sequence_id，遇到实际标题 `6BGI_1|Chains A, B` 停止；改为逐字核对完整 description 与链副本后通过，没有修改任何输入、生产代码或结构。
+
+本次只验收 50 项，尚未生成表示全量完成的结论。新交接为 `CLAUDE/memory/handoffs/2026-09-13-cryoatom2校准集分片0验收完成.md`。等待分片 1 时继续每轮 60 或 90 分钟、每次 300 秒静默睡眠。当前本地 Learn/CUMULATIVE 已由其他工作推进至 `4f55abe988775a427839d52b33b94946628092e5`；本任务不改写历史，文档更新留在工作区，最终收口时再核验 Git。
+
+## 用户授权复用 379402 执行剩余 50 项
+
+2026-09-13 用户告知侧对话已在服务器 `sh/predict_calibration.sh` 的 set -euo pipefail 后加入 Job 379403 专属 exit 0 判断，要求本任务保留该判断，并让已完成分片 0 的 379402 执行原分片 1。主代理只读核对 379403 仍排队，50 项 `[1::2]` 全部尚无 latest.json，379402 的控制器在 gnode09 存活、无预测子进程、try_lock 与 after_lock 均存在。
+
+本次不改生产 Python 或服务器任务脚本；只在 379402 的动态命令中直接调用新 release 的 predict.py，显式写入 shard_index=1、shard_count=2，线程上限保持 16，Slurm 实际数组身份仍为 0。一次任务草稿在本地 `tmp/cryoatom2-calibration-shard1-reuse/run_cmd_379402.sh`，运行证据在服务器日志根 `分片1复用动态命令.sh`。完整命令 SHA256 为 `deaf0eeb9d0b5afc9a5ed0930a2b1b47885d702ac271d3c79a16ca3477bfb1f6`。旧控制命令另存 `379402首次执行动态命令.sh`。
+
+主代理先按职责与调用、再按注释与数据语义完成两遍自查；没有新增或修改 Python 函数。独立审查代理随后完成两轮全面核查并批准，未发现待修问题。Bash 语法检查通过，远端代码与输入检查记录在 `分片1复用前核验.json`。服务器 predict.py 摘要仍为 `4a5a1eed1c97bc3b51bf05d4a1ab6c128241a1437d0397ef0de78281213b2e30`；包含 379403 跳过判断的服务器任务脚本摘要为 `6714c320e17d0ed6d4d7598cde5b4c808079aada973a4c6ad9a4ab16a7472718`，本地对应文件仍未同步，禁止用本地旧文件覆盖它。
+
+正式命令区的 rm 已执行成功。17:15 检查确认 try_lock 已移除、after_lock 未动；节点进程显示现有控制器正在执行 create_release.sh 和 sha256sum，为第二次执行冻结当前服务器项目。release 完成后会由控制器自动生成新的 launch 与 TASK_RUN_STAMP；不能把原分片 0 的第一次执行身份套到剩余 50 项。379403 排到资源后需要核实专属跳过分支成功进入等待，不能以其 Slurm RUNNING 状态推断它正在预测。
+
+17:20 已核实第二次执行实际启动：run_stamp=`predict_calibration_job379402_20260913T171444_a2`，release=`slurm/releases/AdaLigand_f5c87447d578/AdaLigand`，完整内容摘要 `f5c87447d57824641e51b4a96bd2c2787d9203d75de475ff61301bd43a238eab`。launch 中 Slurm array_spec=0，与真实分配身份一致；runs 中科学分片 shard_index=1、shard_count=2，与显式命令一致。软件版本、配置、权重及三项输入路径与分片 0 的 runs 记录一致，冻结 predict.py 与上述原摘要一致，动态命令与审查稿摘要一致，冻结任务脚本保留 379403 专属判断。
+
+节点检查确认父进程 35978 显式运行 shard-index 1，子进程 37090 正在重建首项 6dqn，读取原始 emd_7981 解压图与完整蛋白 FASTA。线程变量均为 16，GPU UUID 为 `GPU-adbf8fc8-5a4a-87e3-853b-c9cadcbdf74b`，此时使用显存 13362 MiB。证据为日志根 `分片1复用启动核验.json` 和 `分片1复用进程核验.json`。计算节点时钟比 master 约慢 3 分钟，执行名采用节点时间；本段观测时间采用 master，不用时间差判断重启。
+
+## 最终检查命令（不属于正式预测命令）
+
+2026-09-14 全部 100 项运行结束后，执行以下汇总检查。它使用冻结的生产程序重新解析全部成功结构，只写 summary.json，不重新预测。该命令已返回 pending=0、running=0、success=100、failed=0。
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 /home/penghongen/anaconda3/envs/CryoAtom2/bin/python '/storage/penghongen/Adaligand_infered_receptor_data/cryoatom2/calibration/运行日志与统计/slurm/releases/AdaLigand_f5c87447d578/AdaLigand/测评数据代码/cryoatom2原始预测结构/predict.py' summarize --split-file '/storage/penghongen/AdaLigand/Ori_Data/stage1_preparation_box_pool_3/split/pdb_split/calibration.json' --output-root '/storage/penghongen/Adaligand_infered_receptor_data/cryoatom2/calibration'
+```
+
+独立逐 PDB 来源与结构审计使用一次性脚本，源代码不进入生产入口，检查命令为：
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 /home/penghongen/anaconda3/envs/CryoAtom2/bin/python -u /storage/penghongen/tmp/cryoatom2-calibration-final-audit/verify.py
+```
+
+脚本 SHA256 为 `47d7ed0a2f62a4a6b45ea1a4ceeeec069365e486c0ad035b085338fe25727051`，逐项核对原清单覆盖、两次执行身份、来源文件摘要、完整序列和链副本、原始图来源、实际命令、临时图清理、两份 CIF 的原子/残基与坐标、summary 一致性及资源保留状态，输出日志根 `最终来源与覆盖验收.json`。本地临时稿位于 `tmp/cryoatom2-calibration-final-audit/verify.py`。
+
+另有无卡分支检查确认服务器脚本在 SLURM_JOB_ID=379403 时直接打印跳过说明、返回 0，证据为 `379403跳过分支检查.json`。它是检查进程，不是实际 Slurm 379403 的执行；截至此时该 Job 仍 PENDING(Resources)，没有声称它已实际获得 GPU 或进入 after_hold。`最终资源保留状态.json` 保存实时 scontrol 留证。379402 的第二次执行已成功并重新创建 try_lock，两项申请均未释放或重新提交。
+
+## 全部 100 项最终验收结果
+
+2026-09-14 10:44 只读发现最后一项 9yq0 已成功，379402 的 out 明确记录“第 2 次执行成功”，try_lock 已重新创建、after_lock 保留。10:54 完成生产汇总与独立全量审计，最终为 success=100、failed=0、running=0、pending=0；输出目录和日志目录的 PDB 集合均与原清单精确相等，没有遗漏或额外 PDB。每个 PDB 只有本次对应的一个执行目录，两个科学分片各 50 项、不重叠，全部 latest/status 退出码为零且无错误。
+
+全部 200 份最终/raw CIF 独立重新解析通过，非空且坐标有限，原子/残基数与生产统计一致；审计保存每份 CIF 的路径、大小和 SHA256。三份源文件摘要与提交前一致，100 项原始图的路径、大小和修改时间一致；完整序列目录中的蛋白质 715 条、RNA 38 条、DNA 10 条全部逐字保留，包含 comparable=false 的 6/2/4 条短序列。实际 FASTA 标题和链副本、忽略字符记录与输入实体一致，所有命令只使用规定的解压图和完整序列，临时解压目录均已删除，实际产物目录未残留 .log。
+
+两个 runs 的科学分片为 0、1，job_id 均为 379402，分别对应第一次和第二次执行的唯一 run_stamp。冻结代码、launch 动态命令、官方配置、三轮预测和 filter_threshold=50、全部权重位置与大小核对通过，软件/科学参数与第一次执行一致。没有通过真实受体坐标衡量结构精度；本次验收证明结构文件和来源契约正确，不代表 Find_1 性能结果。
+
+权威结果位于 `/storage/penghongen/Adaligand_infered_receptor_data/cryoatom2/calibration/运行日志与统计/summary.json` 和同目录 `最终来源与覆盖验收.json`。实际逐 PDB 结构位于同级 `cryoatom2_artifact/<pdb_id>/<run_stamp>/`，名称分别为 `<run_stamp>.cif` 与 `<run_stamp>_raw.cif`。
+
+资源保留状态：379402_0 仍在 gnode09、单 A800/16 CPU、TimeLimit=UNLIMITED，当前是预测结束后的 after_hold；379403_1 仍 PENDING(Resources)，尚未实际执行任务脚本。服务器专属 379403 exit 0 判断与已核验摘要一致，无卡分支检查返回 0；本地任务脚本尚未同步该判断，禁止覆盖服务器版本。没有删除任何 after_lock，也没有取消或新增任务。后续使用或释放资源由用户另行授权。
+
+最终 Git 核验：Learn/CUMULATIVE 为 `4f55abe988775a427839d52b33b94946628092e5`，仍是全部引用及登记工作树可达提交按提交者时间的唯一最新值。本任务没有改写 Git 历史；当前运行记录、映射和记忆更新留在累计分支工作区。生产 Python 与提交入口摘要未变化，已有 8 项回归、实现的两轮独立审查及资源复用的两轮独立审查均通过，后续没有需要重新测试的生产代码变更。最终交接见 `CLAUDE/memory/handoffs/2026-09-14-cryoatom2校准集100项验收完成.md`。
