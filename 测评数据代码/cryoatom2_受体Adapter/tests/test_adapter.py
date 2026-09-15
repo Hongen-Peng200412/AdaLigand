@@ -179,3 +179,5 @@ def test_formal_adapter_source_does_not_implement_hashing() -> None:
     assert "--overwrite" not in source
     assert "--overwrite" not in shell
     assert shell.count("--workers 32") == 2
+    assert shell.count('"${PYTHON}" "${ADAPTER_ROOT}/run.py"') == 2
+    assert "AdaLigand_stage1_py310/bin/python" in shell
