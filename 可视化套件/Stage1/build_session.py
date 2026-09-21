@@ -287,9 +287,9 @@ def load_density(data_root: Path, pdb_id: str) -> tuple[np.ndarray, np.ndarray, 
     density_dir = data_root / "density" / pdb_id
     array_path = density_dir / "exp.npy"
     metadata_path = density_dir / "exp.npz"
-    # float32, (1, Z, Y, X), 强度归一化后的完整实验密度; 只用 mmap 读取, 不改写源数组.
-    density_czyx = np.load(array_path, mmap_mode="r", allow_pickle=False)
-    if density_czyx.ndim != 4 or density_czyx.shape[0] != 1:
+    # float32, (1, Z, Y, X), 强度归一化后的完整实验密度内存映射; 只读, 不改写源数组.
+    density_source_czyx = np.load(array_path, mmap_mode="r", allow_pickle=False)
+    if density_source_czyx.ndim != 4 or density_source_czyx.shape[0] != 1:
         raise ValueError(f"{array_path} must have shape (1,Z,Y,X)")
 
     with np.load(metadata_path, allow_pickle=False) as metadata:
@@ -312,12 +312,12 @@ def load_density(data_root: Path, pdb_id: str) -> tuple[np.ndarray, np.ndarray, 
     # float64, (3,), 首个体素中心的世界 XYZ 坐标; Stage1 origin 是体素边界下角, PyMOL Brick origin 是首个采样点中心.
     origin_center_xyz = origin_boundary_xyz + 0.5 * voxel_size_xyz
     # 标量, 完整 float32 密度需要的字节数; 只用它判定是否需要分块.
-    density_nbytes = int(density_czyx[0].size * np.dtype(np.float32).itemsize)
+    density_nbytes = int(density_source_czyx[0].size * np.dtype(np.float32).itemsize)
     # 标量, 一层 Z 采样点的 float32 字节数, 即 Y * X * 4.
-    plane_nbytes = int(density_czyx.shape[2] * density_czyx.shape[3] * 4)
+    plane_nbytes = int(density_source_czyx.shape[2] * density_source_czyx.shape[3] * 4)
     if density_nbytes <= _PYMOL_DENSITY_TILE_MAX_BYTES:
         # 标量, 单 map 最多容纳的 Z 采样层数; 未超限样本仍保留原有对象名.
-        maximum_tile_depth = density_czyx.shape[1]
+        maximum_tile_depth = density_source_czyx.shape[1]
         tiled_density = False
     else:
         # 标量, 单个 Brick 在工程边界内最多容纳的完整 Z 采样层数.
@@ -328,17 +328,22 @@ def load_density(data_root: Path, pdb_id: str) -> tuple[np.ndarray, np.ndarray, 
                 f"{plane_nbytes} bytes per plane"
             )
         tiled_density = True
+    # float32, (Z, Y, X), 按源文件连续顺序一次性读入内存; 避免在 Lustre 内存映射上按 XYZ 转置的跨页次序读取.
+    density_zyx = np.array(
+        density_source_czyx[0], dtype=np.float32, order="C", copy=True
+    )
+    del density_source_czyx
     # list[str], density 组中的 map 和 mesh 对象名, 顺序与 Z 轴分块一致.
     density_members: list[str] = []
     # 标量, 当前块实际读取的 Z 起点; 后续块从上一块的末采样层重新开始.
     start_z = 0
     tile_index = 0
-    while start_z < density_czyx.shape[1]:
+    while start_z < density_zyx.shape[0]:
         # 标量, 当前块的 Z 终点, 遵循 Python 左闭右开切片语义.
-        stop_z = min(start_z + maximum_tile_depth, density_czyx.shape[1])
+        stop_z = min(start_z + maximum_tile_depth, density_zyx.shape[0])
         # float32, (X, Y, Z_tile), Z_tile = stop_z - start_z; Brick 需要 XYZ 轴顺序和 C 连续内存.
         density_tile_xyz = np.ascontiguousarray(
-            np.transpose(density_czyx[0, start_z:stop_z], (2, 1, 0)),
+            np.transpose(density_zyx[start_z:stop_z], (2, 1, 0)),
             dtype=np.float32,
         )
         if density_tile_xyz.nbytes > _PYMOL_DENSITY_TILE_MAX_BYTES:
@@ -374,7 +379,7 @@ def load_density(data_root: Path, pdb_id: str) -> tuple[np.ndarray, np.ndarray, 
         cmd.isomesh(mesh_name, map_name, contour_canonical)
         cmd.color("gray70", mesh_name)
         density_members.extend((map_name, mesh_name))
-        if stop_z == density_czyx.shape[1]:
+        if stop_z == density_zyx.shape[0]:
             break
         start_z = stop_z - 1
         tile_index += 1
