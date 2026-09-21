@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 import tempfile
 import unittest
 from argparse import Namespace
@@ -14,10 +15,13 @@ from pymol import cmd
 
 
 _MODULE_PATH = Path(__file__).resolve().parents[1] / "build_session.py"
+sys.path.insert(0, str(_MODULE_PATH.parent))
 _SPEC = importlib.util.spec_from_file_location("stage1_build_session", _MODULE_PATH)
 assert _SPEC is not None and _SPEC.loader is not None
 _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
+
+import build_comparison_sessions as _COMPARISON  # noqa: E402
 
 
 class BuildSessionTest(unittest.TestCase):
@@ -157,6 +161,7 @@ class BuildSessionTest(unittest.TestCase):
         np.savez(
             blobs_dir / "F1_blobs.npz",
             blob_index=np.asarray([4, 9], dtype=np.int32),
+            source_probability_mean=np.asarray([0.2, 0.8], dtype=np.float32),
             voxel_offsets=np.asarray([0, 2, 3], dtype=np.int64),
             voxel_index_global_zyx=np.asarray(
                 [[0, 0, 0], [1, 2, 3], [0, 1, 2]], dtype=np.int32
@@ -278,6 +283,124 @@ class BuildSessionTest(unittest.TestCase):
         )
         self.assertIn("density_near_gt", cmd.get_names("objects"))
         self.assertIn("density_near_prediction", cmd.get_names("objects"))
+
+    def test_combined_session_has_flat_groups_scenes_and_default_view(self) -> None:
+        """七模式会话保留单层组、两种受体、scene 与默认无预测画面."""
+        cryo_root = self.root / "cryo"
+        (cryo_root / "parse" / self.pdb_id).mkdir(parents=True)
+        source_receptor = self.data_root / "parse" / self.pdb_id / "receptor_tokens.npz"
+        cryo_receptor = cryo_root / "parse" / self.pdb_id / "receptor_tokens.npz"
+        cryo_receptor.write_bytes(source_receptor.read_bytes())
+        np.savez(
+            self.inference_root
+            / "unet_c1"
+            / "held_out_test_0"
+            / self.pdb_id
+            / "evaluation"
+            / "f1_empty.npz",
+            source_blob_index=np.empty(0, dtype=np.int32),
+            candidate_score=np.empty(0, dtype=np.float32),
+            candidate_selected=np.empty(0, dtype=bool),
+        )
+
+        mode_definitions = []
+        for index in range(6):
+            mode_definitions.append(
+                {
+                    "id": f"mode_{index}",
+                    "group": f"pred_mode_{index}",
+                    "scene": f"scene_mode_{index}",
+                    "contract": "pocket_plus",
+                    "artifact_root": str(self.inference_root),
+                    "producer": "unet_c1",
+                    "split": "held_out_test_0",
+                    "alpha": 1,
+                    "evaluation_name": "f1_empty" if index == 0 else "f1_basic",
+                    "gaussian_rank": index in {3, 5},
+                    "receptor": (
+                        "real"
+                        if index in {2, 3}
+                        else "cryoatom2" if index in {4, 5} else "none"
+                    ),
+                }
+            )
+
+        emap_root = self.root / "emap"
+        (emap_root / "mapped" / self.pdb_id).mkdir(parents=True)
+        (emap_root / "evaluation" / "per_pdb").mkdir(parents=True)
+        np.savez(
+            emap_root / "mapped" / self.pdb_id / "official_blobs.npz",
+            source_blob_index=np.asarray([4, 9], dtype=np.int32),
+            source_probability_mean=np.asarray([0.2, 0.8], dtype=np.float32),
+            voxel_offsets=np.asarray([0, 2, 3], dtype=np.int64),
+            voxel_index_global_zyx=np.asarray(
+                [[0, 0, 0], [1, 2, 3], [0, 1, 2]], dtype=np.int32
+            ),
+        )
+        np.savez(
+            emap_root / "evaluation" / "per_pdb" / f"{self.pdb_id}.npz",
+            source_blob_index=np.asarray([9, 4], dtype=np.int32),
+            candidate_score=np.asarray([0.7, 0.3], dtype=np.float32),
+            candidate_selected=np.asarray([True, False]),
+        )
+        mode_definitions.append(
+            {
+                "id": "emap",
+                "group": "pred_emap",
+                "scene": "scene_emap",
+                "contract": "emap2lig",
+                "result_root": str(emap_root),
+                "gaussian_rank": False,
+                "receptor": "none",
+            }
+        )
+        profile = {
+            "data_root": str(self.data_root),
+            "receptor_roots": {
+                "real": str(self.data_root),
+                "cryoatom2": str(cryo_root),
+            },
+            "modes": mode_definitions,
+        }
+        output = self.root / "combined.pse"
+        record = _COMPARISON.build_comparison_session(
+            profile,
+            self.pdb_id,
+            output,
+            rank_by="probability_mean",
+            emap_limit=100,
+        )
+        self.assertEqual(len(record["modes"]), 7)
+
+        cmd.reinitialize()
+        cmd.load(str(output))
+        prediction_groups = {f"pred_mode_{index}" for index in range(6)} | {"pred_emap"}
+        self.assertEqual(
+            set(cmd.get_names_of_type("object:group")),
+            {"density", "receptors", "ground_truth", *prediction_groups},
+        )
+        self.assertEqual(
+            set(cmd.get_object_list("(receptors)")),
+            {"receptor_real", "receptor_cryoatom2"},
+        )
+        self.assertEqual(
+            set(cmd.get_scene_list()),
+            {f"scene_mode_{index}" for index in range(6)} | {"scene_emap"},
+        )
+        enabled_names = set(cmd.get_names("objects", enabled_only=1))
+        enabled_all = set(cmd.get_names("all", enabled_only=1))
+        self.assertIn("density_exp_mesh", enabled_names)
+        self.assertIn("receptor_real", enabled_names)
+        self.assertNotIn("receptor_cryoatom2", enabled_names)
+        self.assertTrue(prediction_groups.isdisjoint(enabled_all))
+
+        cmd.scene("scene_mode_4", "recall", animate=0)
+        scene_enabled = set(cmd.get_names("objects", enabled_only=1))
+        scene_enabled_all = set(cmd.get_names("all", enabled_only=1))
+        self.assertIn("receptor_cryoatom2", scene_enabled)
+        self.assertNotIn("receptor_real", scene_enabled)
+        self.assertIn("pred_mode_4", scene_enabled_all)
+        self.assertNotIn("pred_mode_3", scene_enabled_all)
 
 
 if __name__ == "__main__":
