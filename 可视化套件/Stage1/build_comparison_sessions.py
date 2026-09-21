@@ -159,7 +159,13 @@ def _load_prediction_group(
 
 
 def _store_scenes(modes: Sequence[Mapping[str, Any]]) -> None:
-    """保存七个只切换预测组与实际输入受体的命名 scene."""
+    """保存七个命名 scene, 再恢复会话首次打开时的默认显示.
+
+    ``modes[*].group`` 和 ``modes[*].scene`` 分别指定预测组与 scene 名;
+    ``modes[*].receptor`` 决定 scene 显示真实受体、CryoAtom2 受体或无受体.
+    保存后隐藏所有预测组、CryoAtom2 受体和密度 map, 显示真实受体
+    与全部密度 mesh; 密度对象前缀同时兼容单 map 和分块命名.
+    """
     prediction_groups = [str(mode["group"]) for mode in modes]
     for mode in modes:
         for group_name in prediction_groups:
@@ -180,8 +186,11 @@ def _store_scenes(modes: Sequence[Mapping[str, Any]]) -> None:
         cmd.disable(group_name)
     cmd.enable("receptor_real")
     cmd.disable("receptor_cryoatom2")
-    cmd.enable("density_exp_mesh")
-    cmd.disable("density_exp_map")
+    for object_name in cmd.get_names("objects"):
+        if object_name.startswith("density_exp_mesh"):
+            cmd.enable(object_name)
+        elif object_name.startswith("density_exp_map"):
+            cmd.disable(object_name)
 
 
 def _atomic_save_session(output_path: Path) -> None:

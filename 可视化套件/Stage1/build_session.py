@@ -25,6 +25,10 @@ from chempy.models import Indexed
 from pymol import cmd
 
 
+# 单个 PyMOL Brick 的保守上限为 1,500,000,000 bytes, 为 PyMOL 3.1.0 的超大 float32 Brick 原生内存路径保留余量.
+_PYMOL_DENSITY_TILE_MAX_BYTES = 1_500_000_000
+
+
 # 长度 29 的受体残基词表; 元素位置是 receptor_tokens.res_type 的 uint8 类别编号.
 _RESIDUE_NAMES = (
     "ALA",
@@ -271,9 +275,9 @@ def load_density(data_root: Path, pdb_id: str) -> tuple[np.ndarray, np.ndarray, 
         - pdb_id: str, 小写 PDB 编号, 如 ``9ter``.
 
     PyMOL 副作用:
-        - density_exp_map: PyMOL map; 完整实验密度, 首个采样点是首个体素中心的世界 XYZ 坐标.
-        - density_exp_mesh: PyMOL mesh; 使用 ``contour_canonical`` 从 ``density_exp_map`` 创建.
-        - density: PyMOL group; 包含上述 map 和 mesh.
+        - density_exp_map / density_exp_mesh: PyMOL map 与 PyMOL mesh; 未超过工程边界时的完整实验密度及等值面.
+        - density_exp_map_#### / density_exp_mesh_####: PyMOL map 与 PyMOL mesh; 超限时按物理 Z 顺序编号, 相邻分块共享一层 Z 采样点, 并集覆盖完整原始网格.
+        - density: PyMOL group; 包含上述全部 map 和 mesh.
 
     返回值:
         - origin_center_xyz: float64, (3,), 首个体素中心的世界 XYZ 坐标, 单位 Å.
@@ -305,24 +309,76 @@ def load_density(data_root: Path, pdb_id: str) -> tuple[np.ndarray, np.ndarray, 
     if not math.isfinite(contour_canonical):
         raise ValueError(f"{metadata_path} contour_canonical must be finite")
 
-    # float32, (X, Y, Z), 同一完整实验密度; exp.npy 采用 ZYX 数组轴, PyMOL Brick 采用 XYZ 数组轴.
-    density_xyz = np.transpose(density_czyx[0], (2, 1, 0))
     # float64, (3,), 首个体素中心的世界 XYZ 坐标; Stage1 origin 是体素边界下角, PyMOL Brick origin 是首个采样点中心.
     origin_center_xyz = origin_boundary_xyz + 0.5 * voxel_size_xyz
-    # Brick 保留 float32 (X, Y, Z) 数组和世界几何; 避免 from_numpy 把完整密度额外扩大为 float64.
-    brick = Brick()
-    brick.lvl = np.asarray(density_xyz, dtype=np.float32)
-    brick.grid = voxel_size_xyz.tolist()
-    brick.origin = origin_center_xyz.tolist()
-    brick.dim = list(density_xyz.shape)
-    brick.range = [
-        float(grid * (dimension - 1))
-        for grid, dimension in zip(brick.grid, brick.dim, strict=True)
-    ]
-    cmd.load_brick(brick, "density_exp_map")
-    cmd.isomesh("density_exp_mesh", "density_exp_map", contour_canonical)
-    cmd.color("gray70", "density_exp_mesh")
-    cmd.group("density", "density_exp_map density_exp_mesh")
+    # 标量, 完整 float32 密度需要的字节数; 只用它判定是否需要分块.
+    density_nbytes = int(density_czyx[0].size * np.dtype(np.float32).itemsize)
+    # 标量, 一层 Z 采样点的 float32 字节数, 即 Y * X * 4.
+    plane_nbytes = int(density_czyx.shape[2] * density_czyx.shape[3] * 4)
+    if density_nbytes <= _PYMOL_DENSITY_TILE_MAX_BYTES:
+        # 标量, 单 map 最多容纳的 Z 采样层数; 未超限样本仍保留原有对象名.
+        maximum_tile_depth = density_czyx.shape[1]
+        tiled_density = False
+    else:
+        # 标量, 单个 Brick 在工程边界内最多容纳的完整 Z 采样层数.
+        maximum_tile_depth = _PYMOL_DENSITY_TILE_MAX_BYTES // plane_nbytes
+        if maximum_tile_depth < 2:
+            raise ValueError(
+                "the PyMOL density boundary cannot hold two adjacent Z planes: "
+                f"{plane_nbytes} bytes per plane"
+            )
+        tiled_density = True
+    # list[str], density 组中的 map 和 mesh 对象名, 顺序与 Z 轴分块一致.
+    density_members: list[str] = []
+    # 标量, 当前块实际读取的 Z 起点; 后续块从上一块的末采样层重新开始.
+    start_z = 0
+    tile_index = 0
+    while start_z < density_czyx.shape[1]:
+        # 标量, 当前块的 Z 终点, 遵循 Python 左闭右开切片语义.
+        stop_z = min(start_z + maximum_tile_depth, density_czyx.shape[1])
+        # float32, (X, Y, Z_tile), Z_tile = stop_z - start_z; Brick 需要 XYZ 轴顺序和 C 连续内存.
+        density_tile_xyz = np.ascontiguousarray(
+            np.transpose(density_czyx[0, start_z:stop_z], (2, 1, 0)),
+            dtype=np.float32,
+        )
+        if density_tile_xyz.nbytes > _PYMOL_DENSITY_TILE_MAX_BYTES:
+            raise ValueError(
+                "a single density tile still exceeds the PyMOL map size boundary: "
+                f"{density_tile_xyz.nbytes} bytes"
+            )
+        if not tiled_density:
+            map_name = "density_exp_map"
+            mesh_name = "density_exp_mesh"
+        else:
+            map_name = f"density_exp_map_{tile_index:04d}"
+            mesh_name = f"density_exp_mesh_{tile_index:04d}"
+        # float64, (3,), 当前块首个体素中心的世界 XYZ 坐标, 单位 Å.
+        tile_origin_center_xyz = origin_center_xyz + np.asarray(
+            [0.0, 0.0, start_z * voxel_size_xyz[2]], dtype=np.float64
+        )
+        brick = Brick()
+        # float32, (X, Y, Z_tile), 当前块的实验密度采样值.
+        brick.lvl = density_tile_xyz
+        # list[float], (3,), XYZ 轴的采样间距, 单位 Å.
+        brick.grid = voxel_size_xyz.tolist()
+        # list[float], (3,), 当前块首采样点的世界 XYZ 坐标, 单位 Å.
+        brick.origin = tile_origin_center_xyz.tolist()
+        # list[int], (3,), 当前块沿 XYZ 三轴的采样点数.
+        brick.dim = list(density_tile_xyz.shape)
+        # list[float], (3,), 末采样点相对首采样点的 XYZ 物理跨度, 单位 Å.
+        brick.range = [
+            float(grid * (dimension - 1))
+            for grid, dimension in zip(brick.grid, brick.dim, strict=True)
+        ]
+        cmd.load_brick(brick, map_name)
+        cmd.isomesh(mesh_name, map_name, contour_canonical)
+        cmd.color("gray70", mesh_name)
+        density_members.extend((map_name, mesh_name))
+        if stop_z == density_czyx.shape[1]:
+            break
+        start_z = stop_z - 1
+        tile_index += 1
+    cmd.group("density", " ".join(density_members))
     return origin_center_xyz, voxel_size_xyz, contour_canonical
 
 

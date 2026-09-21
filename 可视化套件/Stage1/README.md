@@ -39,7 +39,7 @@ pred_find1_cryoatom2_f2_gaussian
 pred_emap2lig_official_find_li
 ```
 
-- `density` 包含完整 `density_exp_map` 和按 `contour_canonical` 创建的 `density_exp_mesh`。
+- `density` 包含完整实验密度 map 和按 `contour_canonical` 创建的 mesh。普通样本使用 `density_exp_map` 和 `density_exp_mesh`；若单个 float32 Brick 超过本管线的 1,500,000,000-byte 工程边界，则按物理 Z 顺序生成 `density_exp_map_####` 和 `density_exp_mesh_####`。相邻块共享一层 Z 采样点，因此保留跨分块边界的等值面；不裁剪、不降采样。
 - `receptors` 直接包含 `receptor_real` 和 `receptor_cryoatom2`，二者可独立显隐。
 - `ground_truth` 直接包含逐 occurrence 的 `gt_occ_*` 分子对象；坐标、元素和化学键来自沉积结构产物。
 - 每个 `pred_*` 组直接包含当前模式的逐 blob 对象。Pocket Plus 写入 evaluation 中的全部候选；Emap2lig 默认只写入 rank 前 100 个候选。
@@ -86,17 +86,29 @@ center_xyz = origin_xyz + (index_xyz + 0.5) * voxel_size_xyz
 
 密度 Brick 的首个采样点、Pocket Plus blob 和 Emap2lig blob 共用这一变换。受体与 GT 已是世界 XYZ 坐标，不再平移、缩放或旋转。
 
-调整完整密度等值面：
+调整完整密度等值面。下列 PyMOL Python 片段同时适用于单 map 和分块 map：
 
 ```pml
-isolevel density_exp_mesh, 1.25
+python
+for name in cmd.get_names("objects"):
+    if name.startswith("density_exp_mesh"):
+        cmd.isolevel(name, 1.25)
+python end
 ```
 
-围绕任意 GT 或预测对象创建 8 Å 局部密度：
+围绕任意 GT 或预测对象创建 8 Å 局部密度。每个相交分块生成一个独立局部 mesh；不相交分块会生成空 mesh，不影响密度值或坐标：
 
 ```pml
-isomesh density_near_target, density_exp_map, 1.25, gt_occ_0000_CCD_ATP, carve=8
-group density, density_near_target
+python
+target = "gt_occ_0000_CCD_ATP"
+map_names = [
+    name for name in cmd.get_names("objects") if name.startswith("density_exp_map")
+]
+for index, map_name in enumerate(map_names):
+    mesh_name = f"density_near_target_{index:04d}"
+    cmd.isomesh(mesh_name, map_name, 1.25, target, carve=8)
+    cmd.group("density", mesh_name)
+python end
 ```
 
 目标对象可替换为任一模式下的预测对象。局部 mesh 只存在于当前会话，不回写 Stage1 源产物。
