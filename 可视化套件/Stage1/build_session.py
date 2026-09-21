@@ -25,8 +25,8 @@ from chempy.models import Indexed
 from pymol import cmd
 
 
-# 单个 PyMOL Brick 的保守上限为 1,500,000,000 bytes, 为 PyMOL 3.1.0 的超大 float32 Brick 原生内存路径保留余量.
-_PYMOL_DENSITY_TILE_MAX_BYTES = 1_500_000_000
+# 单个 PyMOL Brick 的保守上限为 1,000,000,000 bytes, 为 PyMOL 3.1.0 的超大 float32 Brick 原生内存路径保留余量.
+_PYMOL_DENSITY_TILE_MAX_BYTES = 1_000_000_000
 
 
 # 长度 29 的受体残基词表; 元素位置是 receptor_tokens.res_type 的 uint8 类别编号.

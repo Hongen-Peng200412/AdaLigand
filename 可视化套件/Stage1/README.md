@@ -39,7 +39,7 @@ pred_find1_cryoatom2_f2_gaussian
 pred_emap2lig_official_find_li
 ```
 
-- `density` 包含完整实验密度 map 和按 `contour_canonical` 创建的 mesh。普通样本使用 `density_exp_map` 和 `density_exp_mesh`；若单个 float32 Brick 超过本管线的 1,500,000,000-byte 工程边界，则按物理 Z 顺序生成 `density_exp_map_####` 和 `density_exp_mesh_####`。相邻块共享一层 Z 采样点，因此保留跨分块边界的等值面；不裁剪、不降采样。
+- `density` 包含完整实验密度 map 和按 `contour_canonical` 创建的 mesh。普通样本使用 `density_exp_map` 和 `density_exp_mesh`；若单个 float32 Brick 超过本管线的 1,000,000,000-byte 工程边界，则按物理 Z 顺序生成 `density_exp_map_####` 和 `density_exp_mesh_####`。相邻块共享一层 Z 采样点，因此保留跨分块边界的等值面；不裁剪、不降采样。
 - `receptors` 直接包含 `receptor_real` 和 `receptor_cryoatom2`，二者可独立显隐。
 - `ground_truth` 直接包含逐 occurrence 的 `gt_occ_*` 分子对象；坐标、元素和化学键来自沉积结构产物。
 - 每个 `pred_*` 组直接包含当前模式的逐 blob 对象。Pocket Plus 写入 evaluation 中的全部候选；Emap2lig 默认只写入 rank 前 100 个候选。
