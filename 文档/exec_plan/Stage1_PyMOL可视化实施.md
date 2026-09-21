@@ -151,3 +151,46 @@ exec bash "${TASK_PROJECT_ROOT}/可视化套件/Stage1/sh/build_comparison_sessi
 ### 当前状态
 
 代码、profile、测试、README、规划与运维下载入口已在实现工作树完成首轮实现，合成测试为 5 项通过。服务器只读预检逐一核对 179 个 PDB 的六套 Pocket Plus evaluation、Emap2lig 映射和两套受体文件；七种模式的 evaluation 候选总数依次为 `2196/2670/1939/2251/2097/2407/63342`，源 blob 编号映射均闭合。Emap2lig 的原点、体素尺寸与网格形状逐 PDB 同实验密度一致。服务器先导、Windows 跨版本回载、179-PDB 全量生产、三项真实样本抽查、源文件只读核验和服务器/本地 SHA-256 一致性仍待双线等价核验并推进 `Learn/CUMULATIVE` 后执行。
+
+## 2026-09-22：七模式全量生产与验收完成
+
+### 正式执行
+
+H100 Job `378587` 先把 canonical 输出推进到 178/179。用户随后指定改用 A800 Job `379402_0` 的 16 CPU；H100 上本任务的进程组被精确停止，`after_lock_378587` 保留，未结束该 Job。A800 接管后使用的正式生产命令为：
+
+```bash
+exec bash "${TASK_PROJECT_ROOT}/可视化套件/Stage1/sh/build_comparison_sessions.sh" --pdb-list /storage/penghongen/AdaLigand/held_out/split/held_out_06_chain/test_0.json --workers 8
+```
+
+`379402_0` 的第 35 次执行冻结 release `/storage/penghongen/Adaligand_infered_receptor_data/cryoatom2/calibration/运行日志与统计/slurm/releases/AdaLigand_8c57e30b4f93/AdaLigand`；allocation launch 为 `/storage/penghongen/Adaligand_infered_receptor_data/cryoatom2/calibration/运行日志与统计/slurm/launches/379402/predict_calibration_job379402_20260922T005930_a35`，可视化 launch 为 `/home/penghongen/Feedback/AdaLigand/launches/379402/stage1_7mode_full_resume8_job379402_20260922T0058`。运行结果为 `created=1`、`reused=178`、`success=179`。验收结束后 `379402_0` 回到 `try_lock`，`after_lock_379402` 保留，未释放 A800 allocation。
+
+### `9gjg` 性能阻塞与窄修复
+
+最后缺失样本 `9gjg` 的首次 A800 尝试持续 60 分钟仍未产生临时 `.pse`。进程采样显示单个 NumPy 线程长期停在 `_aligned_strided_to_contig_size4`：旧实现直接在 Lustre 的 `(1,Z,Y,X)` 内存映射上执行 XYZ 转置，导致跨页次序读取；60 分钟只读取约 455 MB。该尝试通过本 Job 的 `kill_lock` 精确停止，未留下临时会话，`after_lock` 未动。
+
+`load_density()` 随后改为先按源文件的 ZYX C 连续顺序把只读密度复制到内存，再执行原有 ZYX→XYZ 转置。该修复不改变体素值、分块边界、重叠层、世界坐标、对象名或会话契约。Windows PyMOL 六项合同测试、Black、Flake8、两遍主代理自查和代码布局、中文注释、科学契约三项独立窄复核全部通过。实现提交为 `5dcbde1`，学习提交及 `Learn/CUMULATIVE` 为 `eac9ce2`。修复后 `9gjg.pse` 约 5 分钟完成，文件大小为 1,725,395,749 字节。
+
+### 门控与产物
+
+以下为只读门控命令，不是正式生产命令：
+
+```bash
+/home/penghongen/anaconda3/envs/AdaLigand_stage1_pymol/bin/python /storage/penghongen/tmp/stage1_pymol_7mode_20260921/diagnostics/validate_full_output.py
+/home/penghongen/anaconda3/envs/AdaLigand_stage1_pymol/bin/python /storage/penghongen/tmp/stage1_pymol_7mode_20260921/diagnostics/verify_representative_sessions.py
+```
+
+完整门控结果为：
+
+- canonical 根含 179 个 `.pse` 和 179 行 `manifest.jsonl`，顺序严格匹配 `test_0`；无隐藏临时会话。
+- 七种模式的源候选数与各自 evaluation NPZ 一致；Emap2lig 装入数均为 `min(100,N)`；全部模式的实际排序字段为 `probability_mean`。
+- 生成前记录的 10,173 个 AdaLigand 与 Stage1 来源文件在生成后均存在，大小和纳秒修改时间零变化。
+- 服务器 PyMOL 3.1.0 顺序回载 `9hjx`、`11jb`、`30yu` 和 `9gjg`；十个平级组、七个 scene、默认显隐、双受体、完整密度范围、`isolevel` 和局部 mesh 全部通过。
+- 最终服务器输出为 66,436,749,133 字节，其中 179 个会话合计 66,436,365,577 字节。SHA-256 清单位于 `/storage/penghongen/tmp/stage1_pymol_7mode_20260921/diagnostics/stage1_7mode_pcv2_test0_probability_mean.sha256`。
+
+正式下载命令为：
+
+```powershell
+& '.\可视化套件\Stage1\ops\download_sessions.ps1'
+```
+
+本地交付根为 `D:\AdaLigand_Stage1_PyMOL\stage1_7mode_pcv2_test0_probability_mean`。续传下载退出码为 0；本地 179 个会话与服务器清单逐项比较结果为 `Missing=0`、`Extra=0`、`Mismatch=0`。Windows PyMOL 3.1.6.1 已回载 `9hjx.pse`，平级组、scene 和默认显隐全部通过。由于 Windows 当前仅剩约 4.8 GiB 物理内存和 1.21 GiB 虚拟内存，未在本机强行回载 4.89 GB 的 `11jb.pse`；服务器回载和本地逐文件哈希已经验证该文件完整性。

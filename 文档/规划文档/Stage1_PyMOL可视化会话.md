@@ -69,3 +69,11 @@
 ## 非目标
 
 本轮不增加 PyMOL GUI 插件，不加载模拟或差分密度，不恢复嵌套分组，不生成 GT 体素掩码，不把预测 blob 解释成化学结构，也不重新运行 Stage1 推理或评估。
+
+## 2026-09-22 实施回填
+
+七模式 `test_0` 已按本文契约生成并验收 179/179 个会话。正式服务器根为 `/storage/penghongen/AdaLigand_stage1_visualization/stage1_7mode_pcv2_test0_probability_mean`，本地完整副本为 `D:\AdaLigand_Stage1_PyMOL\stage1_7mode_pcv2_test0_probability_mean`。服务器与本地 179 个 `.pse` 的 SHA-256 逐项一致。
+
+实际最后一轮使用用户指定的 A800 Job `379402_0`，该 allocation 提供 16 CPU，因此批量入口使用 8 个独立 worker，而不是最初为 32 CPU 资源拟定的 16 个 worker。剩余 178 个原子发布会话被复用，只生成缺失的 `9gjg`；该调整不改变任何会话内容或科学契约。
+
+真实运行发现，在 Lustre 内存映射上直接把 `(Z,Y,X)` 密度转为 XYZ 连续数组会产生跨页次序读取。`load_density()` 已改为先按 ZYX 连续顺序读入内存，再执行相同转置；六项合同测试、三项独立窄复核、四个代表会话的服务器回载、10,173 个来源文件只读核验和完整 SHA-256 门控均通过。完整命令、release、launch、阻塞诊断和验收数字见 `文档/exec_plan/Stage1_PyMOL可视化实施.md`。
