@@ -99,3 +99,55 @@ Job `378562` 于 2026-09-11 在 `cnode02` 运行 1 分 30 秒并以 `COMPLETED 0
 实现线从共同基点 `2c2c9c9a1f8a2926e36faa132b0d39fda2095dd7` 到达 `codex/stage1-pymol-visualization@1b621cae3f8e09d881c13e16b98cfc70a641ae2d`。学习线按文档、核心实现、测试的顺序到达 `Learn/stage1-pymol-visualization@b3743e6eb15af7ed70014a8b5aea0ba2cdbf1507`。两端只差学习线的数组形状、坐标和索引注释；Python AST 可执行语句和 Docstring 相同，其他文档、配置、shell 和测试逐字节相同，两端合成 PyMOL 测试均为 `1 test OK`。`Learn/CUMULATIVE` 已快进到学习端点，随后用户要求保存 CPU `--after_hold` 约定，累计学习端点前进到 `4fa8413`。
 
 本轮实现、`unet_c1` 真实会话和 Windows 回载已完成。唯一剩余验收项是在某个 `Find_*` 冻结模型产生当前公共 blobs 与 evaluation 产物后，用同一入口生成一个真实会话。该项不是可视化代码前置的未完成逻辑，也不授权重跑 Find 推理。
+
+## 2026-09-21：七模式合并会话扩展
+
+### 基线与输入来源
+
+- 扩展开始前，`Learn/CUMULATIVE@ca552b2a7b3850e3ea94c093d8b3548774b146c3` 是按提交者时间形成的唯一最新提交，主工作树干净。
+- 真实实现分支为 `codex/stage1-pymol-7mode`，工作树为 `C:\Users\15919\Desktop\AdaLigand_worktrees\stage1_pymol_7mode`。
+- `unet_c1` 只读取 pdb-centric-v2 的 F1/F2 basic；`Find_1` 分别读取真实受体和 CryoAtom2 受体下的 F1 basic 与 F2 Gaussian；Emap2lig 读取 official Find-Li 的 `official_blobs + per_pdb evaluation`。
+- 正式 `test_0` 清单为 `/storage/penghongen/AdaLigand/held_out/split/held_out_06_chain/test_0.json`，包含 179 个 PDB；`test_1` 是其子集，不重复生成会话。
+
+### 体积与压缩预检
+
+本地对既有 `9hjx_fixed.pse` 使用 PyMOL 二进制 dump 和内部 session compression 复测：79,310,478 字节的未压缩会话缩至约 21.3 MB，重新加载后平级组仍完整。179 个 PDB 的实验密度原始数组总量约 27.94 GB；结合完整密度在 `.pse` 中的实测压缩比，七模式共享密度后的本地总量预计为 70–100 GiB。该估算只用于磁盘准备，不替代服务器实际输出大小门控。
+
+### 实现
+
+- `prediction_sources.py` 提供唯一归一化候选入口，在内部隔离 Pocket Plus 与 Emap2lig 两种盘上格式。
+- `build_comparison_sessions.py` 生成七种预测平级组、两个受体和七个 scene；默认按源概率均值排序，Gaussian 开关只影响两个 Gaussian 模式。
+- Pocket Plus 写入全部 evaluation 候选；Emap2lig 默认稳定截取前 100，并支持 `all`。运行清单逐模式记录源候选总数、装入数、入选数和实际排序字段。
+- 每个 `.pse` 压缩保存到同目录临时文件后原子替换；批量入口通过独立子进程隔离 PyMOL 全局状态，并只复用配置一致的完整结果。
+- 新增无删除行为的 MSYS2 `rsync` 下载入口；下载前要求 D 盘剩余空间不少于服务器实际输出大小加 50 GiB。
+
+### 本地门控命令
+
+```powershell
+& 'D:\Pymol\python.exe' -m unittest discover -s 可视化套件\Stage1\tests -v
+& 'D:\Anaconda\Scripts\black.exe' --check 可视化套件\Stage1\build_session.py 可视化套件\Stage1\prediction_sources.py 可视化套件\Stage1\build_comparison_sessions.py 可视化套件\Stage1\tests\test_build_session.py 可视化套件\Stage1\tests\test_prediction_sources.py
+& 'D:\Anaconda\Scripts\flake8.exe' --max-line-length 160 可视化套件\Stage1\build_session.py 可视化套件\Stage1\prediction_sources.py 可视化套件\Stage1\build_comparison_sessions.py 可视化套件\Stage1\tests\test_build_session.py 可视化套件\Stage1\tests\test_prediction_sources.py
+& 'C:\Program Files\Git\bin\bash.exe' -n 可视化套件/Stage1/sh/build_session.sh
+& 'C:\Program Files\Git\bin\bash.exe' -n 可视化套件/Stage1/sh/build_comparison_sessions.sh
+git diff --check
+```
+
+### 正式运行命令
+
+`9hjx` 先导任务只使用以下提交命令：
+
+```bash
+bash 训练与运行/submit_task.sh --sh 可视化套件/Stage1/sh/build_comparison_sessions.sh --resource cpu --cpus 16 --mem 256G --after_hold -- --pdb-id 9hjx
+```
+
+Windows PyMOL 3.1.6.1 通过先导验收后，在同一个保留 allocation 中把动态命令改为：
+
+```bash
+exec bash "${TASK_PROJECT_ROOT}/可视化套件/Stage1/sh/build_comparison_sessions.sh" --pdb-list /storage/penghongen/AdaLigand/held_out/split/held_out_06_chain/test_0.json --workers 16
+```
+
+正式输出根为 `/storage/penghongen/AdaLigand_stage1_visualization/stage1_7mode_pcv2_test0_probability_mean`。本节只记录正式生产命令；单元测试、静态门控和验收脚本不混入正式命令。
+
+### 当前状态
+
+代码、profile、测试、README、规划与运维下载入口已在实现工作树完成首轮实现，合成测试为 5 项通过。服务器只读预检逐一核对 179 个 PDB 的六套 Pocket Plus evaluation、Emap2lig 映射和两套受体文件；七种模式的 evaluation 候选总数依次为 `2196/2670/1939/2251/2097/2407/63342`，源 blob 编号映射均闭合。Emap2lig 的原点、体素尺寸与网格形状逐 PDB 同实验密度一致。服务器先导、Windows 跨版本回载、179-PDB 全量生产、三项真实样本抽查、源文件只读核验和服务器/本地 SHA-256 一致性仍待双线等价核验并推进 `Learn/CUMULATIVE` 后执行。
