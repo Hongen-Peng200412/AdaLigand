@@ -222,7 +222,7 @@ def _require_arrays(arrays: Any, names: Sequence[str], path: Path) -> None:
         raise KeyError(f"{path} is missing required arrays: {', '.join(missing)}")
 
 
-def _new_atom(
+def new_atom(
     *,
     coord_xyz: Sequence[float],
     symbol: str,
@@ -263,7 +263,7 @@ def _new_atom(
 # ================================================================================================
 
 
-def _load_density(data_root: Path, pdb_id: str) -> tuple[np.ndarray, np.ndarray, float]:
+def load_density(data_root: Path, pdb_id: str) -> tuple[np.ndarray, np.ndarray, float]:
     """把完整归一化实验密度加载到当前 PyMOL 状态.
 
     输入参数:
@@ -326,15 +326,24 @@ def _load_density(data_root: Path, pdb_id: str) -> tuple[np.ndarray, np.ndarray,
     return origin_center_xyz, voxel_size_xyz, contour_canonical
 
 
-def _load_receptor(data_root: Path, pdb_id: str) -> None:
+def load_receptor(
+    data_root: Path,
+    pdb_id: str,
+    *,
+    object_name: str = "receptor",
+    group_name: str | None = None,
+) -> None:
     """从 ``receptor_tokens.npz`` 加载受体原子和化学键.
 
     输入参数:
         - data_root: Path, AdaLigand 数据根; 内部读取 ``parse/{pdb_id}/receptor_tokens.npz``.
         - pdb_id: str, 小写 PDB 编号.
+        - object_name: str, 受体在 PyMOL 会话中的对象名.
+        - group_name: str | None, 可选的单层受体组名; ``None`` 保持旧入口的独立对象布局.
 
     PyMOL 副作用:
-        - receptor: PyMOL molecular object; 原子坐标是世界 XYZ, 元素和键型来自受体产物, 链与残基使用稳定合成标识.
+        - object_name 指定的 PyMOL molecular object; 原子坐标是世界 XYZ, 元素和键型来自受体产物, 链与残基使用稳定合成标识.
+        - group_name 非空时, 把受体对象直接加入该单层组.
     """
     receptor_path = data_root / "parse" / pdb_id / "receptor_tokens.npz"
     with np.load(receptor_path, allow_pickle=False) as arrays:
@@ -385,7 +394,7 @@ def _load_receptor(data_root: Path, pdb_id: str) -> None:
         )
         decoded_name = bytes(atom_name).decode("ascii", errors="replace").strip() or "X"
         model.atom.append(
-            _new_atom(
+            new_atom(
                 coord_xyz=coord_xyz,
                 symbol=_element_symbol(int(element)),
                 name=decoded_name,
@@ -404,15 +413,17 @@ def _load_receptor(data_root: Path, pdb_id: str) -> None:
         bond.index = [int(endpoints[0]), int(endpoints[1])]
         bond.order = _RECEPTOR_BOND_ORDERS[int(bond_type)]
         model.bond.append(bond)
-    cmd.load_model(model, "receptor")
-    cmd.show("cartoon", "receptor")
-    cmd.show("sticks", "receptor")
+    cmd.load_model(model, object_name)
+    cmd.show("cartoon", object_name)
+    cmd.show("sticks", object_name)
     cmd.set_title(
-        "receptor", 1, "AdaLigand receptor_tokens; synthetic chain/residue IDs"
+        object_name, 1, "AdaLigand receptor_tokens; synthetic chain/residue IDs"
     )
+    if group_name is not None:
+        cmd.group(group_name, object_name)
 
 
-def _load_ground_truth(data_root: Path, pdb_id: str) -> list[str]:
+def load_ground_truth(data_root: Path, pdb_id: str) -> list[str]:
     """把每个沉积配体 occurrence 加载为独立分子对象.
 
     输入参数:
@@ -495,7 +506,7 @@ def _load_ground_truth(data_root: Path, pdb_id: str) -> list[str]:
                 model_index = len(model.atom)
                 template_to_model[int(template_index)] = model_index
                 model.atom.append(
-                    _new_atom(
+                    new_atom(
                         coord_xyz=coords_xyz[template_index],
                         symbol=_element_symbol(int(atom["element"])),
                         name=str(atom_names[template_index]),
@@ -649,7 +660,7 @@ def _load_predictions(
         # 当前 blob 的 PyMOL 分子对象; 包含 N_voxel 个无键伪原子以保留可选择性.
         model = Indexed()
         for center_xyz in centers_xyz:
-            atom = _new_atom(
+            atom = new_atom(
                 coord_xyz=center_xyz,
                 symbol="C",
                 name="V",
@@ -709,9 +720,11 @@ def build_session(args: argparse.Namespace) -> None:
     pymol.finish_launching(["pymol", "-cq"])
     cmd.reinitialize()
     cmd.set("retain_order", 1)
-    origin_center_xyz, voxel_size_xyz, _contour = _load_density(data_root, pdb_id)
-    _load_receptor(data_root, pdb_id)
-    _load_ground_truth(data_root, pdb_id)
+    cmd.set("pse_binary_dump", 1)
+    cmd.set("session_compression", 1)
+    origin_center_xyz, voxel_size_xyz, _contour = load_density(data_root, pdb_id)
+    load_receptor(data_root, pdb_id)
+    load_ground_truth(data_root, pdb_id)
     selected_names, _unselected_names = _load_predictions(
         inference_root,
         args.producer,

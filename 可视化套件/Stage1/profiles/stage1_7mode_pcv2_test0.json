@@ -1,0 +1,98 @@
+{
+  "data_root": "/storage/penghongen/AdaLigand/Ori_Data",
+  "receptor_roots": {
+    "real": "/storage/penghongen/AdaLigand/Ori_Data",
+    "cryoatom2": "/storage/penghongen/Adaligand_infered_receptor_data/cryoatom2/test_0_chain06/Ori_Data"
+  },
+  "pdb_list": "/storage/penghongen/AdaLigand/held_out/split/held_out_06_chain/test_0.json",
+  "output_root": "/storage/penghongen/AdaLigand_stage1_visualization/stage1_7mode_pcv2_test0_probability_mean",
+  "modes": [
+    {
+      "id": "unet_pcv2_f1_basic",
+      "group": "pred_unet_pcv2_f1_basic",
+      "scene": "unet_pcv2_f1_basic",
+      "contract": "pocket_plus",
+      "artifact_root": "/storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1_pdb_centric_v2/artifacts",
+      "producer": "unet_c1",
+      "split": "held_out_test_0",
+      "alpha": 1,
+      "evaluation_name": "f1_blobs_basic_macro_selected",
+      "gaussian_rank": false,
+      "receptor": "none"
+    },
+    {
+      "id": "unet_pcv2_f2_basic",
+      "group": "pred_unet_pcv2_f2_basic",
+      "scene": "unet_pcv2_f2_basic",
+      "contract": "pocket_plus",
+      "artifact_root": "/storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1_pdb_centric_v2/artifacts",
+      "producer": "unet_c1",
+      "split": "held_out_test_0",
+      "alpha": 2,
+      "evaluation_name": "f2_blobs_basic_macro_selected",
+      "gaussian_rank": false,
+      "receptor": "none"
+    },
+    {
+      "id": "find1_real_f1_basic",
+      "group": "pred_find1_real_f1_basic",
+      "scene": "find1_real_f1_basic",
+      "contract": "pocket_plus",
+      "artifact_root": "/storage/penghongen/AdaLigand_stage1_inference/Find_1/真实受体/artifacts",
+      "producer": "Find_1",
+      "split": "held_out_test_0",
+      "alpha": 1,
+      "evaluation_name": "f1_blobs_basic_macro_selected",
+      "gaussian_rank": false,
+      "receptor": "real"
+    },
+    {
+      "id": "find1_real_f2_gaussian",
+      "group": "pred_find1_real_f2_gaussian",
+      "scene": "find1_real_f2_gaussian",
+      "contract": "pocket_plus",
+      "artifact_root": "/storage/penghongen/AdaLigand_stage1_inference/Find_1/真实受体/artifacts",
+      "producer": "Find_1",
+      "split": "held_out_test_0",
+      "alpha": 2,
+      "evaluation_name": "f2_centered_gaussian_macro_selected",
+      "gaussian_rank": true,
+      "receptor": "real"
+    },
+    {
+      "id": "find1_cryoatom2_f1_basic",
+      "group": "pred_find1_cryoatom2_f1_basic",
+      "scene": "find1_cryoatom2_f1_basic",
+      "contract": "pocket_plus",
+      "artifact_root": "/storage/penghongen/AdaLigand_stage1_inference/Find_1/CryoAtom2受体/artifacts",
+      "producer": "Find_1",
+      "split": "held_out_test_0",
+      "alpha": 1,
+      "evaluation_name": "f1_blobs_basic_macro_selected",
+      "gaussian_rank": false,
+      "receptor": "cryoatom2"
+    },
+    {
+      "id": "find1_cryoatom2_f2_gaussian",
+      "group": "pred_find1_cryoatom2_f2_gaussian",
+      "scene": "find1_cryoatom2_f2_gaussian",
+      "contract": "pocket_plus",
+      "artifact_root": "/storage/penghongen/AdaLigand_stage1_inference/Find_1/CryoAtom2受体/artifacts",
+      "producer": "Find_1",
+      "split": "held_out_test_0",
+      "alpha": 2,
+      "evaluation_name": "f2_centered_gaussian_macro_selected",
+      "gaussian_rank": true,
+      "receptor": "cryoatom2"
+    },
+    {
+      "id": "emap2lig_official_find_li",
+      "group": "pred_emap2lig_official_find_li",
+      "scene": "emap2lig_official_find_li",
+      "contract": "emap2lig",
+      "result_root": "/storage/penghongen/AdaLigand_stage1_inference/Emap2lig/official_find_li/held_out_test_0",
+      "gaussian_rank": false,
+      "receptor": "none"
+    }
+  ]
+}
