@@ -1,102 +1,161 @@
 # Stage1 PyMOL 可视化会话
 
-本目录把单个 PDB 的 AdaLigand 原始数据与 Pocket Plus Stage1 推理产物组装为自包含的 PyMOL `.pse` 会话。程序只读源产物，只写指定的会话文件，不修改 Stage1 推理主流程、命令行入口或盘上契约。
+本目录把 AdaLigand 数据和既有 Stage1 评估产物组装为自包含的 PyMOL `.pse`。生成器只读源产物，不运行模型前向，不改变 blob 集合、`candidate_selected` 或正式评估结果。
 
-## 输入与寻址
+## 两个入口
 
-`build_session.py` 要求以下参数：
+`build_session.py` 保留原有单模式入口。它读取一套 Pocket Plus `blobs + evaluation`，生成 `density`、`ground_truth`、`predictions` 三个平级组和独立 `receptor` 对象；既有调用参数不变。
 
-- `--data-root`：AdaLigand 数据根，例如 `/storage/penghongen/AdaLigand/Ori_Data`。
-- `--inference-root`：直接包含 producer 目录的 Stage1 `artifacts` 根，例如 `/storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950/artifacts`。
-- `--producer`：推理根下的生产者目录名，例如 `unet_c1` 或 `Find_0`。程序不按模型类型分支。
-- `--split`：生产者目录下的数据划分名，例如 `held_out_test_0`。
-- `--pdb-id`：单个 PDB 编号；内部统一转为小写。
-- `--alpha`：选择 `blobs/F{alpha}_blobs.npz` 的 F-alpha 值，例如 `1`。
-- `--evaluation-name`：不带 `.npz` 的评估文件名，例如 `f1_blobs_basic_macro_selected`。
-- `--output`：要写入的 `.pse` 文件。程序先写同目录临时文件，成功后再原子替换目标。
+`build_comparison_sessions.py` 是七模式正式入口。它让一个 PDB 的七套预测共享实验密度和 GT，可处理单个 `--pdb-id`，也可按 `--pdb-list` 批量处理。固定服务器路径、评估名称、F-alpha 和受体来源集中保存在 `profiles/stage1_7mode_pcv2_test0.json`，候选读取逻辑不根据模型名猜测路径。
 
-预测候选统一从以下两个公共 Stage1 文件读取，因此同一套实现同时适用于 `unet_c1` 和 `Find_*`：
+## 七种模式
+
+| scene | 训练或方法 | 评估模式 | scene 中显示的受体 |
+| --- | --- | --- | --- |
+| `unet_pcv2_f1_basic` | `unet_c1` pdb-centric-v2 | F1-F1 basic | 无受体输入 |
+| `unet_pcv2_f2_basic` | `unet_c1` pdb-centric-v2 | F2-F1 basic | 无受体输入 |
+| `find1_real_f1_basic` | `Find_1` 真实受体 | F1-F1 basic | `receptor_real` |
+| `find1_real_f2_gaussian` | `Find_1` 真实受体 | F2-F1 Gaussian | `receptor_real` |
+| `find1_cryoatom2_f1_basic` | `Find_1` CryoAtom2 受体 | F1-F1 basic | `receptor_cryoatom2` |
+| `find1_cryoatom2_f2_gaussian` | `Find_1` CryoAtom2 受体 | F2-F1 Gaussian | `receptor_cryoatom2` |
+| `emap2lig_official_find_li` | Emap2lig | official Find-Li | 无受体输入 |
+
+`test_1` 是 `test_0` 的子集，因此不重复生成会话。正式批量入口只读取 `test_0` 的 179 个 PDB。
+
+## 合并会话对象
+
+会话只使用平级分组，不建立外层 `stage1`：
 
 ```text
-{inference_root}/{producer}/{split}/{pdb_id}/blobs/F{alpha}_blobs.npz
-{inference_root}/{producer}/{split}/{pdb_id}/evaluation/{evaluation_name}.npz
+density
+receptors
+ground_truth
+pred_unet_pcv2_f1_basic
+pred_unet_pcv2_f2_basic
+pred_find1_real_f1_basic
+pred_find1_real_f2_gaussian
+pred_find1_cryoatom2_f1_basic
+pred_find1_cryoatom2_f2_gaussian
+pred_emap2lig_official_find_li
 ```
 
-## 会话对象
+- `density` 包含完整 `density_exp_map` 和按 `contour_canonical` 创建的 `density_exp_mesh`。
+- `receptors` 直接包含 `receptor_real` 和 `receptor_cryoatom2`，二者可独立显隐。
+- `ground_truth` 直接包含逐 occurrence 的 `gt_occ_*` 分子对象；坐标、元素和化学键来自沉积结构产物。
+- 每个 `pred_*` 组直接包含当前模式的逐 blob 对象。Pocket Plus 写入 evaluation 中的全部候选；Emap2lig 默认只写入 rank 前 100 个候选。
 
-`.pse` 使用互不嵌套的单层分组，避免服务器与 Windows 的不同 PyMOL 版本在读取嵌套组时丢失父子关系：
+首次打开时显示实验密度 mesh、全部 GT 和真实受体，隐藏密度 map、CryoAtom2 受体和全部预测组。调用七个命名 scene 时，只切换相应预测组和该方法实际使用的受体；密度与 GT 保持可见。scene 切换依赖父组显隐，不改写组内由 `candidate_selected` 决定的对象状态。
 
-- `density`：`density_exp_map` 保存完整实验密度，`density_exp_mesh` 是用 `contour_canonical` 创建的全图等值面。
-- `ground_truth`：每个沉积配体实例是一个 `gt_occ_*` 分子对象，坐标来自 `ligand_coords.npz`，元素和化学键来自对应 `ligand_objects/*.npz`。
-- `predictions`：直接包含全部 `pred_r*_b*_s*_{selected|unselected}` 预测实例。对象内每个体素中心是一个无键伪原子，以球面显示；名称以 `_selected` 结尾的实例默认可见，以 `_unselected` 结尾的实例默认隐藏，但二者均可在对象树中逐个显示或隐藏。
+## rank 与对象名称
 
-`receptor` 是从 `receptor_tokens.npz` 生成的独立受体分子对象，不属于任何组。该源文件不保存作者链号和残基号，因此会话使用 `C{chain_index}` 与 `res_index + 1` 作为稳定的合成标识。
+`--rank-by probability_mean` 是默认值，七种模式都按 `source_probability_mean` 降序稳定排序。`--rank-by gaussian` 只让两个 F2-F1 Gaussian 模式改按 `candidate_score` 排序；其余五种模式仍按 `source_probability_mean`。同分候选保留 evaluation 中的原始顺序。
 
-预测对象名中的 `r`、`b`、`s` 分别是按冻结分数稳定降序的一基 rank、`source_blob_index` 和 `candidate_score`。完整精度的分数、rank 和 `candidate_selected` 同时写在该分子对象的 state title 中。
+rank 只决定 PyMOL 对象顺序和名称，不改变候选集合、`candidate_selected` 或正式结果。对象名称形如：
 
-## 坐标契约
+```text
+find1_real_f2_gaussian_r0001_b000123_selected
+```
 
-AdaLigand 密度元数据的 `origin` 是体素边界下角的世界 XYZ 坐标。全图 ZYX 整数索引 `index_zyx` 对应的体素中心为：
+对象 state title 保存模式、rank、实际排序字段、`source_blob_index`、`source_probability_mean`、evaluation/Gaussian 分数和 `candidate_selected`。`_selected` 对象在预测组启用时默认显示，`_unselected` 默认隐藏。
+
+Emap2lig 使用 `--emap-limit 100` 时先完成稳定排序，再装入前 100 个候选；`--emap-limit all` 装入全部候选。`manifest.jsonl` 对每个模式同时记录源候选总数和实际装入数。
+
+## 两种盘上预测契约
+
+`prediction_sources.py::load_predictions()` 是正式归一化入口，只隔离以下两种格式：
+
+```text
+# Pocket Plus
+{artifact_root}/{producer}/{split}/{pdb_id}/blobs/F{alpha}_blobs.npz
+{artifact_root}/{producer}/{split}/{pdb_id}/evaluation/{evaluation_name}.npz
+
+# Emap2lig
+{result_root}/mapped/{pdb_id}/official_blobs.npz
+{result_root}/evaluation/per_pdb/{pdb_id}.npz
+```
+
+两种格式都归一化为稳定源编号、源概率均值、评估分数、正式入选状态和全图 ZYX 体素索引。增加新的模型结果时，应先明确其盘上契约并新增 profile；不得通过模型名推断文件。
+
+## 坐标与密度交互
+
+AdaLigand 密度元数据中的 `origin` 是体素边界下角。全图 ZYX 索引 `index_zyx` 的世界坐标为：
 
 ```text
 center_xyz = origin_xyz + (index_xyz + 0.5) * voxel_size_xyz
 ```
 
-密度 Brick 的首个采样点与预测伪原子都使用这一体素中心。受体与 GT 配体已是世界 XYZ 坐标，不再变换。
+密度 Brick 的首个采样点、Pocket Plus blob 和 Emap2lig blob 共用这一变换。受体与 GT 已是世界 XYZ 坐标，不再平移、缩放或旋转。
 
-## PyMOL 中的交互
-
-调整全图等值面阈值：
+调整完整密度等值面：
 
 ```pml
 isolevel density_exp_mesh, 1.25
 ```
 
-围绕任意 GT 配体创建 8 Å 局部等值面：
+围绕任意 GT 或预测对象创建 8 Å 局部密度：
 
 ```pml
-isomesh density_near_gt, density_exp_map, 1.25, gt_occ_0000_CCD_ATP, carve=8
-group density, density_near_gt
+isomesh density_near_target, density_exp_map, 1.25, gt_occ_0000_CCD_ATP, carve=8
+group density, density_near_target
 ```
 
-围绕任意预测 blob 创建局部等值面：
+目标对象可替换为任一模式下的预测对象。局部 mesh 只存在于当前会话，不回写 Stage1 源产物。
 
-```pml
-isomesh density_near_prediction, density_exp_map, 1.25, pred_r0001_b000004_s0p812345_selected, carve=8
-group density, density_near_prediction
+## 环境、测试与正式运行
+
+独立 PyMOL 环境由 `environment.yml` 描述，默认位于 `$HOME/anaconda3/envs/AdaLigand_stage1_pymol`，不修改 Pocket Plus 训练环境。
+
+本地门控命令：
+
+```powershell
+& 'D:\Pymol\python.exe' -m unittest discover -s 可视化套件\Stage1\tests -v
 ```
 
-命令中的对象名和阈值应替换为当前会话中的实际值。局部等值面是 PyMOL 会话内的新对象，不会回写 Stage1 产物。
-
-## 环境与运行
-
-独立环境由 `environment.yml` 描述，默认服务器路径为 `$HOME/anaconda3/envs/AdaLigand_stage1_pymol`。如需其他路径，在提交前设置 `ADALIGAND_STAGE1_PYMOL_ENV`。`sh/create_environment.sh` 只在环境不存在时创建它；已存在时只验证 PyMOL 和 NumPy 可导入。
-
-正式生成入口为 `sh/build_session.sh`。一个完整示例如下：
+服务器 `9hjx` 正式先导命令：
 
 ```bash
-bash 训练与运行/submit_task.sh \
-  --sh 可视化套件/Stage1/sh/build_session.sh \
-  --resource cpu \
-  --cpus 4 \
-  --mem 32G \
-  -- \
-  --data-root /storage/penghongen/AdaLigand/Ori_Data \
-  --inference-root /storage/penghongen/AdaLigand_stage1_inference/UNET/unet_c1-mainchain-ligand_PRAUC_0.602950/artifacts \
-  --producer unet_c1 \
-  --split held_out_test_0 \
-  --pdb-id 9hjx \
-  --alpha 1 \
-  --evaluation-name f1_blobs_basic_macro_selected \
-  --output /storage/penghongen/AdaLigand_stage1_visualization/9hjx.pse
+bash 训练与运行/submit_task.sh --sh 可视化套件/Stage1/sh/build_comparison_sessions.sh --resource cpu --cpus 16 --mem 256G --after_hold -- --pdb-id 9hjx
 ```
 
-下载 `.pse` 后可直接用 Windows PyMOL 打开，不需要保留服务器输入文件。
+先导通过后，在同一个保留 allocation 的动态命令中执行 179-PDB 全量任务：
 
-## 当前边界
+```bash
+exec bash "${TASK_PROJECT_ROOT}/可视化套件/Stage1/sh/build_comparison_sessions.sh" --pdb-list /storage/penghongen/AdaLigand/held_out/split/held_out_06_chain/test_0.json --workers 16
+```
 
-- 首版只加载实验密度 `exp`；对 `sim`、`diff` 和 `posdiff` 不做隐式降级或猜测。
-- GT 只显示沉积原子结构，不额外生成 GT 体素掩码。
+批量入口使用 16 个独立进程并令每个子进程只处理一个 PDB，避免共享 PyMOL 全局状态。每个 `.pse` 先写同目录临时文件，再原子替换最终路径。重启时仅复用同时存在最终 `.pse`、清单记录且 `rank_by`、Emap2lig 截断值相同的结果。
+
+正式输出：
+
+```text
+/storage/penghongen/AdaLigand_stage1_visualization/stage1_7mode_pcv2_test0_probability_mean/
+├── sessions/<pdb_id>.pse
+├── manifest.jsonl
+└── run_summary.json
+```
+
+会话保存前启用 PyMOL `pse_binary_dump` 和内部 session compression。压缩不会移除完整密度 map；Windows PyMOL 仍可重新调整等值面和创建局部 mesh。
+
+## 下载到 Windows
+
+下载入口为 `ops/download_sessions.ps1`。它先要求 D 盘可用空间不少于服务器实际输出大小加 50 GiB，再用 `--partial --append-verify` 续传；命令不带 `--delete`，不会删除服务器或本地文件。密码只读取 `%USERPROFILE%\.ssh\pocket_plus_sshpass.txt`。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File 可视化套件\Stage1\ops\download_sessions.ps1
+```
+
+默认本地目录为：
+
+```text
+D:\AdaLigand_Stage1_PyMOL\stage1_7mode_pcv2_test0_probability_mean\
+```
+
+下载完成后以服务器和本地 `sessions/*.pse` 的 SHA-256 清单逐项核对；该校验属于运行验收，不写入会话生成公式。
+
+## 边界
+
+- 只加载实验密度 `exp`；不自动加入 `sim`、`diff` 或 `posdiff`。
+- GT 只显示沉积原子结构，不生成 GT 体素掩码。
 - 预测 blob 是体素几何对象，不伪造原子类型、化学键或配体身份。
-- 程序始终写入评估 NPZ 中的全部候选，不提供第二套 top-N 选择逻辑。
-- `Find_*` 必须已经生成当前公共 `blobs/F{alpha}_blobs.npz` 和 `evaluation/{evaluation_name}.npz` 契约。旧运行若只有 `centered/`、`components/` 和 `probability/`，需先用对应冻结模型的 Stage1 推理流程生成公共 blobs 与 evaluation；本可视化生成器不会猜测或改写旧产物。
+- 不修改 Pocket Plus `pipeline.py`、推理命令或任何既有 Stage1 产物。
+- `rank_by` 是视觉浏览顺序，不是新的评估或候选选择规则。
