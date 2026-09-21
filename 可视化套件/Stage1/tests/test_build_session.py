@@ -284,6 +284,62 @@ class BuildSessionTest(unittest.TestCase):
         self.assertIn("density_near_gt", cmd.get_names("objects"))
         self.assertIn("density_near_prediction", cmd.get_names("objects"))
 
+    def test_oversized_density_is_split_without_losing_world_extent(self) -> None:
+        """验证超限密度分块的轴顺序、重叠采样层和世界坐标范围."""
+        density_dir = self.data_root / "density" / self.pdb_id
+        density_zyx = np.fromfunction(
+            lambda z, y, x: 100 * z + 10 * y + x,
+            (5, 2, 3),
+            dtype=np.float32,
+        ).astype(np.float32)
+        np.save(
+            density_dir / "exp.npy",
+            density_zyx[np.newaxis],
+        )
+        previous_limit = _MODULE._PYMOL_DENSITY_TILE_MAX_BYTES
+        _MODULE._PYMOL_DENSITY_TILE_MAX_BYTES = 50
+        try:
+            _MODULE.pymol.finish_launching(["pymol", "-cq"])
+            cmd.reinitialize()
+            _MODULE.load_density(self.data_root, self.pdb_id)
+        finally:
+            _MODULE._PYMOL_DENSITY_TILE_MAX_BYTES = previous_limit
+
+        density_objects = {
+            object_name
+            for object_name in cmd.get_names("objects")
+            if object_name.startswith("density_exp_")
+        }
+        self.assertIn("density", cmd.get_names_of_type("object:group"))
+        self.assertEqual(
+            density_objects,
+            {
+                "density_exp_map_0000",
+                "density_exp_mesh_0000",
+                "density_exp_map_0001",
+                "density_exp_mesh_0001",
+                "density_exp_map_0002",
+                "density_exp_mesh_0002",
+                "density_exp_map_0003",
+                "density_exp_mesh_0003",
+            },
+        )
+        first_extent = np.asarray(cmd.get_extent("density_exp_map_0000"))
+        last_extent = np.asarray(cmd.get_extent("density_exp_map_0003"))
+        np.testing.assert_allclose(
+            first_extent,
+            np.asarray([[11.0, 21.5, 32.0], [15.0, 24.5, 36.0]]),
+        )
+        np.testing.assert_allclose(
+            last_extent,
+            np.asarray([[11.0, 21.5, 44.0], [15.0, 24.5, 48.0]]),
+        )
+        for tile_index, start_z in enumerate(range(4)):
+            np.testing.assert_allclose(
+                np.asarray(cmd.get_volume_field(f"density_exp_map_{tile_index:04d}")),
+                np.transpose(density_zyx[start_z : start_z + 2], (2, 1, 0)),
+            )
+
     def test_combined_session_has_flat_groups_scenes_and_default_view(self) -> None:
         """七模式会话保留单层组、两种受体、scene 与默认无预测画面."""
         cryo_root = self.root / "cryo"
@@ -362,14 +418,25 @@ class BuildSessionTest(unittest.TestCase):
             },
             "modes": mode_definitions,
         }
-        output = self.root / "combined.pse"
-        record = _COMPARISON.build_comparison_session(
-            profile,
-            self.pdb_id,
-            output,
-            rank_by="probability_mean",
-            emap_limit=100,
+        density_dir = self.data_root / "density" / self.pdb_id
+        np.save(
+            density_dir / "exp.npy",
+            np.arange(48, dtype=np.float32).reshape(1, 4, 3, 4),
         )
+        output = self.root / "combined.pse"
+        density_globals = _COMPARISON.load_density.__globals__
+        previous_limit = density_globals["_PYMOL_DENSITY_TILE_MAX_BYTES"]
+        density_globals["_PYMOL_DENSITY_TILE_MAX_BYTES"] = 150
+        try:
+            record = _COMPARISON.build_comparison_session(
+                profile,
+                self.pdb_id,
+                output,
+                rank_by="probability_mean",
+                emap_limit=100,
+            )
+        finally:
+            density_globals["_PYMOL_DENSITY_TILE_MAX_BYTES"] = previous_limit
         self.assertEqual(len(record["modes"]), 7)
 
         cmd.reinitialize()
@@ -389,7 +456,12 @@ class BuildSessionTest(unittest.TestCase):
         )
         enabled_names = set(cmd.get_names("objects", enabled_only=1))
         enabled_all = set(cmd.get_names("all", enabled_only=1))
-        self.assertIn("density_exp_mesh", enabled_names)
+        self.assertTrue(
+            {"density_exp_mesh_0000", "density_exp_mesh_0001"}.issubset(enabled_names)
+        )
+        self.assertTrue(
+            {"density_exp_map_0000", "density_exp_map_0001"}.isdisjoint(enabled_names)
+        )
         self.assertIn("receptor_real", enabled_names)
         self.assertNotIn("receptor_cryoatom2", enabled_names)
         self.assertTrue(prediction_groups.isdisjoint(enabled_all))
@@ -399,6 +471,12 @@ class BuildSessionTest(unittest.TestCase):
         scene_enabled_all = set(cmd.get_names("all", enabled_only=1))
         self.assertIn("receptor_cryoatom2", scene_enabled)
         self.assertNotIn("receptor_real", scene_enabled)
+        self.assertTrue(
+            {"density_exp_mesh_0000", "density_exp_mesh_0001"}.issubset(scene_enabled)
+        )
+        self.assertTrue(
+            {"density_exp_map_0000", "density_exp_map_0001"}.isdisjoint(scene_enabled)
+        )
         self.assertIn("pred_mode_4", scene_enabled_all)
         self.assertNotIn("pred_mode_3", scene_enabled_all)
 
