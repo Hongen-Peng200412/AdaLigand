@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import pickle
 import sys
 import tempfile
 import unittest
+import zlib
 from argparse import Namespace
 from pathlib import Path
 
@@ -419,9 +421,10 @@ class BuildSessionTest(unittest.TestCase):
             "modes": mode_definitions,
         }
         density_dir = self.data_root / "density" / self.pdb_id
+        combined_density_zyx = np.arange(48, dtype=np.float32).reshape(4, 3, 4)
         np.save(
             density_dir / "exp.npy",
-            np.arange(48, dtype=np.float32).reshape(1, 4, 3, 4),
+            combined_density_zyx[np.newaxis],
         )
         output = self.root / "combined.pse"
         density_globals = _COMPARISON.load_density.__globals__
@@ -438,9 +441,23 @@ class BuildSessionTest(unittest.TestCase):
         finally:
             density_globals["_PYMOL_DENSITY_TILE_MAX_BYTES"] = previous_limit
         self.assertEqual(len(record["modes"]), 7)
+        session_bytes = output.read_bytes()
+        self.assertEqual(session_bytes[:2], b"\x80\x04")
+        compressed_session = pickle.loads(session_bytes)
+        self.assertIsInstance(compressed_session, bytes)
+        unpacked_session = pickle.loads(zlib.decompress(compressed_session))
+        self.assertIsInstance(unpacked_session, dict)
 
         cmd.reinitialize()
         cmd.load(str(output))
+        np.testing.assert_allclose(
+            np.asarray(cmd.get_volume_field("density_exp_map_0000")),
+            np.transpose(combined_density_zyx[:3], (2, 1, 0)),
+        )
+        np.testing.assert_allclose(
+            np.asarray(cmd.get_volume_field("density_exp_map_0001")),
+            np.transpose(combined_density_zyx[2:], (2, 1, 0)),
+        )
         prediction_groups = {f"pred_mode_{index}" for index in range(6)} | {"pred_emap"}
         self.assertEqual(
             set(cmd.get_names_of_type("object:group")),

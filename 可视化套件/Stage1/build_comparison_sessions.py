@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import pickle
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -194,13 +195,21 @@ def _store_scenes(modes: Sequence[Mapping[str, Any]]) -> None:
 
 
 def _atomic_save_session(output_path: Path) -> None:
-    """使用压缩二进制格式保存会话并原子发布最终 ``.pse``."""
+    """使用 pickle protocol 4 保存压缩二进制会话并原子发布 ``.pse``.
+
+    PyMOL 3.1 默认的 protocol 1 无法序列化超过 4 GiB 的已压缩会话字节串;
+    protocol 4 不改变 ``cmd.get_session()`` 产生的会话内容, PyMOL 的加载器可直接解码.
+    函数会把当前 PyMOL 会话的 ``session_file`` 更新为最终 ``output_path``, 不恢复旧值.
+    """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = output_path.with_name(
         f".{output_path.stem}.tmp-{os.getpid()}{output_path.suffix}"
     )
     try:
-        cmd.save(str(temporary_path))
+        cmd.set("session_file", str(output_path).replace("\\", "/"), quiet=1)
+        session = cmd.get_session("", partial=0, quiet=1)
+        with temporary_path.open("wb") as handle:
+            pickle.dump(session, handle, protocol=4)
         os.replace(temporary_path, output_path)
     finally:
         temporary_path.unlink(missing_ok=True)

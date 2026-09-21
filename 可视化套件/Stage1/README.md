@@ -146,7 +146,7 @@ exec bash "${TASK_PROJECT_ROOT}/可视化套件/Stage1/sh/build_comparison_sessi
 └── run_summary.json
 ```
 
-会话保存前启用 PyMOL `pse_binary_dump` 和内部 session compression。压缩不会移除完整密度 map；Windows PyMOL 仍可重新调整等值面和创建局部 mesh。
+会话保存前启用 PyMOL `pse_binary_dump` 和内部 session compression，再使用 Python pickle protocol 4（对象序列化协议）写入 `.pse`，以支持已压缩字节串超过 4 GiB 的超大会话。PyMOL 的会话加载器直接解码该协议；压缩和序列化都不会移除完整密度 map，Windows PyMOL 仍可重新调整等值面和创建局部 mesh。
 
 ## 下载到 Windows
 
